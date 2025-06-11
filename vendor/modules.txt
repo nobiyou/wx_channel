@@ -1,0 +1,68 @@
+# github.com/Trisia/gosysproxy v1.1.0
+## explicit; go 1.14
+github.com/Trisia/gosysproxy
+# github.com/andybalholm/brotli v1.0.5
+## explicit; go 1.12
+# github.com/fatih/color v1.17.0
+## explicit; go 1.17
+github.com/fatih/color
+# github.com/go-redis/redis v6.15.9+incompatible
+## explicit
+# github.com/klauspost/compress v1.16.7
+## explicit; go 1.18
+# github.com/mattn/go-colorable v0.1.13
+## explicit; go 1.15
+github.com/mattn/go-colorable
+# github.com/mattn/go-isatty v0.0.20
+## explicit; go 1.15
+github.com/mattn/go-isatty
+# github.com/qtgolang/SunnyNet v1.0.3
+## explicit; go 1.18
+github.com/qtgolang/SunnyNet/Call
+github.com/qtgolang/SunnyNet/Resource
+github.com/qtgolang/SunnyNet/SunnyNet
+github.com/qtgolang/SunnyNet/public
+github.com/qtgolang/SunnyNet/src/Certificate
+github.com/qtgolang/SunnyNet/src/CrossCompiled
+github.com/qtgolang/SunnyNet/src/GoWinHttp
+github.com/qtgolang/SunnyNet/src/HttpCertificate
+github.com/qtgolang/SunnyNet/src/crypto/internal/cpu
+github.com/qtgolang/SunnyNet/src/crypto/pkcs
+github.com/qtgolang/SunnyNet/src/crypto/pkcs/internal/rc2
+github.com/qtgolang/SunnyNet/src/crypto/tls
+github.com/qtgolang/SunnyNet/src/iphlpapi
+github.com/qtgolang/SunnyNet/src/nfapi
+github.com/qtgolang/SunnyNet/src/nfapi/Driver
+github.com/qtgolang/SunnyNet/src/nfapi/basetype
+github.com/qtgolang/SunnyNet/src/websocket
+# github.com/robertkrimen/otto v0.0.0-20221025135307-511d75fba9f8
+## explicit; go 1.14
+# golang.org/x/crypto v0.31.0
+## explicit; go 1.20
+golang.org/x/crypto/chacha20
+golang.org/x/crypto/chacha20poly1305
+golang.org/x/crypto/cryptobyte
+golang.org/x/crypto/cryptobyte/asn1
+golang.org/x/crypto/curve25519
+golang.org/x/crypto/hkdf
+golang.org/x/crypto/internal/alias
+golang.org/x/crypto/internal/poly1305
+golang.org/x/crypto/pbkdf2
+# golang.org/x/image v0.1.0
+## explicit; go 1.12
+# golang.org/x/sys v0.33.0
+## explicit; go 1.23.0
+golang.org/x/sys/cpu
+golang.org/x/sys/unix
+golang.org/x/sys/windows
+# golang.org/x/text v0.21.0
+## explicit; go 1.18
+golang.org/x/text/encoding
+golang.org/x/text/encoding/internal
+golang.org/x/text/encoding/internal/identifier
+golang.org/x/text/encoding/simplifiedchinese
+golang.org/x/text/transform
+# google.golang.org/protobuf v1.28.1
+## explicit; go 1.11
+# gopkg.in/sourcemap.v1 v1.0.5
+## explicit
