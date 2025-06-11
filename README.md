@@ -22,6 +22,12 @@ https://github.com/ltaoo/wx_channels_download
 ![缓存成功](assets/huancunwancheng.png)
 <br>
 
+
+## 取数据的案例视频：
+视频标题：看我的酸奶，看我的酸奶，看我的酸奶，它来啦！#豪哥哥的散装歌曲#安慕希#安慕希黄桃燕麦爆珠酸奶
+
+视频连接：https://channels.weixin.qq.com/web/pages/feed?oid=y2Q5RDXfCK0&nid=KUixTRKo598&bus=1747643714026&context_id=32-20-140-Wc6de7cebe2d308811747643695659&entrance_id=1001&from_access_id=1c48921a-7e26-40a4-bf95-861cf483a91d&fpid=FinderHistory&flow=2&exportkey=n_ChQIAhIQMcBgR4KmbJSG6O%2F7V0iZGRL1AQIE97dBBAEAAAAAALRFJTVPRR4AAAAOpnltbLcz9gKNyK89dVj0rr2k6Nvbj121KYd2EobrdJfk3jB%2BGf4tQC9jpYBcXllE0NDmwH%2BNOlNqU%2FcwGoDzhVOjYoDPJs4TRunqRpLtOwug7%2Fffy1EO0utwz%2FEGY%2BsQGuABhcvZlplM5JxHVNUGrw1zAQbyD7Kce3UfkvgbtWA3O1etgXKZaMjk30%2FLnw%2BgGErpSJUC1%2BqrjsdxQCVSKFzumGvWjQYE6lgrDUMzH5n3BF9RKbWatHZeEFblaGTwC5LhSLsvSNzrt0o%2BhJNpNJAz%2FcIn66NTEDk%2FaLP4&pass_ticket=6mEnNvWF9PibvuVwTlENYoZ%2BUx1JGLSEQRxGBnQryUECygn6JA5N2SB%2BHu%2FEH6yajQaPYxSPNbBVuFkovbfluQ%3D%3D&wx_header=0
+
 不同视频这里显示的选项是不同的，下面是不同视频格式参数对比：
 
 |    文件名  |   分辨率    |  标识符  | 大小(MB) | 总比特率 | 帧速率 | 音频采样率 | 音频比特率 | 时长  |
