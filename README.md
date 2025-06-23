@@ -54,7 +54,10 @@
 | 原始视频              | 1920x1080 | 原始视频 | 130.04   | 15232 Kbps | 60.000 fps | 44100 Hz   | 128 Kbps   | 71.61 秒 |
 
 ## 版本更新历史
-
+### 6.23版本
+- 增加程序图标，小部件美化
+- 优化小功能
+  
 ### 6.9版本
 - 增加缓存提醒功能，长视频需要完整缓存才能下载
 - 优化缓存进度显示
@@ -93,15 +96,15 @@ go run main.go
 ### 打包发布
 ```bash
 # 基本打包
-go build -o wx_channels.exe
+go build -o wx_channel.exe
 
 # 优化体积的打包
-go build -ldflags="-s -w" -o wx_channels_download.exe
+go build -ldflags="-s -w" -o wx_channel_mini.exe
 ```
 
-打包后可以使用 `upx` 压缩工具进一步减小体积（从约21MB压缩至9MB）：
+打包后可以使用 `upx` 压缩工具进一步减小体积：
 ```bash
-upx --best wx_channels_download.exe
+upx --best wx_channel.exe
 ```
 
 ## 技术实现
