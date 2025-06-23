@@ -43,7 +43,7 @@ var zip_js []byte
 var main_js []byte
 
 var Sunny = SunnyNet.NewSunny()
-var version = "20250609"
+var version = "20250623"
 var v = "?t=" + version
 var port = 2025
 var currentPageURL = "" // 存储当前页面的完整URL
@@ -265,12 +265,13 @@ func printSeparator() {
 // 打印标题
 func printTitle() {
 	color.Set(color.FgCyan)
-	fmt.Println("██╗  ████████╗ █████╗  ██████╗  ██████╗     ██╗   ██╗███████╗")
-	fmt.Println("██║  ╚══██╔══╝██╔══██╗██╔═══██╗██╔═══██╗    ██║   ██║██╔════╝")
-	fmt.Println("██║     ██║   ███████║██║   ██║██║   ██║    ██║   ██║███████╗")
-	fmt.Println("██║     ██║   ██╔══██║██║   ██║██║   ██║     ╚██╗██╔╝╚════██║")
-	fmt.Println("███████╗██║   ██║  ██║╚██████╔╝╚██████╔╝      ╚███╔╝ ███████║")
-	fmt.Println("╚══════╝╚═╝   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝        ╚══╝  ╚══════╝")
+	fmt.Println("")
+	fmt.Println(" ██╗  ████████╗ █████╗  ██████╗  ██████╗     ██╗   ██╗███████╗")
+	fmt.Println(" ██║  ╚══██╔══╝██╔══██╗██╔═══██╗██╔═══██╗    ██║   ██║██╔════╝")
+	fmt.Println(" ██║     ██║   ███████║██║   ██║██║   ██║    ██║   ██║███████╗")
+	fmt.Println(" ██║     ██║   ██╔══██║██║   ██║██║   ██║     ╚██╗██╔╝╚════██║")
+	fmt.Println(" ███████╗██║   ██║  ██║╚██████╔╝╚██████╔╝      ╚███╔╝ ███████║")
+	fmt.Println(" ╚══════╝╚═╝   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝        ╚══╝  ╚══════╝")
 	color.Unset()
 
 	color.Yellow("    视频号下载助手 v%s", version)
@@ -1078,7 +1079,7 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 					</script>`
 
 					html = strings.Replace(html, "<head>", "<head>\n"+script+preloadScript+downloadTrackerScript+captureUrlScript+videoCacheNotificationScript+script2, 1)
-					fmt.Println("\n视频详情页已成功加载！")
+					fmt.Println("\n页面已成功加载！")
 					fmt.Println("已添加视频缓存监控和提醒功能")
 					Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(html)))
 					return
