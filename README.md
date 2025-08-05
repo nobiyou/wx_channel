@@ -4,7 +4,7 @@
 
 本项目是一个用于下载微信视频号内容的工具，基于[ltaoo的开源项目](https://github.com/ltaoo/wx_channels_download)进行功能扩展和优化。在此特别感谢原作者，感谢其开源贡献。
 
-![软件启动画面](assets/jiemian.png)
+![软件启动画面](assets/jiemian.jpg)
 
 ## 主要功能
 
