@@ -43,7 +43,7 @@ var zip_js []byte
 var main_js []byte
 
 var Sunny = SunnyNet.NewSunny()
-var version = "20250804"
+var version = "20251006"
 var v = "?t=" + version
 var port = 2025
 var currentPageURL = "" // 存储当前页面的完整URL
@@ -355,10 +355,16 @@ func printTitle() {
 	color.Unset()
 
 	color.Yellow("    视频号下载助手 v%s", version)
+	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    更新内容：")
-	color.Green("    1. 添加videojs播放器的优化和视频缓存监控")
-	color.Green("    2. 修复添加下载按钮失败问题，页面更新后导致")
-	color.Green("    3. 发现问题后给我私信，我会尽快修复")
+	color.Green("    1. ✨ 新增首页视频下载支持 - 支持视频号首页直接下载")
+	color.Green("    2. 🎨 统一下载按钮样式 - Feed页和Home页按钮样式完全一致")
+	color.Green("    3. ⚡ 优化按钮注入速度 - 减少按钮出现延迟，提升用户体验")
+	color.Green("    4. 🔇 静默数据采集 - 首页自动采集视频数据，用户无感知")
+	color.Green("    5. 📊 完善互动数据 - 显示点赞、评论、收藏、转发等完整信息")
+	color.Green("    6. 🎯 智能作者识别 - 自动识别并记录视频作者昵称")
+	color.Green("    7. 🛠️ 优化调试输出 - 减少不必要的调试信息，界面更清爽")
+	color.Green("    8. 💡 发现问题后给我留言，我会尽快修复")
 	fmt.Println()
 }
 
