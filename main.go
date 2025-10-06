@@ -540,23 +540,23 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			body, _ := io.ReadAll(Conn.Request.Body)
 			_ = Conn.Request.Body.Close()
 
-			// 注释掉原始API数据输出
-			// printSeparator()
-			// color.Blue("🔄 原始API数据")
-			// printSeparator()
-			// // 格式化JSON以便更易读
+			// 保存原始JSON数据到本地用于调试（调试用）
+			// debugDir := filepath.Join("downloads", "profile_debug")
+			// os.MkdirAll(debugDir, 0755)
+			// timestamp := time.Now().Format("20060102_150405")
+			// debugFile := filepath.Join(debugDir, fmt.Sprintf("profile_%s.json", timestamp))
+			//
+			// // 格式化JSON
 			// var prettyJSON bytes.Buffer
 			// err := json.Indent(&prettyJSON, body, "", "  ")
 			// if err == nil {
-			// 	fmt.Println(prettyJSON.String())
+			// 	os.WriteFile(debugFile, prettyJSON.Bytes(), 0644)
+			// 	color.Cyan("💾 已保存原始数据到: %s\n", debugFile)
 			// } else {
-			// 	// 如果格式化失败，打印原始内容
-			// 	fmt.Println(string(body))
+			// 	os.WriteFile(debugFile, body, 0644)
 			// }
-			// printSeparator()
 
-			var err error
-			err = json.Unmarshal(body, &data)
+			err := json.Unmarshal(body, &data)
 			if err != nil {
 				fmt.Println(err.Error())
 			} else {
@@ -585,10 +585,7 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 					printLabelValue("📦", "视频大小", fmt.Sprintf("%.2f MB", sizeMB), color.New(color.FgGreen))
 				}
 
-				// 添加互动数据显示
-				if readCount, ok := data["readCount"].(float64); ok {
-					printLabelValue("👁️", "阅读量", formatNumber(readCount), color.New(color.FgGreen))
-				}
+				// 添加互动数据显示（显示所有数据，包括0）
 				if likeCount, ok := data["likeCount"].(float64); ok {
 					printLabelValue("👍", "点赞量", formatNumber(likeCount), color.New(color.FgGreen))
 				}
@@ -601,6 +598,10 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 				if forwardCount, ok := data["forwardCount"].(float64); ok {
 					printLabelValue("🔄", "转发数", formatNumber(forwardCount), color.New(color.FgGreen))
 				}
+				// readCount 在Home页通常为0，先不显示
+				// if readCount, ok := data["readCount"].(float64); ok && readCount > 0 {
+				// 	printLabelValue("👁️", "阅读量", formatNumber(readCount), color.New(color.FgGreen))
+				// }
 
 				// 添加创建时间
 				if createtime, ok := data["createtime"].(float64); ok {
@@ -608,10 +609,31 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 					printLabelValue("📅", "创建时间", t.Format("2006-01-02 15:04:05"), color.New(color.FgGreen))
 				}
 
-				// 添加IP所在地
+				// 添加IP所在地（从多个来源获取）
+				locationFound := false
+
+				// 方法1：从 ipRegionInfo 获取
 				if ipRegionInfo, ok := data["ipRegionInfo"].(map[string]interface{}); ok {
 					if regionText, ok := ipRegionInfo["regionText"].(string); ok && regionText != "" {
 						printLabelValue("🌍", "IP所在地", regionText, color.New(color.FgGreen))
+						locationFound = true
+					}
+				}
+
+				// 方法2：从 contact.extInfo 获取
+				if !locationFound {
+					if contact, ok := data["contact"].(map[string]interface{}); ok {
+						if extInfo, ok := contact["extInfo"].(map[string]interface{}); ok {
+							var location string
+							if province, ok := extInfo["province"].(string); ok && province != "" {
+								location = province
+								if city, ok := extInfo["city"].(string); ok && city != "" {
+									location += " " + city
+								}
+								printLabelValue("🌍", "地理位置", location, color.New(color.FgGreen))
+								locationFound = true
+							}
+						}
 					}
 				}
 
@@ -1448,6 +1470,13 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			}
 			if content_type == "application/javascript" {
 				content := string(Body)
+
+				// 调试：输出所有JS文件路径（调试用）
+				// if strings.Contains(path, "vuexStores") {
+				// 	fmt.Println("\n📦 拦截到JS文件:", path)
+				// 	fmt.Println("📏 文件大小:", len(content), "bytes")
+				// }
+
 				dep_reg := regexp.MustCompile(`"js/([^"]{1,})\.js"`)
 				from_reg := regexp.MustCompile(`from {0,1}"([^"]{1,})\.js"`)
 				lazy_import_reg := regexp.MustCompile(`import\("([^"]{1,})\.js"\)`)
@@ -1682,6 +1711,53 @@ window.__wx_channels_store__.profiles.push(profile);
 					Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
 					return
 				}
+				// Home页面视频数据采集逻辑 - 拦截vuexStores.publish中的视频信息流
+				if util.Includes(path, "vuexStores.publish") {
+					// 保存原始JS文件到本地进行分析（调试用）
+					// debugDir := filepath.Join("downloads", "js_debug")
+					// os.MkdirAll(debugDir, 0755)
+					// timestamp := time.Now().Format("20060102_150405")
+					// debugFile := filepath.Join(debugDir, fmt.Sprintf("vuexStores_%s.js", timestamp))
+					// err := os.WriteFile(debugFile, []byte(content), 0644)
+					// if err == nil {
+					// 	fmt.Println("💾 已保存原始JS文件到:", debugFile)
+					// }
+
+					// 策略1：拦截 goToNextFlowFeed (下一个视频)
+					callNextRegex := regexp.MustCompile(`(\w)\.goToNextFlowFeed\(\{goBackWhenEnd:[^,]+,eleInfo:\{[^}]+\}[^)]*\}\)`)
+					// 策略2：拦截 goToPrevFlowFeed (上一个视频)
+					callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
+
+					// 数据采集代码（通用，包含互动数据）
+					captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __profile={type:"media",duration:__media.spec[0].durationMs,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:__feed.nickname,createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功:",__profile.title)}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+
+					// 替换 goToNextFlowFeed
+					if callNextRegex.MatchString(content) {
+						replaceNext := `$1.goToNextFlowFeed({goBackWhenEnd:f.goBackWhenEnd,eleInfo:{type:f.source,tagId:Ct.value},ignoreCoolDown:f.ignoreCoolDown});` + captureCode
+						content = callNextRegex.ReplaceAllString(content, replaceNext)
+					}
+
+					// 替换 goToPrevFlowFeed
+					if callPrevRegex.MatchString(content) {
+						replacePrev := `$1.goToPrevFlowFeed({eleInfo:{type:f.source,tagId:Ct.value}});` + captureCode
+						content = callPrevRegex.ReplaceAllString(content, replacePrev)
+					}
+
+					// 保存修改后的JS文件（调试用）
+					// modifiedFile := filepath.Join(debugDir, fmt.Sprintf("vuexStores_modified_%s.js", timestamp))
+					// err = os.WriteFile(modifiedFile, []byte(content), 0644)
+					// if err == nil {
+					// 	fmt.Println("💾 已保存修改后的JS文件到:", modifiedFile)
+					// }
+
+					// 禁用浏览器缓存，确保每次都能拦截到最新的代码
+					Conn.Response.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+					Conn.Response.Header.Set("Pragma", "no-cache")
+					Conn.Response.Header.Set("Expires", "0")
+
+					Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
+					return
+				}
 				Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
 				return
 			}
@@ -1771,10 +1847,23 @@ window.__wx_channels_store__.profiles.push(profile);
 			record := VideoDownloadRecord{
 				ID:         fmt.Sprintf("%v", data["id"]),
 				Title:      fmt.Sprintf("%v", data["title"]),
-				Author:     fmt.Sprintf("%v", data["nickname"]),
+				Author:     "", // 将在后面从contact中获取
 				URL:        fmt.Sprintf("%v", data["url"]),
 				PageURL:    currentPageURL,
 				DownloadAt: time.Now(),
+			}
+
+			// 从正确的位置获取作者昵称
+			// 优先从顶层获取（Feed页）
+			if nickname, ok := data["nickname"].(string); ok && nickname != "" {
+				record.Author = nickname
+			} else {
+				// 从 contact.nickname 获取（Home页）
+				if contact, ok := data["contact"].(map[string]interface{}); ok {
+					if nickname, ok := contact["nickname"].(string); ok {
+						record.Author = nickname
+					}
+				}
 			}
 
 			// 添加可选字段
