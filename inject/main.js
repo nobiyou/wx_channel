@@ -436,16 +436,13 @@ async function __wx_channels_handle_click_download__(spec) {
   }
   __wx_channels_download4(_profile, filename);
 }
-function __wx_channels_download_cur__() {
+async function __wx_channels_download_cur__() {
   var profile = __wx_channels_store__.profile;
   if (!profile) {
     alert("检测不到视频，请将本工具更新到最新版");
     return;
   }
-  if (__wx_channels_store__.buffers.length === 0) {
-    alert("没有可下载的内容");
-    return;
-  }
+  
   var filename = (() => {
     if (profile.title) {
       return profile.title;
@@ -455,8 +452,56 @@ function __wx_channels_download_cur__() {
     }
     return new Date().valueOf();
   })();
-  profile.data = __wx_channels_store__.buffers;
-  __wx_channels_download(profile, filename);
+  
+  // 使用当前视频的URL和规格信息下载，而不是缓存的buffers
+  const _profile = {
+    ...profile,
+  };
+  
+  // 使用第一个可用的规格（通常是默认质量）
+  if (profile.spec && profile.spec.length > 0) {
+    _profile.url = profile.url + "&X-snsvideoflag=" + profile.spec[0].fileFormat;
+    // 添加分辨率信息到文件名中
+    let qualityInfo = profile.spec[0].fileFormat;
+    if (profile.spec[0].width && profile.spec[0].height) {
+      qualityInfo += `_${profile.spec[0].width}x${profile.spec[0].height}`;
+    }
+    filename = filename + "_" + qualityInfo;
+  }
+  
+  __wx_log({
+    msg: `下载当前视频<${filename}>`,
+  });
+  __wx_log({
+    msg: `页面链接<${location.href}>`,
+  });
+  __wx_log({
+    msg: `视频链接<${_profile.url}>`,
+  });
+  __wx_log({
+    msg: `视频密钥<${_profile.key || ""}>`,
+  });
+  
+  if (_profile.type === "picture") {
+    __wx_channels_download3(_profile, filename);
+    return;
+  }
+  if (!_profile.key) {
+    __wx_channels_download2(_profile, filename);
+    return;
+  }
+  _profile.data = __wx_channels_store__.buffers;
+  try {
+    const r = await __wx_channels_decrypt(_profile.key);
+    _profile.decryptor_array = r;
+  } catch (err) {
+    __wx_log({
+      msg: `解密失败，停止下载`,
+    });
+    alert("解密失败，停止下载");
+    return;
+  }
+  __wx_channels_download4(_profile, filename);
 }
 async function __wx_channels_handle_download_cover() {
   var profile = __wx_channels_store__.profile;
@@ -633,7 +678,9 @@ async function __insert_download_btn_to_home_page() {
             });
             return;
           }
-          __wx_channels_handle_click_download__(profile.spec[0]);
+          
+          // 显示下载选项菜单
+          __show_home_download_options(profile);
         } else {
           checkCount++;
           if (checkCount < maxChecks) {
@@ -1055,5 +1102,242 @@ function __wx_format_quality_option(spec) {
   }
   
   return label;
+}
+
+// Home页面下载选项菜单显示函数
+function __show_home_download_options(profile) {
+  // 移除已存在的菜单
+  var existingMenu = document.querySelector('.home-download-menu');
+  if (existingMenu) {
+    existingMenu.remove();
+  }
+  
+  // 创建菜单容器
+  var menu = document.createElement('div');
+  menu.className = 'home-download-menu';
+  menu.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.92);
+    border-radius: 8px;
+    padding: 12px;
+    z-index: 10000;
+    min-width: 200px;
+    max-width: 85vw;
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+  `;
+  
+  // 创建菜单标题
+  var title = document.createElement('div');
+  title.style.cssText = `
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-align: center;
+    color: #07c160;
+  `;
+  title.textContent = '选择下载选项';
+  menu.appendChild(title);
+  
+  // 创建选项列表
+  var optionsList = document.createElement('div');
+  optionsList.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  `;
+  
+  // 添加各种视频格式选项
+  if (profile.spec && profile.spec.length > 0) {
+    profile.spec.forEach(function(spec, index) {
+      var option = document.createElement('div');
+      option.style.cssText = `
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 12px;
+      `;
+      option.textContent = __wx_format_quality_option(spec);
+      
+      option.addEventListener('mouseenter', function() {
+        this.style.background = 'rgba(7, 193, 96, 0.2)';
+        this.style.borderColor = '#07c160';
+      });
+      
+      option.addEventListener('mouseleave', function() {
+        this.style.background = 'rgba(255, 255, 255, 0.1)';
+        this.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+      });
+      
+      option.addEventListener('click', function() {
+        __wx_channels_handle_click_download__(spec);
+        menu.remove();
+      });
+      
+      optionsList.appendChild(option);
+    });
+  }
+  
+  // 添加原始视频选项
+  var originalOption = document.createElement('div');
+  originalOption.style.cssText = `
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+  `;
+  originalOption.textContent = '原始视频';
+  
+  originalOption.addEventListener('mouseenter', function() {
+    this.style.background = 'rgba(7, 193, 96, 0.2)';
+    this.style.borderColor = '#07c160';
+  });
+  
+  originalOption.addEventListener('mouseleave', function() {
+    this.style.background = 'rgba(255, 255, 255, 0.1)';
+    this.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+  });
+  
+  originalOption.addEventListener('click', function() {
+    __wx_channels_handle_click_download__();
+    menu.remove();
+  });
+  
+  optionsList.appendChild(originalOption);
+  
+  // 添加当前视频选项
+  var currentOption = document.createElement('div');
+  currentOption.style.cssText = `
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+  `;
+  currentOption.textContent = '当前视频';
+  
+  currentOption.addEventListener('mouseenter', function() {
+    this.style.background = 'rgba(7, 193, 96, 0.2)';
+    this.style.borderColor = '#07c160';
+  });
+  
+  currentOption.addEventListener('mouseleave', function() {
+    this.style.background = 'rgba(255, 255, 255, 0.1)';
+    this.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+  });
+  
+  currentOption.addEventListener('click', function() {
+    __wx_channels_download_cur__();
+    menu.remove();
+  });
+  
+  optionsList.appendChild(currentOption);
+  
+  // 添加下载封面选项
+  var coverOption = document.createElement('div');
+  coverOption.style.cssText = `
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+  `;
+  coverOption.textContent = '下载封面';
+  
+  coverOption.addEventListener('mouseenter', function() {
+    this.style.background = 'rgba(7, 193, 96, 0.2)';
+    this.style.borderColor = '#07c160';
+  });
+  
+  coverOption.addEventListener('mouseleave', function() {
+    this.style.background = 'rgba(255, 255, 255, 0.1)';
+    this.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+  });
+  
+  coverOption.addEventListener('click', function() {
+    __wx_channels_handle_download_cover();
+    menu.remove();
+  });
+  
+  optionsList.appendChild(coverOption);
+  
+  // 添加关闭按钮
+  var closeButton = document.createElement('div');
+  closeButton.style.cssText = `
+    margin-top: 8px;
+    padding: 7px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+  `;
+  closeButton.textContent = '取消';
+  
+  closeButton.addEventListener('mouseenter', function() {
+    this.style.background = 'rgba(255, 0, 0, 0.2)';
+    this.style.borderColor = '#ff4444';
+  });
+  
+  closeButton.addEventListener('mouseleave', function() {
+    this.style.background = 'rgba(255, 255, 255, 0.1)';
+    this.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+  });
+  
+  closeButton.addEventListener('click', function() {
+    menu.remove();
+  });
+  
+  // 组装菜单
+  menu.appendChild(optionsList);
+  menu.appendChild(closeButton);
+  
+  // 添加背景遮罩
+  var overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 9999;
+  `;
+  
+  overlay.addEventListener('click', function() {
+    menu.remove();
+    overlay.remove();
+  });
+  
+  // 添加到页面
+  document.body.appendChild(overlay);
+  document.body.appendChild(menu);
+  
+  // 添加ESC键关闭功能
+  var escHandler = function(e) {
+    if (e.key === 'Escape') {
+      menu.remove();
+      overlay.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
 }
 
