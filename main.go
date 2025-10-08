@@ -43,7 +43,7 @@ var zip_js []byte
 var main_js []byte
 
 var Sunny = SunnyNet.NewSunny()
-var version = "20251006"
+var version = "20251008"
 var v = "?t=" + version
 var port = 2025
 var currentPageURL = "" // 存储当前页面的完整URL
@@ -334,6 +334,37 @@ func print_usage() {
 	fmt.Printf("  -v, --version              output version information and exit\n")
 	fmt.Printf("  -p, --port                 set proxy server network port\n")
 	fmt.Printf("  -d, --dev                  set proxy server network device\n")
+	fmt.Printf("      --uninstall            uninstall root certificate and exit\n")
+	os.Exit(0)
+}
+
+// 卸载证书
+func uninstall_certificate() {
+	color.Yellow("正在卸载根证书...\n")
+
+	// 检查证书是否存在
+	existing, err := certificate.CheckCertificate("SunnyNet")
+	if err != nil {
+		color.Red("检查证书时发生错误: %v\n", err.Error())
+		color.Yellow("请手动检查证书是否已安装。\n")
+		os.Exit(1)
+	}
+
+	if !existing {
+		color.Green("✓ 证书未安装，无需卸载。\n")
+		os.Exit(0)
+	}
+
+	// 尝试卸载证书
+	err = certificate.RemoveCertificate("SunnyNet")
+	if err != nil {
+		color.Red("卸载证书失败: %v\n", err.Error())
+		color.Yellow("请尝试以管理员身份运行此命令。\n")
+		os.Exit(1)
+	}
+
+	color.Green("✓ 证书卸载成功！\n")
+	color.Yellow("注意：如果程序仍在运行，请重启浏览器以确保更改生效。\n")
 	os.Exit(0)
 }
 
@@ -357,14 +388,16 @@ func printTitle() {
 	color.Yellow("    视频号下载助手 v%s", version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    更新内容：")
-	color.Green("    1. ✨ 新增首页视频下载支持 - 支持视频号首页直接下载")
-	color.Green("    2. 🎨 统一下载按钮样式 - Feed页和Home页按钮样式完全一致")
-	color.Green("    3. ⚡ 优化按钮注入速度 - 减少按钮出现延迟，提升用户体验")
-	color.Green("    4. 🔇 静默数据采集 - 首页自动采集视频数据，用户无感知")
-	color.Green("    5. 📊 完善互动数据 - 显示点赞、评论、收藏、转发等完整信息")
-	color.Green("    6. 🎯 智能作者识别 - 自动识别并记录视频作者昵称")
-	color.Green("    7. 🛠️ 优化调试输出 - 减少不必要的调试信息，界面更清爽")
-	color.Green("    8. 💡 发现问题后给我留言，我会尽快修复")
+	color.Green("    1. 🗑️ 新增卸载证书功能 - 支持 --uninstall 命令完全卸载根证书")
+	color.Green("    2. 🔧 修复证书检查逻辑 - 解决证书安装状态显示矛盾问题")
+	color.Green("    3. ⚡ 优化证书安装流程 - 优先用户级安装，降级到系统级安装")
+	color.Green("    4. 📋 完善错误处理 - 证书安装失败时提供详细解决方案")
+	color.Green("    5. 🎨 统一下载按钮样式 - Feed页和Home页按钮样式完全一致")
+	color.Green("    6. 🔇 静默数据采集 - 首页自动采集视频数据，用户无感知")
+	color.Green("    7. 📊 完善互动数据 - 显示点赞、评论、收藏、转发等完整信息")
+	color.Green("    8. 🎯 智能作者识别 - 自动识别并记录视频作者昵称")
+	color.Green("    9. 🛠️ 优化调试输出 - 减少不必要的调试信息，界面更清爽")
+	color.Green("    10. 💡 发现问题后给我留言，我会尽快修复")
 	fmt.Println()
 }
 
@@ -409,6 +442,9 @@ func main() {
 		fmt.Printf("v%s %.0s\n", version, v)
 		os.Exit(0)
 	}
+	if _, ok := args["uninstall"]; ok { // 存在uninstall则卸载证书并退出主程序
+		uninstall_certificate()
+	}
 	// 设置参数默认值
 	args["dev"] = argv.ArgsValue(args, "", "d", "dev")
 	args["port"] = argv.ArgsValue(args, "", "p", "port")
@@ -451,19 +487,33 @@ func main() {
 
 	existing, err1 := certificate.CheckCertificate("SunnyNet")
 	if err1 != nil {
-		color.Red("\nERROR %v\n", err1.Error())
-		color.Yellow("按 Ctrl+C 退出...\n")
-		select {}
-	}
-	if !existing {
+		color.Red("\nERROR 检查证书时发生错误: %v\n", err1.Error())
+		color.Yellow("程序将继续运行，但HTTPS功能可能受限...\n")
+		existing = false // 假设证书未安装
+	} else if !existing {
 		color.Yellow("\n\n正在安装证书...\n")
 		err := certificate.InstallCertificate(cert_data)
 		time.Sleep(3 * time.Second)
 		if err != nil {
-			color.Red("\nERROR %v\n", err.Error())
-			color.Yellow("按 Ctrl+C 退出...\n")
-			select {}
+			color.Red("\n证书安装失败: %v\n", err.Error())
+			color.Yellow("\n程序将继续运行，但HTTPS功能可能受限。\n")
+			color.Yellow("如需完整功能，请手动安装证书或以管理员身份运行程序。\n")
+
+			// 保存证书文件到 downloads 目录，方便用户手动安装
+			certPath := filepath.Join("downloads", "SunnyRoot.cer")
+			if err := os.MkdirAll("downloads", 0755); err == nil {
+				if err := os.WriteFile(certPath, cert_data, 0644); err == nil {
+					color.Yellow("证书文件已保存到: %s\n", certPath)
+					color.Yellow("您可以双击此文件手动安装证书。\n")
+				}
+			}
+		} else {
+			color.Green("✓ 证书安装成功！\n")
+			// 重新检查证书状态
+			existing, _ = certificate.CheckCertificate("SunnyNet")
 		}
+	} else {
+		color.Green("✓ 证书已存在，无需重新安装。\n")
 	}
 	Sunny.SetPort(port)
 	Sunny.SetGoCallback(HttpCallback, nil, nil, nil)
