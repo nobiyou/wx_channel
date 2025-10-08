@@ -162,7 +162,7 @@
 go run main.go
 ```
 
-### 打包发布
+### win打包发布
 ```bash
 # 基本打包
 go build -o wx_channel.exe
@@ -175,6 +175,28 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 ```bash
 upx --best wx_channel.exe
 ```
+### MAC打包发布
+
+#### Intel Mac (x86_64)
+```bash
+go build -o wx_channel_darwin_amd64
+chmod +x wx_channel_darwin_amd64
+```
+
+#### Apple Silicon Mac (M1/M2/M3 - arm64)
+```bash
+go build -o wx_channel_darwin_arm64
+chmod +x wx_channel_darwin_arm64
+```
+
+## 平台支持
+
+### 支持的操作系统
+- ✅ **Windows** (32位/64位) - 完全支持
+- ⚠️ **macOS** - 理论上支持，但需要在 macOS 系统上编译
+- ⚠️ **Linux** - 理论上支持，但需要在 Linux 系统上编译
+
+> **注意**: 由于项目依赖的 SunnyNet 库使用了 CGO，跨平台编译 macOS 和 Linux 版本时会遇到问题。建议在对应的操作系统上直接编译。
 
 ## 技术实现
 
