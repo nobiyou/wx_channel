@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	_ "embed"
 	"encoding/csv"
 	"encoding/json"
@@ -43,7 +44,7 @@ var zip_js []byte
 var main_js []byte
 
 var Sunny = SunnyNet.NewSunny()
-var version = "20251008"
+var version = "20251018"
 var v = "?t=" + version
 var port = 2025
 var currentPageURL = "" // 存储当前页面的完整URL
@@ -388,16 +389,23 @@ func printTitle() {
 	color.Yellow("    视频号下载助手 v%s", version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    更新内容：")
-	color.Green("    1. 🗑️ 新增卸载证书功能 - 支持 --uninstall 命令完全卸载根证书")
-	color.Green("    2. 🔧 修复证书检查逻辑 - 解决证书安装状态显示矛盾问题")
-	color.Green("    3. ⚡ 优化证书安装流程 - 优先用户级安装，降级到系统级安装")
-	color.Green("    4. 📋 完善错误处理 - 证书安装失败时提供详细解决方案")
-	color.Green("    5. 🎨 统一下载按钮样式 - Feed页和Home页按钮样式完全一致")
-	color.Green("    6. 🔇 静默数据采集 - 首页自动采集视频数据，用户无感知")
-	color.Green("    7. 📊 完善互动数据 - 显示点赞、评论、收藏、转发等完整信息")
-	color.Green("    8. 🎯 智能作者识别 - 自动识别并记录视频作者昵称")
-	color.Green("    9. 🛠️ 优化调试输出 - 减少不必要的调试信息，界面更清爽")
-	color.Green("    10. 💡 发现问题后给我留言，我会尽快修复")
+	color.Green("    🎯 主页视频批量下载功能")
+	color.Green("       - 📦 新增主页批量采集，自动采集所有视频")
+	color.Green("       - 🎬 手动下载模式，可自定义保存位置")
+	color.Green("       - 🚀 自动下载模式，静默批量下载到软件目录")
+	color.Green("       - 📊 实时进度显示，成功/失败统计")
+	color.Green("       - 🔗 一键导出视频链接列表")
+	color.Green("    ⚡ 分片上传优化")
+	color.Green("       - 📦 全量分片上传，所有文件更稳定")
+	color.Green("       - 🔄 自动重试机制，每片重试3次")
+	color.Green("       - 📈 智能进度报告，实时显示百分比")
+	color.Green("       - ✅ 文件名优化，自动添加时间前缀")
+	color.Green("    🛠️ 技术改进")
+	color.Green("       - 🔐 修复JSON转义，正确处理Windows路径")
+	color.Green("       - 📁 文件名清理，移除非法字符和标签")
+	color.Green("       - 🔢 冲突避免，同名文件自动编号")
+	color.Green("       - 🎨 UI优化，日志更清晰简洁")
+	color.Green("    💡 发现问题后给我留言，我会尽快修复")
 	fmt.Println()
 }
 
@@ -509,8 +517,6 @@ func main() {
 			}
 		} else {
 			color.Green("✓ 证书安装成功！\n")
-			// 重新检查证书状态
-			existing, _ = certificate.CheckCertificate("SunnyNet")
 		}
 	} else {
 		color.Green("✓ 证书已存在，无需重新安装。\n")
@@ -749,7 +755,7 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 				Conn.Response.Header.Set("__debug", "append_script")
 				script2 := ""
 
-				if host == "channels.weixin.qq.com" && (path == "/web/pages/feed" || path == "/web/pages/home") {
+				if host == "channels.weixin.qq.com" && (path == "/web/pages/feed" || path == "/web/pages/home" || path == "/web/pages/profile") {
 					// 添加我们的脚本
 					script := fmt.Sprintf(`<script>%s</script>`, main_js)
 
@@ -1571,7 +1577,154 @@ if(f.cmd===re.MAIN_THREAD_CMD.AUTO_CUT`
 					Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
 					return
 				}
+				// Profile页面视频列表数据拦截 - 拦截 finderUserPage API调用
 				if util.Includes(path, "/t/wx_fed/finder/web/web-finder/res/js/virtual_svg-icons-register") {
+					// 拦截 Profile 页面的视频列表数据
+					profileListRegex := regexp.MustCompile(`async finderUserPage\((\w+)\)\{return(.*?)\}async`)
+					profileListReplace := `async finderUserPage($1) {
+						var profileResult = await$2;
+						
+						// Profile页面视频列表数据采集
+						if (profileResult && profileResult.data && profileResult.data.object) {
+							var videoCount = profileResult.data.object.length;
+							console.log('[主页数据采集] 获取到视频列表，数量:', videoCount);
+							
+							// 发送日志到后端终端
+							fetch('/__wx_channels_api/tip', {
+								method: 'POST',
+								headers: {'Content-Type': 'application/json'},
+								body: JSON.stringify({msg: '📊 [主页数据采集] 获取到视频列表，数量: ' + videoCount})
+							}).catch(() => {});
+							
+							// 处理视频列表中的每个视频
+							profileResult.data.object.forEach((item, index) => {
+								try {
+									var data_object = item;
+									if (!data_object || !data_object.objectDesc) {
+										return;
+									}
+									
+									var media = data_object.objectDesc.media[0];
+									if (!media) return;
+									
+									var profile = media.mediaType !== 4 ? {
+										type: "picture",
+										id: data_object.id,
+										title: data_object.objectDesc.description,
+										files: data_object.objectDesc.media,
+										spec: [],
+										contact: data_object.contact
+									} : {
+										type: "media",
+										duration: media.spec[0].durationMs,
+										spec: media.spec.map(s => ({
+											...s,
+											width: s.width || s.videoWidth,
+											height: s.height || s.videoHeight
+										})),
+										title: data_object.objectDesc.description,
+										coverUrl: media.thumbUrl || media.coverUrl,
+										thumbUrl: media.thumbUrl,
+										fullThumbUrl: media.fullThumbUrl,
+										url: media.url+media.urlToken,
+										size: media.fileSize,
+										key: media.decodeKey,
+										id: data_object.id,
+										nonce_id: data_object.objectNonceId,
+										nickname: data_object.nickname,
+										username: data_object.contact?.username || '',
+										createtime: data_object.createtime,
+										fileFormat: media.spec.map(o => o.fileFormat),
+										contact: data_object.contact,
+										readCount: data_object.readCount || 0,
+										likeCount: data_object.likeCount || 0,
+										commentCount: data_object.commentCount || 0,
+										favCount: data_object.favCount || 0,
+										forwardCount: data_object.forwardCount || 0,
+										ipRegionInfo: data_object.ipRegionInfo || {},
+										// 新增字段
+										mediaType: media.mediaType,
+										videoWidth: media.spec[0]?.width || media.spec[0]?.videoWidth || 0,
+										videoHeight: media.spec[0]?.height || media.spec[0]?.videoHeight || 0,
+										videoBitrate: media.spec[0]?.bitrate || 0,
+										videoCodec: media.spec[0]?.codec || '',
+										audioCodec: media.spec[0]?.audioCodec || '',
+										frameRate: media.spec[0]?.fps || 0,
+										location: data_object.location || '',
+										latitude: data_object.latitude || 0,
+										longitude: data_object.longitude || 0,
+										poi: data_object.poi || '',
+										extInfo: data_object.extInfo || {},
+										timestamp: Date.now()
+									};
+									
+								// 添加到profile采集器（使用等待机制）
+								(function(profileData) {
+									// 尝试立即添加
+									if (window.__wx_channels_profile_collector) {
+										window.__wx_channels_profile_collector.addVideoFromAPI(profileData);
+									} else {
+										// 如果采集器还未初始化，等待最多5秒
+										var waitCount = 0;
+										var waitInterval = setInterval(function() {
+											waitCount++;
+											if (window.__wx_channels_profile_collector) {
+												clearInterval(waitInterval);
+												window.__wx_channels_profile_collector.addVideoFromAPI(profileData);
+												console.log('✓ 延迟添加视频到采集器:', profileData.title?.substring(0, 30));
+											} else if (waitCount > 50) {
+												// 超时5秒
+												clearInterval(waitInterval);
+												console.warn('⚠️ 采集器初始化超时，数据已保存到临时存储');
+												// 保存到临时存储
+												window.__wx_channels_temp_profiles = window.__wx_channels_temp_profiles || [];
+												window.__wx_channels_temp_profiles.push(profileData);
+											}
+										}, 100);
+									}
+								})(profile);
+								
+								// 同时添加到全局存储
+								if (window.__wx_channels_store__) {
+									window.__wx_channels_store__.profiles = window.__wx_channels_store__.profiles || [];
+									window.__wx_channels_store__.profiles.push(profile);
+								}
+									
+									// 输出前3个视频的日志到控制台和后端
+									if (index < 3) {
+										var logMsg = '[主页采集] 视频' + (index+1) + ': ' + profile.title.substring(0, 30) + '...';
+										console.log(logMsg);
+										fetch('/__wx_channels_api/tip', {
+											method: 'POST',
+											headers: {'Content-Type': 'application/json'},
+											body: JSON.stringify({msg: '📹 ' + logMsg})
+										}).catch(() => {});
+									}
+									
+									// 采集完成后发送总结日志
+									if (index === profileResult.data.object.length - 1) {
+										fetch('/__wx_channels_api/tip', {
+											method: 'POST',
+											headers: {'Content-Type': 'application/json'},
+											body: JSON.stringify({msg: '✅ [主页采集] 完成！共采集 ' + profileResult.data.object.length + ' 个视频'})
+										}).catch(() => {});
+									}
+								} catch (error) {
+									console.error('[主页采集] 处理视频失败:', error);
+								}
+							});
+						}
+						
+						return profileResult;
+					}async`
+
+					if profileListRegex.MatchString(content) {
+						printSeparator()
+						color.Green("✅ [主页页面] 视频列表API拦截器已注入")
+						printSeparator()
+						content = profileListRegex.ReplaceAllString(content, profileListReplace)
+					}
+
 					regexp1 := regexp.MustCompile(`async finderGetCommentDetail\((\w+)\)\{return(.*?)\}async`)
 					replaceStr1 := `async finderGetCommentDetail($1) {
 					var feedResult = await$2;
@@ -1888,14 +2041,445 @@ window.__wx_channels_store__.profiles.push(profile);
 		return
 	}
 
+	// 分片上传：初始化
+	if path == "/__wx_channels_api/init_upload" {
+		// 计算基路径
+		exePath, _ := os.Executable()
+		baseDir := filepath.Dir(exePath)
+		uploadsRoot := filepath.Join(baseDir, "downloads", ".uploads")
+		_ = os.MkdirAll(uploadsRoot, 0755)
+
+		// 生成 uploadId
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		uploadId := fmt.Sprintf("%x", b)
+		color.Cyan("🔄 init_upload: 生成 uploadId = %s", uploadId)
+
+		// 创建临时目录
+		upDir := filepath.Join(uploadsRoot, uploadId)
+		if err := os.MkdirAll(upDir, 0755); err != nil {
+			color.Red("❌ init_upload: 创建目录失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create upload dir"}`, headers)
+			return
+		}
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Cache-Control", "no-cache")
+		headers.Set("Pragma", "no-cache")
+		headers.Set("Expires", "0")
+
+		// 使用 JSON 编码确保正确转义
+		responseData := map[string]interface{}{
+			"success":  true,
+			"uploadId": uploadId,
+		}
+		responseBytes, err := json.Marshal(responseData)
+		if err != nil {
+			color.Red("✗ 生成响应JSON失败: %v", err)
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to generate response"}`, headers)
+			return
+		}
+
+		color.Cyan("✅ init_upload: 返回响应: %s", string(responseBytes))
+		Conn.StopRequest(200, string(responseBytes), headers)
+		return
+	}
+
+	// 分片上传：接收分片
+	if path == "/__wx_channels_api/upload_chunk" {
+		// 强化缓冲
+		_ = Conn.Request.ParseMultipartForm(64 << 20)
+		uploadId := Conn.Request.FormValue("uploadId")
+		indexStr := Conn.Request.FormValue("index")
+		totalStr := Conn.Request.FormValue("total")
+		if uploadId == "" || indexStr == "" || totalStr == "" {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Missing fields"}`, headers)
+			return
+		}
+		index, _ := strconv.Atoi(indexStr)
+		total, _ := strconv.Atoi(totalStr)
+		color.Cyan("📦 upload_chunk: 接收分片 %d/%d (uploadId: %s)", index+1, total, uploadId[:8])
+
+		file, _, err := Conn.Request.FormFile("chunk")
+		if err != nil {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Missing chunk"}`, headers)
+			return
+		}
+		defer file.Close()
+
+		exePath, _ := os.Executable()
+		baseDir := filepath.Dir(exePath)
+		uploadsRoot := filepath.Join(baseDir, "downloads", ".uploads")
+		upDir := filepath.Join(uploadsRoot, uploadId)
+		if _, err := os.Stat(upDir); os.IsNotExist(err) {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(404, `{"success":false,"error":"uploadId not found"}`, headers)
+			return
+		}
+
+		partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", index))
+		out, err := os.Create(partPath)
+		if err != nil {
+			color.Red("❌ upload_chunk: 创建分片文件失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create part"}`, headers)
+			return
+		}
+		defer out.Close()
+
+		written, err := io.Copy(out, file)
+		if err != nil {
+			color.Red("❌ upload_chunk: 写入分片失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to write part"}`, headers)
+			return
+		}
+
+		color.Cyan("✅ upload_chunk: 分片 %d/%d 已保存 (%.2f MB)", index+1, total, float64(written)/(1024*1024))
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		Conn.StopRequest(200, `{"success":true}`, headers)
+		return
+	}
+
+	// 分片上传：合并完成
+	if path == "/__wx_channels_api/complete_upload" {
+		// 读取 JSON
+		body, _ := io.ReadAll(Conn.Request.Body)
+		_ = Conn.Request.Body.Close()
+		var req struct {
+			UploadId   string `json:"uploadId"`
+			Total      int    `json:"total"`
+			Filename   string `json:"filename"`
+			AuthorName string `json:"authorName"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Bad JSON"}`, headers)
+			return
+		}
+		if req.UploadId == "" || req.Total <= 0 || req.Filename == "" {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Missing fields"}`, headers)
+			return
+		}
+
+		// 目录路径
+		exePath, _ := os.Executable()
+		baseDir := filepath.Dir(exePath)
+		uploadsRoot := filepath.Join(baseDir, "downloads", ".uploads")
+		upDir := filepath.Join(uploadsRoot, req.UploadId)
+
+		// 目标作者目录（与直传一致）
+		authorFolder := req.AuthorName
+		if authorFolder == "" {
+			authorFolder = "未知作者"
+		}
+		authorFolder = strings.Map(func(r rune) rune {
+			if strings.ContainsRune(`<>:"/\\|?*`, r) {
+				return '_'
+			}
+			if r < 32 || r == 127 {
+				return '_'
+			}
+			return r
+		}, authorFolder)
+		authorFolder = strings.TrimSpace(authorFolder)
+		if authorFolder == "" {
+			authorFolder = "未知作者"
+		}
+		downloadsDir := filepath.Join(baseDir, "downloads")
+		savePath := filepath.Join(downloadsDir, authorFolder)
+		if err := os.MkdirAll(savePath, 0755); err != nil {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create folder"}`, headers)
+			return
+		}
+
+		// 清理文件名
+		cleanFilename := strings.Map(func(r rune) rune {
+			if strings.ContainsRune(`<>:"/\\|?*`, r) {
+				return '_'
+			}
+			if r < 32 || r == 127 {
+				return '_'
+			}
+			return r
+		}, req.Filename)
+		cleanFilename = strings.TrimSpace(cleanFilename)
+		if cleanFilename == "" {
+			cleanFilename = "video_" + time.Now().Format("20060102_150405")
+		}
+		if !strings.HasSuffix(strings.ToLower(cleanFilename), ".mp4") {
+			cleanFilename += ".mp4"
+		}
+
+		// 冲突处理
+		finalPath := filepath.Join(savePath, cleanFilename)
+		if _, err := os.Stat(finalPath); err == nil {
+			base := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
+			ext := filepath.Ext(cleanFilename)
+			for i := 1; i < 1000; i++ {
+				candidate := filepath.Join(savePath, fmt.Sprintf("%s(%d)%s", base, i, ext))
+				if _, existsErr := os.Stat(candidate); os.IsNotExist(existsErr) {
+					finalPath = candidate
+					break
+				}
+			}
+		}
+
+		// 合并分片
+		out, err := os.Create(finalPath)
+		if err != nil {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create file"}`, headers)
+			return
+		}
+		var totalWritten int64
+		for i := 0; i < req.Total; i++ {
+			partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", i))
+			in, err := os.Open(partPath)
+			if err != nil {
+				out.Close()
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				Conn.StopRequest(500, `{"success":false,"error":"Missing part"}`, headers)
+				return
+			}
+			n, err := io.Copy(out, in)
+			in.Close()
+			if err != nil {
+				out.Close()
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				Conn.StopRequest(500, `{"success":false,"error":"Failed to merge part"}`, headers)
+				return
+			}
+			totalWritten += n
+		}
+		out.Close()
+
+		// 清理临时目录
+		_ = os.RemoveAll(upDir)
+
+		fileSize := float64(totalWritten) / (1024 * 1024)
+		color.Green("✓ 分片视频已保存: %s (%.2f MB)", finalPath, fileSize)
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+
+		// 使用 JSON 编码确保正确转义路径
+		responseData := map[string]interface{}{
+			"success": true,
+			"path":    finalPath,
+			"size":    fileSize,
+		}
+		responseBytes, err := json.Marshal(responseData)
+		if err != nil {
+			color.Red("✗ 生成响应JSON失败: %v", err)
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to generate response"}`, headers)
+			return
+		}
+
+		color.Cyan("✅ complete_upload: 返回响应: %s", string(responseBytes))
+		Conn.StopRequest(200, string(responseBytes), headers)
+		return
+	}
+
+	// 新增：静默保存视频文件的API端点
+	if path == "/__wx_channels_api/save_video" {
+		color.Cyan("🔄 save_video: 开始处理请求")
+		// 提升表单缓冲阈值，减少大文件上传时的 EOF 问题
+		err := Conn.Request.ParseMultipartForm(512 << 20) // 512MB max buffer/temporary files
+		if err != nil {
+			color.Red("✗ 解析表单数据失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Invalid form data"}`, headers)
+			return
+		}
+		color.Cyan("✅ save_video: 表单解析成功")
+
+		// 获取视频文件（多次读取安全）
+		file, header, err := Conn.Request.FormFile("video")
+		if err != nil {
+			color.Red("✗ 获取视频文件失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(400, `{"success":false,"error":"Missing video file"}`, headers)
+			return
+		}
+		defer file.Close()
+
+		color.Cyan("接收上传: %s, 报告大小: %d bytes", header.Filename, header.Size)
+
+		// 不再一次性读入内存，采用流式写入到目标文件
+
+		// 获取其他表单字段
+		filename := Conn.Request.FormValue("filename")
+		authorName := Conn.Request.FormValue("authorName")
+		isEncrypted := Conn.Request.FormValue("isEncrypted") == "true"
+
+		// 创建作者文件夹路径
+		authorFolder := authorName
+		if authorFolder == "" {
+			authorFolder = "未知作者"
+		}
+		// 清理文件夹名称中的非法字符（包括换行符、制表符等）
+		authorFolder = strings.Map(func(r rune) rune {
+			// Windows非法文件名字符
+			if strings.ContainsRune(`<>:"/\|?*`, r) {
+				return '_'
+			}
+			// 控制字符：换行、回车、制表符等
+			if r < 32 || r == 127 {
+				return '_'
+			}
+			return r
+		}, authorFolder)
+
+		// 去除首尾空格
+		authorFolder = strings.TrimSpace(authorFolder)
+
+		// 如果文件夹名为空，使用默认名称
+		if authorFolder == "" {
+			authorFolder = "未知作者"
+		}
+
+		// 使用可执行文件所在目录作为基准，确保无论当前工作目录在哪里都能正确创建文件夹
+		exePath, _ := os.Executable()
+		baseDir := filepath.Dir(exePath)
+		downloadsDir := filepath.Join(baseDir, "downloads")
+		savePath := filepath.Join(downloadsDir, authorFolder)
+		color.Cyan("保存目录: %s", savePath)
+		err = os.MkdirAll(savePath, 0755)
+		if err != nil {
+			color.Red("✗ 创建文件夹失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create folder"}`, headers)
+			return
+		}
+
+		// 清理文件名中的非法字符（包括换行符、制表符等）
+		cleanFilename := strings.Map(func(r rune) rune {
+			// Windows非法文件名字符
+			if strings.ContainsRune(`<>:"/\|?*`, r) {
+				return '_'
+			}
+			// 控制字符：换行、回车、制表符等
+			if r < 32 || r == 127 {
+				return '_'
+			}
+			return r
+		}, filename)
+
+		// 去除首尾空格
+		cleanFilename = strings.TrimSpace(cleanFilename)
+
+		// 如果文件名为空，使用默认名称
+		if cleanFilename == "" {
+			cleanFilename = "video_" + time.Now().Format("20060102_150405")
+		}
+
+		// 确保文件名有.mp4扩展名
+		if !strings.HasSuffix(strings.ToLower(cleanFilename), ".mp4") {
+			cleanFilename += ".mp4"
+		}
+
+		// 如果存在同名文件，自动追加序号避免覆盖
+		filePath := filepath.Join(savePath, cleanFilename)
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			base := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
+			ext := filepath.Ext(cleanFilename)
+			for i := 1; i < 1000; i++ {
+				candidate := filepath.Join(savePath, fmt.Sprintf("%s(%d)%s", base, i, ext))
+				if _, existsErr := os.Stat(candidate); os.IsNotExist(existsErr) {
+					filePath = candidate
+					break
+				}
+			}
+		}
+
+		// 保存文件（流式拷贝）
+		out, err := os.Create(filePath)
+		if err != nil {
+			color.Red("✗ 创建目标文件失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to create file"}`, headers)
+			return
+		}
+		defer out.Close()
+
+		// 将上传内容从头拷贝（注意：前面没有读取到内存）
+		// 由于 FormFile 返回的 ReadCloser 可能被部分读取，确保定位到起始
+		if seeker, ok := file.(io.Seeker); ok {
+			_, _ = seeker.Seek(0, io.SeekStart)
+		}
+		written, err := io.Copy(out, file)
+		if err != nil {
+			color.Red("✗ 写入视频数据失败: %v", err)
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to write video"}`, headers)
+			return
+		}
+
+		fileSize := float64(written) / (1024 * 1024)
+		color.Green("✓ 视频已保存: %s (%.2f MB)%s", filePath, fileSize, func() string {
+			if isEncrypted {
+				return " [已解密]"
+			}
+			return ""
+		}())
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		headers.Set("Pragma", "no-cache")
+		headers.Set("Expires", "0")
+
+		// 使用JSON编码确保中文字符正确转义
+		responseData := map[string]interface{}{
+			"success": true,
+			"path":    filePath,
+			"size":    fileSize,
+		}
+		responseBytes, err := json.Marshal(responseData)
+		if err != nil {
+			color.Red("✗ 生成响应JSON失败: %v", err)
+			Conn.StopRequest(500, `{"success":false,"error":"Failed to generate response"}`, headers)
+			return
+		}
+
+		color.Cyan("✅ save_video: 返回响应: %s", string(responseBytes))
+		Conn.StopRequest(200, string(responseBytes), headers)
+		return
+	}
+
 	// 新增：记录下载信息的API端点
 	if path == "/__wx_channels_api/record_download" {
 		var data map[string]interface{}
 		body, _ := io.ReadAll(Conn.Request.Body)
 		_ = Conn.Request.Body.Close()
 
-		var err error
-		err = json.Unmarshal(body, &data)
+		err := json.Unmarshal(body, &data)
 		if err != nil {
 			fmt.Println("记录下载信息错误:", err.Error())
 		} else {
@@ -1994,6 +2578,92 @@ window.__wx_channels_store__.profiles.push(profile);
 			} else {
 				printSeparator()
 				color.Green("✅ 下载记录已保存")
+				printSeparator()
+			}
+		}
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		headers.Set("__debug", "fake_resp")
+		Conn.StopRequest(200, "{}", headers)
+		return
+	}
+
+	// 新增：批量导出视频链接API端点
+	if path == "/__wx_channels_api/export_video_list" {
+		var requestData struct {
+			Videos []map[string]interface{} `json:"videos"`
+		}
+		body, _ := io.ReadAll(Conn.Request.Body)
+		_ = Conn.Request.Body.Close()
+		err := json.Unmarshal(body, &requestData)
+		if err != nil {
+			fmt.Printf("解析批量导出请求失败: %v\n", err)
+		} else {
+			// 生成视频链接列表
+			var videoList []string
+			for i, video := range requestData.Videos {
+				title := fmt.Sprintf("%v", video["title"])
+				videoId := fmt.Sprintf("%v", video["id"])
+				url := fmt.Sprintf("%v", video["url"])
+
+				videoList = append(videoList, fmt.Sprintf("%d. %s\n   ID: %s\n   URL: %s\n",
+					i+1, title, videoId, url))
+			}
+
+			content := fmt.Sprintf("主页页面视频列表导出\n生成时间: %s\n总计: %d 个视频\n\n%s",
+				time.Now().Format("2006-01-02 15:04:05"),
+				len(requestData.Videos),
+				strings.Join(videoList, "\n"))
+
+			// 保存到文件
+			currentDir, err := os.Getwd()
+			if err == nil {
+				exportDir := filepath.Join(currentDir, "downloads")
+				os.MkdirAll(exportDir, 0755)
+				exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.txt",
+					time.Now().Format("20060102_150405")))
+				err = os.WriteFile(exportFile, []byte(content), 0644)
+				if err == nil {
+					printSeparator()
+					color.Green("📄 视频列表已导出")
+					printSeparator()
+					printLabelValue("📁", "导出文件", exportFile, color.New(color.FgGreen))
+					printLabelValue("📊", "视频数量", len(requestData.Videos), color.New(color.FgGreen))
+					printSeparator()
+				}
+			}
+		}
+
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		headers.Set("__debug", "fake_resp")
+		Conn.StopRequest(200, "{}", headers)
+		return
+	}
+
+	// 新增：批量下载状态查询API端点
+	if path == "/__wx_channels_api/batch_download_status" {
+		var statusData struct {
+			Current int    `json:"current"`
+			Total   int    `json:"total"`
+			Status  string `json:"status"`
+		}
+		body, _ := io.ReadAll(Conn.Request.Body)
+		_ = Conn.Request.Body.Close()
+		err := json.Unmarshal(body, &statusData)
+		if err != nil {
+			fmt.Printf("解析批量下载状态失败: %v\n", err)
+		} else {
+			// 显示批量下载进度
+			if statusData.Total > 0 {
+				percentage := float64(statusData.Current) / float64(statusData.Total) * 100
+				printSeparator()
+				color.Blue("📥 批量下载进度")
+				printSeparator()
+				printLabelValue("📊", "进度", fmt.Sprintf("%d/%d (%.1f%%)",
+					statusData.Current, statusData.Total, percentage), color.New(color.FgGreen))
+				printLabelValue("🔄", "状态", statusData.Status, color.New(color.FgGreen))
 				printSeparator()
 			}
 		}
