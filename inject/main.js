@@ -1765,6 +1765,52 @@ window.__wx_channels_profile_collector = {
           cursor: pointer;
         ">导出链接</button>
       </div>
+      <div style="margin: 6px 0 0 0; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <button id="server-batch-start" style="
+          background: #722ed1;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">后端批量开始</button>
+        <button id="server-batch-progress" style="
+          background: #2f54eb;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">进度</button>
+        <button id="server-batch-cancel" style="
+          background: #faad14;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">取消</button>
+        <button id="server-batch-failed" style="
+          background: #f5222d;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+        ">导出失败</button>
+      </div>
+      <div style="margin-top:8px;">
+        <button id="toggle-select-list" style="
+          background:#595959;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">编辑选择</button>
+        <button id="selected-frontend" style="
+          background:#13c2c2;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">仅选中-前端下载</button>
+        <button id="selected-backend" style="
+          background:#531dab;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">仅选中-后端下载</button>
+      </div>
+      <div id="select-list" style="display:none;max-height:240px;overflow:auto;margin-top:8px;border:1px solid rgba(255,255,255,0.15);padding:6px;border-radius:4px;"></div>
       <div id="download-progress" style="display: none; margin-top: 10px;">
         <div>下载进度: <span id="progress-text">0/0</span></div>
         <div style="background: #333; height: 4px; border-radius: 2px; margin-top: 5px;">
@@ -1784,8 +1830,206 @@ window.__wx_channels_profile_collector = {
       this.startBatchDownload();
     };
     
-    document.getElementById('export-links-btn').onclick = () => {
-      this.exportVideoLinks();
+    // 导出菜单
+    let exportMenu = document.getElementById('wx-export-menu');
+    if (!exportMenu) {
+      exportMenu = document.createElement('div');
+      exportMenu.id = 'wx-export-menu';
+      exportMenu.style.cssText = `
+        position:absolute; right:20px; margin-top:4px; background:#111; color:#fff; border:1px solid rgba(255,255,255,.15);
+        border-radius:4px; z-index:100000; display:none;
+      `;
+      exportMenu.innerHTML = `
+        <div style="display:flex;">
+          <button data-fmt="txt" style="background:#1890ff;border:none;color:#fff;padding:6px 10px;margin:6px;border-radius:4px;cursor:pointer;">导出 TXT</button>
+          <button data-fmt="json" style="background:#13c2c2;border:none;color:#fff;padding:6px 10px;margin:6px;border-radius:4px;cursor:pointer;">导出 JSON</button>
+          <button data-fmt="md" style="background:#722ed1;border:none;color:#fff;padding:6px 10px;margin:6px;border-radius:4px;cursor:pointer;">导出 Markdown</button>
+        </div>`;
+      ui.appendChild(exportMenu);
+      exportMenu.querySelectorAll('button').forEach(btn => {
+        btn.onclick = () => {
+          const fmt = btn.getAttribute('data-fmt');
+          this.exportVideoLinks(fmt);
+          exportMenu.style.display = 'none';
+        };
+      });
+      document.addEventListener('click', (e)=>{
+        const target = e.target;
+        const within = target && (target.id === 'export-links-btn' || target.closest('#wx-export-menu'));
+        if (!within) exportMenu.style.display = 'none';
+      });
+    }
+
+    document.getElementById('export-links-btn').onclick = (ev) => {
+      ev.stopPropagation();
+      exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+    };
+
+    // 后端批量按钮
+    const addAuthHeader = (headers) => {
+      try {
+        if (window.__WX_LOCAL_TOKEN__) headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+      } catch(_) {}
+      return headers;
+    };
+    const toBase64 = (u8) => { let s=''; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]); return btoa(s); };
+    const buildBatchPayload = async (list) => {
+      const items = (list || this.videos || []).filter(v => v && v.url);
+      const out = [];
+      for (const v of items) {
+        const rec = {
+          id: String(v.id || ''),
+          url: String(v.url || ''),
+          title: String(v.title || ''),
+          filename: String(v.title || ''),
+          authorName: String(v.nickname || (v.contact && v.contact.nickname) || '')
+        };
+        try {
+          if (v.key && v.key.length > 0 && typeof __wx_channels_decrypt === 'function') {
+            const dec = await __wx_channels_decrypt(v.key);
+            const prefixLen = Math.min(dec.length, 131072); // 128 KiB 前缀
+            rec.decryptorPrefix = toBase64(dec.slice(0, prefixLen));
+            rec.prefixLen = prefixLen;
+          }
+        } catch(_) {}
+        out.push(rec);
+      }
+      return { videos: out };
+    };
+    const safeFetch = (url, opt) => fetch(url, opt).catch(() => ({ ok:false }));
+
+    const btnStart = document.getElementById('server-batch-start');
+    const btnProg = document.getElementById('server-batch-progress');
+    const btnCancel = document.getElementById('server-batch-cancel');
+    const btnFailed = document.getElementById('server-batch-failed');
+    const btnToggleSelect = document.getElementById('toggle-select-list');
+    const btnSelFrontend = document.getElementById('selected-frontend');
+    const btnSelBackend = document.getElementById('selected-backend');
+    const selList = document.getElementById('select-list');
+
+    // 选择集合
+    this._selectedIds = this._selectedIds || new Set();
+    const renderSelectList = () => {
+      if (!selList) return;
+      const items = (this.videos || []).slice(0, 200);
+      const fmtTs = (ts) => {
+        let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+        if (n < 1e12) n = n * 1000; const d = new Date(n);
+        const p = (x)=>String(x).padStart(2,'0');
+        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      };
+      const fmtDur = (ms) => {
+        let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+        return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      };
+      const fmtMB = (b) => {
+        const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB';
+      };
+      selList.innerHTML = items.map(v => {
+        const id = String(v.id || '');
+        const checked = this._selectedIds.has(id) ? 'checked' : '';
+        const title = String(v.title || '').slice(0, 40).replace(/</g,'&lt;');
+        const cover = v.coverUrl || (v.cover && v.cover.url) || '';
+        const ctime = fmtTs(v.createtime);
+        const dur = fmtDur(v.duration);
+        const size = fmtMB(v.size);
+        return `<label style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+          <input type="checkbox" data-id="${id}" ${checked}/>
+          <img src="${cover}" onerror="this.style.display='none'" style="width:64px;height:36px;object-fit:cover;border-radius:4px;border:1px solid rgba(255,255,255,0.15)"/>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <div style="opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;">${title || '(无标题)'}</div>
+            <div style="opacity:.65;font-size:12px;">${ctime} · 时长 ${dur} · ${size}</div>
+          </div>
+        </label>`;
+      }).join('');
+      selList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.onchange = (e) => {
+          const id = cb.getAttribute('data-id');
+          if (!id) return;
+          if (cb.checked) this._selectedIds.add(id); else this._selectedIds.delete(id);
+        };
+      });
+    };
+
+    if (btnStart) btnStart.onclick = async () => {
+      const payload = await buildBatchPayload();
+      if (!payload.videos.length) { alert('没有可用视频'); return; }
+      const headers = addAuthHeader({'Content-Type':'application/json'});
+      const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
+      alert(res && res.ok ? '已提交到后端下载队列' : '提交失败');
+    };
+    if (btnProg) btnProg.onclick = async () => {
+      const headers = addAuthHeader({'Content-Type':'application/json'});
+      const res = await safeFetch('/__wx_channels_api/batch_progress', { method:'POST', headers });
+      if (res && res.ok) {
+        const data = await res.json().catch(()=>null);
+        if (data) alert(`进度: ${data.done}/${data.total}\n进行中: ${data.running}\n失败: ${data.failed}`); else alert('查询失败');
+      } else {
+        alert('查询失败');
+      }
+    };
+    if (btnCancel) btnCancel.onclick = async () => {
+      // 先取消前端批量（无需刷新）
+      try { this.cancelBatchDownload(); } catch(_) {}
+      // 同时尝试通知后端（容错）
+      const headers = addAuthHeader({'Content-Type':'application/json'});
+      safeFetch('/__wx_channels_api/batch_cancel', { method:'POST', headers });
+      alert('已请求取消');
+    };
+    if (btnFailed) btnFailed.onclick = async () => {
+      const headers = addAuthHeader({'Content-Type':'application/json'});
+      const res = await safeFetch('/__wx_channels_api/batch_failed', { method:'POST', headers });
+      if (res && res.ok) {
+        const data = await res.json().catch(()=>null);
+        if (data) alert(`失败: ${data.failed}\n清单: ${data.json}`); else alert('导出失败');
+      } else {
+        alert('导出失败');
+      }
+    };
+
+    if (btnToggleSelect) btnToggleSelect.onclick = () => {
+      if (!selList) return;
+      if (selList.style.display === 'none') { renderSelectList(); selList.style.display = 'block'; }
+      else { selList.style.display = 'none'; }
+    };
+
+    // 仅选中下载（公共获取函数）
+    const getSelectedVideos = () => {
+      const ids = this._selectedIds || new Set();
+      const all = this.videos || [];
+      if (!ids.size) return [];
+      return all.filter(v => ids.has(String(v.id || '')) && v.url);
+    };
+
+    if (btnSelFrontend) btnSelFrontend.onclick = async () => {
+      const list = getSelectedVideos();
+      if (!list.length) { alert('未选择任何视频'); return; }
+      if (!confirm(`仅选中-前端下载：${list.length} 个，开始？`)) return;
+      // 按现有前端流程串行下载
+      this.batchDownloading = true;
+      this.batchCancelRequested = false;
+      this.currentAbortController = null;
+      this.downloadProgress = { current: 0, total: list.length, failedCount: 0 };
+      this.showDownloadProgress();
+      const runNext = () => {
+        if (this.batchCancelRequested || this.downloadProgress.current >= this.downloadProgress.total) {
+          this.batchDownloading = false; this.hideDownloadProgress(); return;
+        }
+        const v = list[this.downloadProgress.current];
+        this.silentDownload(v).then(()=>{
+          this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800);
+        }).catch(()=>{ this.downloadProgress.failedCount=(this.downloadProgress.failedCount||0)+1; this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800); });
+      };
+      runNext();
+    };
+
+    if (btnSelBackend) btnSelBackend.onclick = async () => {
+      const list = getSelectedVideos();
+      if (!list.length) { alert('未选择任何视频'); return; }
+      const headers = addAuthHeader({'Content-Type':'application/json'});
+      const payload = await buildBatchPayload(list);
+      const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
+      alert(res && res.ok ? '选中清单已提交后端' : '提交失败');
     };
   },
   
@@ -1961,6 +2205,8 @@ window.__wx_channels_profile_collector = {
     }
     
     this.batchDownloading = true;
+    this.batchCancelRequested = false;
+    this.currentAbortController = null;
     this.downloadProgress = { current: 0, total: validVideos.length, failedCount: 0 };
     
     console.log(`🚀 开始自动下载 ${validVideos.length} 个有效视频`);
@@ -1978,6 +2224,12 @@ window.__wx_channels_profile_collector = {
   
   // 下载下一个视频（自动下载）
   downloadNext: function() {
+    if (this.batchCancelRequested) {
+      this.batchDownloading = false;
+      this.hideDownloadProgress();
+      alert('已取消批量下载');
+      return;
+    }
     if (this.downloadProgress.current >= this.downloadProgress.total) {
       this.batchDownloading = false;
       console.log('✅ 自动下载完成');
@@ -2040,6 +2292,12 @@ window.__wx_channels_profile_collector = {
     });
   },
   
+  // 取消批量下载（前端）
+  cancelBatchDownload: function() {
+    this.batchCancelRequested = true;
+    try { if (this.currentAbortController) this.currentAbortController.abort(); } catch(_) {}
+  },
+
   // 静默下载视频（保存到服务器）
   silentDownload: async function(video) {
     try {
@@ -2099,7 +2357,10 @@ window.__wx_channels_profile_collector = {
         let retryCount = 0;
         const maxRetries = 3;
         
-        while (retryCount < maxRetries) {
+        // 可取消控制器
+        this.currentAbortController = new AbortController();
+        const signal = this.currentAbortController.signal;
+        while (retryCount < maxRetries && !this.batchCancelRequested) {
           try {
             response = await fetch(video.url, {
               cache: 'no-cache',
@@ -2107,7 +2368,8 @@ window.__wx_channels_profile_collector = {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
                 'Expires': '0'
-              }
+              },
+              signal
             });
             
             if (response.ok) {
@@ -2119,7 +2381,7 @@ window.__wx_channels_profile_collector = {
             retryCount++;
             console.warn(`⚠️ 下载失败，第${retryCount}次重试: ${error.message}`);
             
-            if (retryCount < maxRetries) {
+            if (retryCount < maxRetries && !this.batchCancelRequested) {
               // 等待1-3秒后重试
               const delay = retryCount * 1000;
               console.log(`⏳ 等待${delay}ms后重试...`);
@@ -2129,6 +2391,7 @@ window.__wx_channels_profile_collector = {
             }
           }
         }
+        if (this.batchCancelRequested) { throw new Error('已取消'); }
         
         const blob = await response.blob();
         let videoData = new Uint8Array(await blob.arrayBuffer());
@@ -2421,30 +2684,70 @@ window.__wx_channels_profile_collector = {
   },
   
   // 导出视频链接
-  exportVideoLinks: function() {
+  exportVideoLinks: function(format) {
     if (this.videos.length === 0) {
       alert('没有找到可导出的视频');
       return;
     }
     
-    const links = this.videos.map((video, index) => {
-      return `${index + 1}. ${video.title}\n   ID: ${video.id}\n   URL: ${video.url || 'N/A'}\n`;
-    }).join('\n');
-    
-    const content = `主页页面视频列表导出\n生成时间: ${new Date().toLocaleString()}\n总计: ${this.videos.length} 个视频\n\n${links}`;
-    
-    // 创建下载链接
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `profile_videos_${new Date().getTime()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    console.log(`📄 已导出 ${this.videos.length} 个视频链接`);
+    const nowStr = new Date().toLocaleString();
+    // 不再导出作者主页链接（pageUrl），仅导出视频直链等关键信息
+    const fmtTs = (ts) => {
+      let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+      if (n < 1e12) n = n * 1000; const d = new Date(n);
+      const p = (x)=>String(x).padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const fmtDur = (ms) => {
+      let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    };
+    const fmtMB = (b) => { const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB'; };
+    const rows = this.videos.map((video, index) => {
+      const key = (video && video.key) ? String(video.key) : 'N/A';
+      const url = (video && video.url) ? String(video.url) : 'N/A';
+      const title = String(video.title || '');
+      const id = String(video.id || '');
+      const author = String(video.nickname || (video.contact && video.contact.nickname) || '');
+      const like = Number(video.likeCount||0);
+      const comment = Number(video.commentCount||0);
+      const fav = Number(video.favCount||0);
+      const forward = Number(video.forwardCount||0);
+      const sizeMB = fmtMB(video.size);
+      const duration = fmtDur(video.duration);
+      const created = fmtTs(video.createtime);
+      const cover = String(video.coverUrl || (video.cover && video.cover.url) || '');
+      return { index: index+1, title, id, url, key, author, duration, sizeMB, like, comment, fav, forward, created, cover };
+    });
+
+    const download = (filename, mime, content) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    };
+
+    const fmt = (format||'txt').toLowerCase();
+    if (fmt === 'json') {
+      const payload = { generated_at: nowStr, count: rows.length, videos: rows };
+      download(`profile_videos_${Date.now()}.json`, 'application/json', JSON.stringify(payload, null, 2));
+    } else if (fmt === 'md') {
+      const md = [
+        `# 主页页面视频列表导出`,
+        `生成时间: ${nowStr}`,
+        `总计: ${rows.length} 个视频`,
+        ''
+      ].concat(rows.map(r => `${r.index}. [${r.title || '(无标题)'}](${r.url})  \n   作者: ${r.author}  ·  ID: ${r.id}  ·  时长: ${r.duration}  ·  大小: ${r.sizeMB}  \n   👍 ${r.like}  ·  💬 ${r.comment}  ·  🔖 ${r.fav}  ·  🔄 ${r.forward}  \n   创建时间: ${r.created}  \n   封面: ${r.cover}`)).join('\n');
+      download(`profile_videos_${Date.now()}.md`, 'text/markdown;charset=utf-8', md);
+    } else {
+      const txt = [
+        `主页页面视频列表导出`,
+        `生成时间: ${nowStr}`,
+        `总计: ${rows.length} 个视频`,
+        ''
+      ].concat(rows.map(r => `${r.index}. ${r.title}\n   作者: ${r.author}\n   ID: ${r.id}\n   URL: ${r.url}\n   KEY: ${r.key}\n   时长: ${r.duration}\n   大小: ${r.sizeMB}\n   点赞: ${r.like}  评论: ${r.comment}  收藏: ${r.fav}  转发: ${r.forward}\n   创建时间: ${r.created}\n   封面: ${r.cover}`)).join('\n');
+      download(`profile_videos_${Date.now()}.txt`, 'text/plain;charset=utf-8', txt);
+    }
+    console.log(`📄 已导出 ${this.videos.length} 个视频（格式: ${fmt}）`);
   }
 };
 

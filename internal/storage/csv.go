@@ -17,6 +17,7 @@ type CSVManager struct {
 	filePath string
 	mutex    sync.Mutex
 	header   []string
+    seenIDs  map[string]struct{}
 }
 
 // NewCSVManager 创建CSV管理器
@@ -24,6 +25,7 @@ func NewCSVManager(filePath string, header []string) (*CSVManager, error) {
 	manager := &CSVManager{
 		filePath: filePath,
 		header:   header,
+        seenIDs:  make(map[string]struct{}),
 	}
 
 	// 确保目录存在
@@ -32,12 +34,16 @@ func NewCSVManager(filePath string, header []string) (*CSVManager, error) {
 		return nil, fmt.Errorf("创建目录失败: %v", err)
 	}
 
-	// 如果文件不存在，创建并写入表头
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		if err := manager.initFile(); err != nil {
-			return nil, err
-		}
-	}
+    // 如果文件不存在，创建并写入表头；若存在则加载索引
+    if _, err := os.Stat(filePath); os.IsNotExist(err) {
+        if err := manager.initFile(); err != nil {
+            return nil, err
+        }
+    } else {
+        if err := manager.loadIndex(); err != nil {
+            return nil, err
+        }
+    }
 
 	return manager, nil
 }
@@ -73,12 +79,12 @@ func (m *CSVManager) AddRecord(record *models.VideoDownloadRecord) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// 检查是否已存在
-	exists, err := m.checkExists(record.ID)
-	if err != nil {
-		return fmt.Errorf("检查记录失败: %v", err)
-	}
-	if exists {
+    if record.ID == "" {
+        return nil
+    }
+
+    formattedID := "ID_" + record.ID
+    if _, ok := m.seenIDs[formattedID]; ok {
 		return nil // 记录已存在，不重复添加
 	}
 
@@ -101,47 +107,41 @@ func (m *CSVManager) AddRecord(record *models.VideoDownloadRecord) error {
 		return fmt.Errorf("写入记录时出错: %v", err)
 	}
 
+    // 更新内存索引
+    m.seenIDs[formattedID] = struct{}{}
+
 	return nil
 }
 
-// checkExists 检查记录是否存在
-func (m *CSVManager) checkExists(id string) (bool, error) {
-	if _, err := os.Stat(m.filePath); os.IsNotExist(err) {
-		return false, nil
-	}
+// loadIndex 启动时加载 CSV 构建内存索引
+func (m *CSVManager) loadIndex() error {
+    file, err := os.Open(m.filePath)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
 
-	file, err := os.Open(m.filePath)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
+    reader := csv.NewReader(file)
+    // 跳过标题行
+    _, err = reader.Read()
+    if err != nil {
+        if err == io.EOF {
+            return nil
+        }
+        return err
+    }
 
-	reader := csv.NewReader(file)
-	// 跳过标题行
-	_, err = reader.Read()
-	if err != nil {
-		if err == io.EOF {
-			return false, nil
-		}
-		return false, err
-	}
-
-	formattedID := "ID_" + id
-
-	// 读取所有记录
-	for {
-		row, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return false, err
-		}
-
-		if len(row) > 0 && row[0] == formattedID {
-			return true, nil
-		}
-	}
-
-	return false, nil
+    for {
+        row, err := reader.Read()
+        if err != nil {
+            if err == io.EOF {
+                break
+            }
+            return err
+        }
+        if len(row) > 0 {
+            m.seenIDs[row[0]] = struct{}{}
+        }
+    }
+    return nil
 }

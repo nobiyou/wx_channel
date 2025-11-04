@@ -46,6 +46,36 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
+    // 授权与来源校验（可选）
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            allowed := false
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    allowed = true
+                    break
+                }
+            }
+            if !allowed {
+                headers := http.Header{}
+                headers.Set("Content-Type", "application/json")
+                headers.Set("X-Content-Type-Options", "nosniff")
+                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+                return true
+            }
+        }
+    }
+
 	var data map[string]interface{}
 	body, err := io.ReadAll(Conn.Request.Body)
 	if err != nil {
@@ -168,6 +198,35 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            allowed := false
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    allowed = true
+                    break
+                }
+            }
+            if !allowed {
+                headers := http.Header{}
+                headers.Set("Content-Type", "application/json")
+                headers.Set("X-Content-Type-Options", "nosniff")
+                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+                return true
+            }
+        }
+    }
+
 	var data struct {
 		Msg string `json:"msg"`
 	}
@@ -209,6 +268,35 @@ func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
 	if path != "/__wx_channels_api/page_url" {
 		return false
 	}
+
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            allowed := false
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    allowed = true
+                    break
+                }
+            }
+            if !allowed {
+                headers := http.Header{}
+                headers.Set("Content-Type", "application/json")
+                headers.Set("X-Content-Type-Options", "nosniff")
+                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+                return true
+            }
+        }
+    }
 
 	var urlData struct {
 		URL string `json:"url"`
@@ -274,6 +362,22 @@ func HandleStaticFiles(Conn *SunnyNet.HttpConn, zipJS, fileSaverJS []byte) bool 
 func (h *APIHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
+    headers.Set("X-Content-Type-Options", "nosniff")
+    // CORS
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    headers.Set("Access-Control-Allow-Origin", origin)
+                    headers.Set("Vary", "Origin")
+                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+                    break
+                }
+            }
+        }
+    }
 	headers.Set("__debug", "fake_resp")
 	Conn.StopRequest(200, "{}", headers)
 }
@@ -282,6 +386,21 @@ func (h *APIHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 func (h *APIHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
+    headers.Set("X-Content-Type-Options", "nosniff")
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    headers.Set("Access-Control-Allow-Origin", origin)
+                    headers.Set("Vary", "Origin")
+                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+                    break
+                }
+            }
+        }
+    }
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
 	Conn.StopRequest(500, errorMsg, headers)
 }

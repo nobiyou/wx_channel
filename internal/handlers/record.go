@@ -50,6 +50,16 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+
 	var data map[string]interface{}
 	body, err := io.ReadAll(Conn.Request.Body)
 	if err != nil {
@@ -185,6 +195,16 @@ func (h *RecordHandler) HandleExportVideoList(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+
 	var requestData struct {
 		Videos []map[string]interface{} `json:"videos"`
 	}
@@ -247,12 +267,163 @@ func (h *RecordHandler) HandleExportVideoList(Conn *SunnyNet.HttpConn) bool {
 	return true
 }
 
+// HandleExportVideoListJSON 处理批量导出视频链接（JSON）
+func (h *RecordHandler) HandleExportVideoListJSON(Conn *SunnyNet.HttpConn) bool {
+    path := Conn.Request.URL.Path
+    if path != "/__wx_channels_api/export_video_list_json" {
+        return false
+    }
+
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+
+    var requestData struct {
+        Videos []map[string]interface{} `json:"videos"`
+    }
+
+    body, err := io.ReadAll(Conn.Request.Body)
+    if err != nil {
+        utils.HandleError(err, "读取export_video_list_json请求体")
+        h.sendErrorResponse(Conn, err)
+        return true
+    }
+    if err := Conn.Request.Body.Close(); err != nil {
+        utils.HandleError(err, "关闭请求体")
+    }
+    if err := json.Unmarshal(body, &requestData); err != nil {
+        utils.HandleError(err, "解析批量导出JSON请求")
+        h.sendErrorResponse(Conn, err)
+        return true
+    }
+
+    payload := map[string]interface{}{
+        "generated_at": time.Now().Format("2006-01-02 15:04:05"),
+        "count":        len(requestData.Videos),
+        "videos":       requestData.Videos,
+    }
+
+    b, err := json.MarshalIndent(payload, "", "  ")
+    if err != nil {
+        h.sendErrorResponse(Conn, err)
+        return true
+    }
+
+    baseDir, err := utils.GetBaseDir()
+    if err == nil {
+        exportDir := filepath.Join(baseDir, h.config.DownloadsDir)
+        if err := utils.EnsureDir(exportDir); err == nil {
+            exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.json",
+                time.Now().Format("20060102_150405")))
+            if err := os.WriteFile(exportFile, b, 0644); err == nil {
+                utils.PrintSeparator()
+                color.Green("📄 视频列表已导出(JSON)")
+                utils.PrintSeparator()
+                utils.PrintLabelValue("📁", "导出文件", exportFile)
+                utils.PrintLabelValue("📊", "视频数量", len(requestData.Videos))
+                utils.PrintSeparator()
+            } else {
+                utils.HandleError(err, "保存JSON导出文件")
+            }
+        }
+    }
+
+    h.sendEmptyResponse(Conn)
+    return true
+}
+
+// HandleExportVideoListMarkdown 处理批量导出视频链接（Markdown）
+func (h *RecordHandler) HandleExportVideoListMarkdown(Conn *SunnyNet.HttpConn) bool {
+    path := Conn.Request.URL.Path
+    if path != "/__wx_channels_api/export_video_list_md" {
+        return false
+    }
+
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
+
+    var requestData struct {
+        Videos []map[string]interface{} `json:"videos"`
+    }
+
+    body, err := io.ReadAll(Conn.Request.Body)
+    if err != nil {
+        utils.HandleError(err, "读取export_video_list_md请求体")
+        h.sendErrorResponse(Conn, err)
+        return true
+    }
+    if err := Conn.Request.Body.Close(); err != nil {
+        utils.HandleError(err, "关闭请求体")
+    }
+    if err := json.Unmarshal(body, &requestData); err != nil {
+        utils.HandleError(err, "解析批量导出MD请求")
+        h.sendErrorResponse(Conn, err)
+        return true
+    }
+
+    var sb strings.Builder
+    sb.WriteString("# 主页页面视频列表导出\n\n")
+    sb.WriteString(fmt.Sprintf("生成时间: %s\\n\n", time.Now().Format("2006-01-02 15:04:05")))
+    sb.WriteString(fmt.Sprintf("总计: %d 个视频\\n\n", len(requestData.Videos)))
+    for i, v := range requestData.Videos {
+        title := fmt.Sprintf("%v", v["title"]) 
+        videoId := fmt.Sprintf("%v", v["id"]) 
+        url := fmt.Sprintf("%v", v["url"]) 
+        sb.WriteString(fmt.Sprintf("%d. [%s](%s)  ", i+1, title, url))
+        sb.WriteString(fmt.Sprintf("ID: `%s`\\n\n", videoId))
+    }
+
+    baseDir, err := utils.GetBaseDir()
+    if err == nil {
+        exportDir := filepath.Join(baseDir, h.config.DownloadsDir)
+        if err := utils.EnsureDir(exportDir); err == nil {
+            exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.md",
+                time.Now().Format("20060102_150405")))
+            if err := os.WriteFile(exportFile, []byte(sb.String()), 0644); err == nil {
+                utils.PrintSeparator()
+                color.Green("📄 视频列表已导出(Markdown)")
+                utils.PrintSeparator()
+                utils.PrintLabelValue("📁", "导出文件", exportFile)
+                utils.PrintLabelValue("📊", "视频数量", len(requestData.Videos))
+                utils.PrintSeparator()
+            } else {
+                utils.HandleError(err, "保存Markdown导出文件")
+            }
+        }
+    }
+
+    h.sendEmptyResponse(Conn)
+    return true
+}
 // HandleBatchDownloadStatus 处理批量下载状态查询请求
 func (h *RecordHandler) HandleBatchDownloadStatus(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/batch_download_status" {
 		return false
 	}
+
+    if h.config != nil && h.config.SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+            headers := http.Header{}
+            headers.Set("Content-Type", "application/json")
+            headers.Set("X-Content-Type-Options", "nosniff")
+            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+            return true
+        }
+    }
 
 	var statusData struct {
 		Current int    `json:"current"`
@@ -297,6 +468,21 @@ func (h *RecordHandler) HandleBatchDownloadStatus(Conn *SunnyNet.HttpConn) bool 
 func (h *RecordHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
+    headers.Set("X-Content-Type-Options", "nosniff")
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    headers.Set("Access-Control-Allow-Origin", origin)
+                    headers.Set("Vary", "Origin")
+                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+                    break
+                }
+            }
+        }
+    }
 	headers.Set("__debug", "fake_resp")
 	Conn.StopRequest(200, "{}", headers)
 }
@@ -305,6 +491,21 @@ func (h *RecordHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 func (h *RecordHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
+    headers.Set("X-Content-Type-Options", "nosniff")
+    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+        origin := Conn.Request.Header.Get("Origin")
+        if origin != "" {
+            for _, o := range h.config.AllowedOrigins {
+                if o == origin {
+                    headers.Set("Access-Control-Allow-Origin", origin)
+                    headers.Set("Vary", "Origin")
+                    headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+                    headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+                    break
+                }
+            }
+        }
+    }
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
 	Conn.StopRequest(500, errorMsg, headers)
 }

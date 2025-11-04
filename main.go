@@ -23,7 +23,6 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/handlers"
-	"wx_channel/internal/models"
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
 	"wx_channel/pkg/argv"
@@ -48,6 +47,7 @@ var cfg *config.Config
 var v string
 var port int
 var currentPageURL = "" // 存储当前页面的完整URL
+var logInitMsg string
 
 // 全局管理器
 var (
@@ -57,6 +57,7 @@ var (
 	uploadHandler *handlers.UploadHandler
 	recordHandler *handlers.RecordHandler
 	scriptHandler *handlers.ScriptHandler
+	batchHandler  *handlers.BatchHandler
 )
 
 // downloadRecordsHeader CSV 文件的表头
@@ -87,95 +88,7 @@ func initDownloadRecords() error {
 	return nil
 }
 
-// addDownloadRecord 添加下载记录
-func addDownloadRecord(record *models.VideoDownloadRecord) error {
-	if csvManager == nil {
-		return fmt.Errorf("CSV管理器未初始化")
-	}
-	return csvManager.AddRecord(record)
-}
-
-// checkExistingRecord 已移至storage模块，不再需要
-
-// saveDynamicHTML 保存动态HTML内容（已禁用，保留函数声明）
-func saveDynamicHTML(html, host, path, fullURL string, timestamp int64) {
-	// 只保存微信视频号相关的HTML页面
-	if host != "channels.weixin.qq.com" {
-		return
-	}
-
-	// 创建HTML保存目录
-	currentDir, err := os.Getwd()
-	if err != nil {
-		fmt.Printf("获取当前目录失败: %v\n", err)
-		return
-	}
-
-	htmlDir := filepath.Join(currentDir, "downloads", "dynamic_html_pages")
-	if err := os.MkdirAll(htmlDir, 0755); err != nil {
-		fmt.Printf("创建动态HTML保存目录失败: %v\n", err)
-		return
-	}
-
-	// 生成文件名：使用时间戳和URL信息
-	timestampStr := time.Unix(timestamp/1000, 0).Format("20060102_150405")
-	pathSafe := strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
-	if pathSafe == "" {
-		pathSafe = "root"
-	}
-
-	// 如果URL包含视频ID或其他标识符，尝试提取
-	videoID := ""
-	if parsedURL, err := url.Parse(fullURL); err == nil {
-		if fragment := parsedURL.Fragment; fragment != "" {
-			// 提取fragment中的信息作为视频ID
-			if len(fragment) > 50 {
-				videoID = "_" + fragment[:20] + "..." // 截取前20个字符
-			} else {
-				videoID = "_" + fragment
-			}
-			// 清理文件名中的特殊字符
-			videoID = strings.ReplaceAll(videoID, "=", "_")
-			videoID = strings.ReplaceAll(videoID, "&", "_")
-			videoID = strings.ReplaceAll(videoID, "?", "_")
-			videoID = strings.ReplaceAll(videoID, "/", "_")
-		}
-	}
-
-	filename := fmt.Sprintf("%s_%s_%s%s_dynamic.html", host, pathSafe, timestampStr, videoID)
-	filePath := filepath.Join(htmlDir, filename)
-
-	// 保存HTML文件
-	file, err := os.Create(filePath)
-	if err != nil {
-		fmt.Printf("创建动态HTML文件失败: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	// 写入UTF-8 BOM以确保中文正确显示
-	_, err = file.Write([]byte{0xEF, 0xBB, 0xBF})
-	if err != nil {
-		fmt.Printf("写入UTF-8 BOM失败: %v\n", err)
-		return
-	}
-
-	// 写入HTML内容
-	_, err = file.WriteString(html)
-	if err != nil {
-		fmt.Printf("写入动态HTML内容失败: %v\n", err)
-		return
-	}
-
-	// 打印保存信息
-	utils.PrintSeparator()
-	color.Green("🎯 已保存动态加载后的完整HTML页面")
-	utils.PrintLabelValue("📄", "文件名", filename)
-	utils.PrintLabelValue("📁", "路径", htmlDir)
-	utils.PrintLabelValue("🌐", "完整URL", fullURL)
-	utils.PrintLabelValue("📊", "内容大小", fmt.Sprintf("%.2f KB", float64(len(html))/1024))
-	utils.PrintSeparator()
-}
+// 已废弃的辅助函数：addDownloadRecord/saveDynamicHTML 已移除，避免未使用告警
 
 // printDownloadRecordInfo 打印下载记录信息
 func printDownloadRecordInfo() {
@@ -250,26 +163,14 @@ func printTitle() {
 	fmt.Println("  ╚══╝╚══╝ ╚═╝  ╚═╝     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚══════╝")
 	color.Unset()
 
-	color.Yellow("    视频号下载助手 v%s", cfg.Version)
+	color.Yellow("    视频号下载助手beta版 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    更新内容：")
-	color.Green("    🎯 主页视频批量下载功能")
-	color.Green("       - 📦 新增主页批量采集，自动采集所有视频")
-	color.Green("       - 🎬 手动下载模式，可自定义保存位置")
-	color.Green("       - 🚀 自动下载模式，静默批量下载到软件目录")
-	color.Green("       - 📊 实时进度显示，成功/失败统计")
-	color.Green("       - 🔗 一键导出视频链接列表")
-	color.Green("    ⚡ 分片上传优化")
-	color.Green("       - 📦 全量分片上传，所有文件更稳定")
-	color.Green("       - 🔄 自动重试机制，每片重试3次")
-	color.Green("       - 📈 智能进度报告，实时显示百分比")
-	color.Green("       - ✅ 文件名优化，自动添加时间前缀")
-	color.Green("    🛠️ 技术改进")
-	color.Green("       - 🔐 修复JSON转义，正确处理Windows路径")
-	color.Green("       - 📁 文件名清理，移除非法字符和标签")
-	color.Green("       - 🔢 冲突避免，同名文件自动编号")
-	color.Green("       - 🎨 UI优化，日志更清晰简洁")
-	color.Green("    💡 发现问题后给我留言，我会尽快修复")
+	color.Green("    更新要点：")
+	color.Green("    • 主页批量下载与前端取消（支持仅选中下载）")
+	color.Green("    • 导出链接多格式：TXT / JSON / Markdown")
+	color.Green("    • 后端批量下载：去重、失败清单、前缀解密")
+	color.Green("    • 分片上传与并发限流优化")
+	color.Green("    • 日志默认开启（5MB 滚动）")
 	fmt.Println()
 }
 
@@ -278,6 +179,11 @@ func printTitle() {
 func main() {
 	// 初始化配置
 	cfg = config.Load()
+	// 初始化日志（可选滚动）
+	if cfg.LogFile != "" {
+		_ = utils.InitLoggerWithRotation(utils.INFO, cfg.LogFile, cfg.MaxLogSizeMB)
+		logInitMsg = fmt.Sprintf("日志已初始化: %s (最大 %dMB)", cfg.LogFile, cfg.MaxLogSizeMB)
+	}
 	port = cfg.Port
 	v = "?t=" + cfg.Version
 
@@ -336,6 +242,10 @@ func main() {
 		utils.HandleError(err, "初始化下载记录系统")
 	} else {
 		printDownloadRecordInfo()
+		if logInitMsg != "" {
+			utils.Info(logInitMsg)
+			logInitMsg = ""
+		}
 	}
 
 	// 初始化API处理器
@@ -350,6 +260,11 @@ func main() {
 
 	// 初始化脚本处理器
 	scriptHandler = handlers.NewScriptHandler(cfg, main_js, zip_js, file_saver_js, v)
+
+	// 初始化批量下载处理器
+	if csvManager != nil {
+		batchHandler = handlers.NewBatchHandler(cfg, csvManager)
+	}
 
 	existing, err1 := certificate.CheckCertificate("SunnyNet")
 	if err1 != nil {
@@ -490,6 +405,10 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			if uploadHandler.HandleCompleteUpload(Conn) {
 				return
 			}
+			// 查询已上传分片
+			if uploadHandler.HandleUploadStatus(Conn) {
+				return
+			}
 			// 处理直接保存视频
 			if uploadHandler.HandleSaveVideo(Conn) {
 				return
@@ -506,10 +425,54 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			if recordHandler.HandleExportVideoList(Conn) {
 				return
 			}
+			// 处理导出视频列表(JSON)
+			if recordHandler.HandleExportVideoListJSON(Conn) {
+				return
+			}
+			// 处理导出视频列表(Markdown)
+			if recordHandler.HandleExportVideoListMarkdown(Conn) {
+				return
+			}
 			// 处理批量下载状态
 			if recordHandler.HandleBatchDownloadStatus(Conn) {
 				return
 			}
+		}
+
+		// 处理批量下载相关API请求
+		if batchHandler != nil {
+			if batchHandler.HandleBatchStart(Conn) {
+				return
+			}
+			if batchHandler.HandleBatchProgress(Conn) {
+				return
+			}
+			if batchHandler.HandleBatchCancel(Conn) {
+				return
+			}
+			if batchHandler.HandleBatchFailed(Conn) {
+				return
+			}
+		}
+
+		// 处理预检请求（CORS）
+		if strings.HasPrefix(path, "/__wx_channels_api/") && Conn.Request.Method == "OPTIONS" {
+			headers := http.Header{}
+			headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+			// 若配置了允许的 Origin 且来路匹配，回显 origin
+			if cfg != nil && len(cfg.AllowedOrigins) > 0 {
+				origin := Conn.Request.Header.Get("Origin")
+				for _, o := range cfg.AllowedOrigins {
+					if o == origin {
+						headers.Set("Access-Control-Allow-Origin", origin)
+						headers.Set("Vary", "Origin")
+						break
+					}
+				}
+			}
+			Conn.StopRequest(204, "", headers)
+			return
 		}
 
 		// 保存页面完整内容的API端点（用于测试，保留在main.go中）
