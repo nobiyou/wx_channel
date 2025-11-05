@@ -86,7 +86,7 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
   - `/__wx_channels_api/batch_start`：启动批量下载任务（入参 videos: [{id,url,title,filename,authorName}]）
   - `/__wx_channels_api/batch_progress`：查询批量下载进度（返回 total/done/failed/running）
   - `/__wx_channels_api/batch_cancel`：取消批量下载
- - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
+  - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
   - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
 
 
