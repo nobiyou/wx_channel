@@ -166,6 +166,8 @@ func printTitle() {
 	color.Yellow("    视频号下载助手beta版 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    更新要点：")
+	color.Green("    • 状态信息栏：替代alert，更美观的提示体验")
+	color.Green("    • 自定义确认对话框：替代原生confirm，统一UI风格")
 	color.Green("    • 主页批量下载与前端取消（支持仅选中下载）")
 	color.Green("    • 导出链接多格式：TXT / JSON / Markdown")
 	color.Green("    • 后端批量下载：去重、失败清单、前缀解密")

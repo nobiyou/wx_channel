@@ -176,8 +176,10 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 	// 保存记录
 	if h.csvManager != nil {
 		if err := h.csvManager.AddRecord(record); err != nil {
+			utils.Error("[下载记录] 保存失败: ID=%s, 标题=%s, 作者=%s, 错误=%v", record.ID, record.Title, record.Author, err)
 			utils.HandleError(err, "保存下载记录")
 		} else {
+			utils.Info("[下载记录] 已保存: ID=%s, 标题=%s, 作者=%s, 大小=%s, 时长=%s", record.ID, record.Title, record.Author, record.FileSize, record.Duration)
 			utils.PrintSeparator()
 			color.Green("✅ 下载记录已保存")
 			utils.PrintSeparator()

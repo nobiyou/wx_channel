@@ -54,6 +54,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			DecryptorPrefix string `json:"decryptorPrefix"`
 			PrefixLen       int    `json:"prefixLen"`
 		} `json:"videos"`
+		ForceRedownload bool `json:"forceRedownload"` // 是否强制重新下载（即使文件已存在）
 	}
 	body, _ := io.ReadAll(Conn.Request.Body)
 	_ = Conn.Request.Body.Close()
@@ -75,8 +76,24 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 				}
 			}
 		}
-		tasks = append(tasks, services.DownloadTask{ID: v.ID, URL: v.URL, Filename: name, AuthorName: v.AuthorName, Decryptor: dec})
+		tasks = append(tasks, services.DownloadTask{
+			ID:             v.ID,
+			URL:            v.URL,
+			Filename:       name,
+			AuthorName:     v.AuthorName,
+			Decryptor:      dec,
+			ForceRedownload: req.ForceRedownload,
+		})
 	}
+	decryptCount := 0
+	for _, t := range tasks {
+		if len(t.Decryptor) > 0 {
+			decryptCount++
+		}
+	}
+	utils.Info("[批量下载] 收到批量下载请求: 视频数量=%d, 带解密=%d, 强制重新下载=%v", len(tasks), decryptCount, req.ForceRedownload)
+	// 如果下载器之前被取消，需要重置
+	h.downloader.Reset()
 	h.downloader.Enqueue(tasks)
 
 	headers := http.Header{}
@@ -106,6 +123,7 @@ func (h *BatchHandler) HandleBatchCancel(Conn *SunnyNet.HttpConn) bool {
 	if path != "/__wx_channels_api/batch_cancel" {
 		return false
 	}
+	utils.Info("[批量下载] 收到取消请求")
 	h.downloader.Cancel()
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
@@ -121,8 +139,10 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	failed := h.downloader.FailedResults()
+	utils.Info("[批量下载] 导出失败清单: 失败数量=%d", len(failed))
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
+		utils.Error("[批量下载] 获取基础目录失败: 错误=%v", err)
 		headers := http.Header{}
 		headers.Set("Content-Type", "application/json")
 		Conn.StopRequest(500, `{"success":false}`, headers)
@@ -149,7 +169,11 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	}
 	b, _ := json.MarshalIndent(payload, "", "  ")
 	jsonFile := filepath.Join(exportDir, "batch_failed_"+time.Now().Format("20060102_150405")+".json")
-	_ = os.WriteFile(jsonFile, b, 0644)
+	if err := os.WriteFile(jsonFile, b, 0644); err != nil {
+		utils.Error("[批量下载] 写入失败清单文件失败: 路径=%s, 错误=%v", jsonFile, err)
+	} else {
+		utils.Info("[批量下载] 失败清单已导出: 路径=%s, 失败数量=%d", jsonFile, len(failed))
+	}
 
 	resp := map[string]interface{}{"success": true, "failed": len(failed), "json": jsonFile}
 	rb, _ := json.Marshal(resp)

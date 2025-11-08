@@ -52,7 +52,7 @@ func Load() *Config {
 		globalConfig = &Config{
 			Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 			DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-			Version:                "20251104",             // 版本号（用于前端缓存破坏等）
+			Version:                "20251108",             // 版本号（用于前端缓存破坏等）
 			DownloadsDir:           "downloads",            // 下载根目录
 			RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 			CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）

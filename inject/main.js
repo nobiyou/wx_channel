@@ -1370,6 +1370,9 @@ window.__wx_channels_profile_collector = {
   isCollecting: false,
   batchDownloading: false,
   downloadProgress: { current: 0, total: 0 },
+  _serverProgressInterval: null, // 后端下载进度轮询定时器
+  _forceRedownload: false, // 是否强制重新下载（取消后自动启用）
+  _statusMessageTimeout: null, // 状态信息自动隐藏定时器
   
   // 初始化profile页面功能
   init: function() {
@@ -1737,35 +1740,27 @@ window.__wx_channels_profile_collector = {
     ui.innerHTML = `
       <div style="margin-bottom: 10px; font-weight: bold;">主页页面视频采集</div>
       <div id="video-count">已采集: 0 个视频</div>
+      <div id="status-message" style="
+        display: none;
+        margin-top: 8px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        line-height: 1.4;
+        word-wrap: break-word;
+        max-height: 100px;
+        overflow-y: auto;
+      "></div>
       <div style="margin: 10px 0;">
-        <button id="manual-download-btn" style="
-          background: #07c160;
-          color: white;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-right: 8px;
-        ">手动下载</button>
         <button id="batch-download-btn" style="
           background: #ff6b35;
           color: white;
           border: none;
-          padding: 8px 12px;
+          padding: 6px 10px;
           border-radius: 4px;
           cursor: pointer;
-          margin-right: 8px;
-        ">自动下载</button>
-        <button id="export-links-btn" style="
-          background: #1890ff;
-          color: white;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 4px;
-          cursor: pointer;
-        ">导出链接</button>
-      </div>
-      <div style="margin: 6px 0 0 0; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+          margin-right: 6px;
+        ">前端批量下载</button>
         <button id="server-batch-start" style="
           background: #722ed1;
           color: white;
@@ -1774,16 +1769,7 @@ window.__wx_channels_profile_collector = {
           border-radius: 4px;
           cursor: pointer;
           margin-right: 6px;
-        ">后端批量开始</button>
-        <button id="server-batch-progress" style="
-          background: #2f54eb;
-          color: white;
-          border: none;
-          padding: 6px 10px;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-right: 6px;
-        ">进度</button>
+        ">后端批量下载</button>
         <button id="server-batch-cancel" style="
           background: #faad14;
           color: white;
@@ -1793,6 +1779,15 @@ window.__wx_channels_profile_collector = {
           cursor: pointer;
           margin-right: 6px;
         ">取消</button>
+        <button id="export-links-btn" style="
+          background: #1890ff;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">导出链接</button>
         <button id="server-batch-failed" style="
           background: #f5222d;
           color: white;
@@ -1801,6 +1796,12 @@ window.__wx_channels_profile_collector = {
           border-radius: 4px;
           cursor: pointer;
         ">导出失败</button>
+      </div>
+      <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <label style="display: flex; align-items: center; color: white; font-size: 13px; cursor: pointer;">
+          <input type="checkbox" id="force-redownload-checkbox" style="margin-right: 6px; cursor: pointer;" />
+          <span>强制重新下载（覆盖已存在的文件）</span>
+        </label>
       </div>
       <div style="margin-top:8px;">
         <button id="toggle-select-list" style="
@@ -1817,18 +1818,26 @@ window.__wx_channels_profile_collector = {
           <div id="progress-bar" style="background: #07c160; height: 100%; width: 0%; border-radius: 2px; transition: width 0.3s;"></div>
         </div>
       </div>
+      <div id="server-download-progress" style="display: none; margin-top: 10px;">
+        <div>后端下载进度: <span id="server-progress-text">0/0</span> (进行中: <span id="server-progress-running">0</span>, 失败: <span id="server-progress-failed">0</span>)</div>
+        <div style="background: #333; height: 4px; border-radius: 2px; margin-top: 5px;">
+          <div id="server-progress-bar" style="background: #722ed1; height: 100%; width: 0%; border-radius: 2px; transition: width 0.3s;"></div>
+        </div>
+      </div>
     `;
     
     document.body.appendChild(ui);
     
-    // 绑定事件
-    document.getElementById('manual-download-btn').onclick = () => {
-      this.startManualDownload();
-    };
-    
-    document.getElementById('batch-download-btn').onclick = () => {
-      this.startBatchDownload();
-    };
+    // 等待DOM更新后再绑定事件
+    setTimeout(() => {
+      // 绑定事件
+      const batchBtn = document.getElementById('batch-download-btn');
+      if (batchBtn) {
+        batchBtn.onclick = () => {
+          this.startBatchDownload();
+        };
+      }
+    }, 0);
     
     // 导出菜单
     let exportMenu = document.getElementById('wx-export-menu');
@@ -1873,7 +1882,7 @@ window.__wx_channels_profile_collector = {
       return headers;
     };
     const toBase64 = (u8) => { let s=''; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]); return btoa(s); };
-    const buildBatchPayload = async (list) => {
+    const buildBatchPayload = async (list, forceRedownload = false) => {
       const items = (list || this.videos || []).filter(v => v && v.url);
       const out = [];
       for (const v of items) {
@@ -1894,23 +1903,44 @@ window.__wx_channels_profile_collector = {
         } catch(_) {}
         out.push(rec);
       }
-      return { videos: out };
+      // 优先使用传入的参数，如果没有则使用自动设置的标志
+      const finalForceRedownload = forceRedownload !== undefined ? forceRedownload : this._forceRedownload;
+      console.log('[构建payload] forceRedownload参数:', forceRedownload, '自动标志:', this._forceRedownload, '最终值:', finalForceRedownload);
+      return { videos: out, forceRedownload: finalForceRedownload };
     };
     const safeFetch = (url, opt) => fetch(url, opt).catch(() => ({ ok:false }));
 
-    const btnStart = document.getElementById('server-batch-start');
-    const btnProg = document.getElementById('server-batch-progress');
-    const btnCancel = document.getElementById('server-batch-cancel');
-    const btnFailed = document.getElementById('server-batch-failed');
-    const btnToggleSelect = document.getElementById('toggle-select-list');
-    const btnSelFrontend = document.getElementById('selected-frontend');
-    const btnSelBackend = document.getElementById('selected-backend');
-    const selList = document.getElementById('select-list');
-
+    // 等待DOM更新后再获取按钮元素
+    const getButtons = () => {
+      return {
+        btnStart: document.getElementById('server-batch-start'),
+        btnCancel: document.getElementById('server-batch-cancel'),
+        btnFailed: document.getElementById('server-batch-failed'),
+        btnToggleSelect: document.getElementById('toggle-select-list'),
+        btnSelFrontend: document.getElementById('selected-frontend'),
+        btnSelBackend: document.getElementById('selected-backend'),
+        selList: document.getElementById('select-list'),
+        forceRedownloadCheckbox: document.getElementById('force-redownload-checkbox')
+      };
+    };
+    
     // 选择集合
     this._selectedIds = this._selectedIds || new Set();
-    const renderSelectList = () => {
-      if (!selList) return;
+    
+    // 延迟绑定按钮事件，确保DOM已完全渲染
+    setTimeout(() => {
+      const buttons = getButtons();
+      const btnStart = buttons.btnStart;
+      const btnCancel = buttons.btnCancel;
+      const btnFailed = buttons.btnFailed;
+      const btnToggleSelect = buttons.btnToggleSelect;
+      const btnSelFrontend = buttons.btnSelFrontend;
+      const btnSelBackend = buttons.btnSelBackend;
+      const selList = buttons.selList;
+      const forceRedownloadCheckbox = buttons.forceRedownloadCheckbox;
+
+      const renderSelectList = () => {
+        if (!selList) return;
       const items = (this.videos || []).slice(0, 200);
       const fmtTs = (ts) => {
         let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
@@ -1949,88 +1979,384 @@ window.__wx_channels_profile_collector = {
           if (cb.checked) this._selectedIds.add(id); else this._selectedIds.delete(id);
         };
       });
-    };
+      };
 
-    if (btnStart) btnStart.onclick = async () => {
-      const payload = await buildBatchPayload();
-      if (!payload.videos.length) { alert('没有可用视频'); return; }
-      const headers = addAuthHeader({'Content-Type':'application/json'});
-      const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
-      alert(res && res.ok ? '已提交到后端下载队列' : '提交失败');
-    };
-    if (btnProg) btnProg.onclick = async () => {
-      const headers = addAuthHeader({'Content-Type':'application/json'});
-      const res = await safeFetch('/__wx_channels_api/batch_progress', { method:'POST', headers });
-      if (res && res.ok) {
-        const data = await res.json().catch(()=>null);
-        if (data) alert(`进度: ${data.done}/${data.total}\n进行中: ${data.running}\n失败: ${data.failed}`); else alert('查询失败');
-      } else {
-        alert('查询失败');
+      // 后端下载进度轮询
+      const startServerProgressPolling = () => {
+        // 清除之前的轮询
+        if (this._serverProgressInterval) {
+          clearInterval(this._serverProgressInterval);
+          this._serverProgressInterval = null;
+        }
+      // 显示进度条
+      const serverProgressEl = document.getElementById('server-download-progress');
+      if (serverProgressEl) {
+        serverProgressEl.style.display = 'block';
       }
+      // 开始轮询
+      const pollProgress = async () => {
+        const headers = addAuthHeader({'Content-Type':'application/json'});
+        const res = await safeFetch('/__wx_channels_api/batch_progress', { method:'POST', headers });
+        if (res && res.ok) {
+          const data = await res.json().catch(()=>null);
+          if (data) {
+            const total = data.total || 0;
+            const done = data.done || 0;
+            const running = data.running || 0;
+            const failed = data.failed || 0;
+            const percentage = total > 0 ? (done / total * 100) : 0;
+            // 更新进度显示
+            const textEl = document.getElementById('server-progress-text');
+            const runningEl = document.getElementById('server-progress-running');
+            const failedEl = document.getElementById('server-progress-failed');
+            const barEl = document.getElementById('server-progress-bar');
+            if (textEl) textEl.textContent = `${done}/${total}`;
+            if (runningEl) runningEl.textContent = running;
+            if (failedEl) failedEl.textContent = failed;
+            if (barEl) barEl.style.width = `${percentage}%`;
+            // 如果全部完成，停止轮询
+            if (total > 0 && done + failed >= total && running === 0) {
+              if (this._serverProgressInterval) {
+                clearInterval(this._serverProgressInterval);
+                this._serverProgressInterval = null;
+              }
+              // 3秒后隐藏进度条
+              setTimeout(() => {
+                if (serverProgressEl) serverProgressEl.style.display = 'none';
+              }, 3000);
+            }
+          }
+        }
+      };
+      // 立即查询一次
+      pollProgress();
+      // 每2秒轮询一次
+      this._serverProgressInterval = setInterval(pollProgress, 2000);
     };
-    if (btnCancel) btnCancel.onclick = async () => {
-      // 先取消前端批量（无需刷新）
-      try { this.cancelBatchDownload(); } catch(_) {}
-      // 同时尝试通知后端（容错）
-      const headers = addAuthHeader({'Content-Type':'application/json'});
-      safeFetch('/__wx_channels_api/batch_cancel', { method:'POST', headers });
-      alert('已请求取消');
-    };
-    if (btnFailed) btnFailed.onclick = async () => {
-      const headers = addAuthHeader({'Content-Type':'application/json'});
-      const res = await safeFetch('/__wx_channels_api/batch_failed', { method:'POST', headers });
-      if (res && res.ok) {
-        const data = await res.json().catch(()=>null);
-        if (data) alert(`失败: ${data.failed}\n清单: ${data.json}`); else alert('导出失败');
-      } else {
-        alert('导出失败');
-      }
-    };
+      const stopServerProgressPolling = () => {
+        if (this._serverProgressInterval) {
+          clearInterval(this._serverProgressInterval);
+          this._serverProgressInterval = null;
+        }
+        const serverProgressEl = document.getElementById('server-download-progress');
+        if (serverProgressEl) {
+          serverProgressEl.style.display = 'none';
+        }
+      };
 
-    if (btnToggleSelect) btnToggleSelect.onclick = () => {
+      if (btnStart) {
+        btnStart.onclick = async () => {
+          try {
+            console.log('[后端批量] 开始构建payload...');
+            // 先停止之前的轮询（如果有）
+            stopServerProgressPolling();
+            // 从复选框获取强制重新下载选项，或使用自动设置的标志
+            const forceRedownload = forceRedownloadCheckbox ? forceRedownloadCheckbox.checked : this._forceRedownload;
+            const payload = await buildBatchPayload(null, forceRedownload);
+            console.log('[后端批量] payload构建完成，视频数量:', payload.videos.length, '强制重新下载:', payload.forceRedownload);
+            if (!payload.videos.length) { 
+              this.showStatusMessage('没有可用视频', 'warning');
+              return; 
+            }
+            // 下载开始后，清除自动设置的强制重新下载标志（但保留用户手动选择的复选框状态）
+            this._forceRedownload = false;
+            const headers = addAuthHeader({'Content-Type':'application/json'});
+            console.log('[后端批量] 发送请求到后端...');
+            const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
+            if (res && res.ok) {
+              this.showStatusMessage('已提交到后端下载队列' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
+              // 自动开始显示进度并轮询
+              startServerProgressPolling();
+            } else {
+              console.error('[后端批量] 提交失败，响应:', res);
+              this.showStatusMessage('提交失败，请检查控制台', 'error');
+            }
+        } catch (error) {
+          console.error('[后端批量] 错误:', error);
+          this.showStatusMessage('发生错误: ' + error.message, 'error');
+        }
+      };
+      } else {
+        console.error('[后端批量] 按钮未找到: server-batch-start');
+      }
+      
+      if (btnCancel) {
+        btnCancel.onclick = async () => {
+          console.log('[后端批量] 收到取消请求');
+          // 先取消前端批量（无需刷新）
+          try { this.cancelBatchDownload(); } catch(_) {}
+          // 停止后端进度轮询
+          stopServerProgressPolling();
+          // 设置强制重新下载标志和复选框，下次下载时将重新下载已存在的文件
+          this._forceRedownload = true;
+          if (forceRedownloadCheckbox) {
+            forceRedownloadCheckbox.checked = true;
+          }
+          // 同时尝试通知后端（容错）
+          const headers = addAuthHeader({'Content-Type':'application/json'});
+          await safeFetch('/__wx_channels_api/batch_cancel', { method:'POST', headers });
+          this.showStatusMessage('已请求取消，已自动勾选"强制重新下载"选项', 'info');
+        };
+      }
+      
+      if (btnFailed) {
+        btnFailed.onclick = async () => {
+          const headers = addAuthHeader({'Content-Type':'application/json'});
+          const res = await safeFetch('/__wx_channels_api/batch_failed', { method:'POST', headers });
+          if (res && res.ok) {
+            const data = await res.json().catch(()=>null);
+            if (data) {
+              this.showStatusMessage(`失败: ${data.failed} 个\n清单: ${data.json}`, 'warning', 8000);
+            } else {
+              this.showStatusMessage('导出失败', 'error');
+            }
+          } else {
+            this.showStatusMessage('导出失败', 'error');
+          }
+        };
+      }
+
+      if (btnToggleSelect) btnToggleSelect.onclick = () => {
       if (!selList) return;
-      if (selList.style.display === 'none') { renderSelectList(); selList.style.display = 'block'; }
-      else { selList.style.display = 'none'; }
-    };
+        if (selList.style.display === 'none') { renderSelectList(); selList.style.display = 'block'; }
+        else { selList.style.display = 'none'; }
+      };
 
-    // 仅选中下载（公共获取函数）
-    const getSelectedVideos = () => {
+      // 仅选中下载（公共获取函数）
+      const getSelectedVideos = () => {
       const ids = this._selectedIds || new Set();
       const all = this.videos || [];
       if (!ids.size) return [];
-      return all.filter(v => ids.has(String(v.id || '')) && v.url);
-    };
-
-    if (btnSelFrontend) btnSelFrontend.onclick = async () => {
-      const list = getSelectedVideos();
-      if (!list.length) { alert('未选择任何视频'); return; }
-      if (!confirm(`仅选中-前端下载：${list.length} 个，开始？`)) return;
-      // 按现有前端流程串行下载
-      this.batchDownloading = true;
-      this.batchCancelRequested = false;
-      this.currentAbortController = null;
-      this.downloadProgress = { current: 0, total: list.length, failedCount: 0 };
-      this.showDownloadProgress();
-      const runNext = () => {
-        if (this.batchCancelRequested || this.downloadProgress.current >= this.downloadProgress.total) {
-          this.batchDownloading = false; this.hideDownloadProgress(); return;
-        }
-        const v = list[this.downloadProgress.current];
-        this.silentDownload(v).then(()=>{
-          this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800);
-        }).catch(()=>{ this.downloadProgress.failedCount=(this.downloadProgress.failedCount||0)+1; this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800); });
+        return all.filter(v => ids.has(String(v.id || '')) && v.url);
       };
-      runNext();
-    };
 
-    if (btnSelBackend) btnSelBackend.onclick = async () => {
-      const list = getSelectedVideos();
-      if (!list.length) { alert('未选择任何视频'); return; }
-      const headers = addAuthHeader({'Content-Type':'application/json'});
-      const payload = await buildBatchPayload(list);
-      const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
-      alert(res && res.ok ? '选中清单已提交后端' : '提交失败');
+      if (btnSelFrontend) {
+        btnSelFrontend.onclick = async () => {
+          const list = getSelectedVideos();
+          if (!list.length) { 
+            this.showStatusMessage('未选择任何视频', 'warning');
+            return; 
+          }
+          const confirmed = await this.showConfirmDialog(`仅选中-前端下载：${list.length} 个，开始？`, '确认下载');
+          if (!confirmed) return;
+          // 按现有前端流程串行下载
+          this.batchDownloading = true;
+          this.batchCancelRequested = false;
+          this.currentAbortController = null;
+          this.downloadProgress = { current: 0, total: list.length, failedCount: 0 };
+          this.showDownloadProgress();
+          const runNext = () => {
+            if (this.batchCancelRequested || this.downloadProgress.current >= this.downloadProgress.total) {
+              this.batchDownloading = false;
+              this.hideDownloadProgress();
+              if (this.batchCancelRequested) {
+                this.showStatusMessage('已取消前端批量下载', 'info');
+              } else {
+                const successCount = this.downloadProgress.total - (this.downloadProgress.failedCount || 0);
+                const failedCount = this.downloadProgress.failedCount || 0;
+                this.showStatusMessage(`前端批量下载完成！共处理 ${this.downloadProgress.total} 个视频，成功: ${successCount} 个，失败: ${failedCount} 个`, 'success', 8000);
+              }
+              return;
+            }
+            const v = list[this.downloadProgress.current];
+            this.silentDownload(v).then(()=>{
+              this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800);
+            }).catch(()=>{ this.downloadProgress.failedCount=(this.downloadProgress.failedCount||0)+1; this.downloadProgress.current++; this.updateDownloadProgress(); setTimeout(runNext, 800); });
+          };
+          runNext();
+        };
+      }
+
+      if (btnSelBackend) {
+        btnSelBackend.onclick = async () => {
+          try {
+            console.log('[仅选中-后端] 获取选中的视频...');
+            // 先停止之前的轮询（如果有）
+            stopServerProgressPolling();
+            // 从复选框获取强制重新下载选项，或使用自动设置的标志
+            const forceRedownload = forceRedownloadCheckbox ? forceRedownloadCheckbox.checked : this._forceRedownload;
+            const list = getSelectedVideos();
+            console.log('[仅选中-后端] 选中视频数量:', list.length);
+            if (!list.length) { 
+              this.showStatusMessage('未选择任何视频', 'warning');
+              return; 
+            }
+            const headers = addAuthHeader({'Content-Type':'application/json'});
+            console.log('[仅选中-后端] 构建payload...');
+            const payload = await buildBatchPayload(list, forceRedownload);
+            console.log('[仅选中-后端] payload构建完成，视频数量:', payload.videos.length, '强制重新下载:', payload.forceRedownload);
+            // 下载开始后，清除自动设置的强制重新下载标志（但保留用户手动选择的复选框状态）
+            this._forceRedownload = false;
+            const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
+            if (res && res.ok) {
+              this.showStatusMessage('选中清单已提交后端' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
+              // 自动开始显示进度并轮询
+              startServerProgressPolling();
+            } else {
+              console.error('[仅选中-后端] 提交失败，响应:', res);
+              this.showStatusMessage('提交失败，请检查控制台', 'error');
+            }
+          } catch (error) {
+            console.error('[仅选中-后端] 错误:', error);
+            this.showStatusMessage('发生错误: ' + error.message, 'error');
+          }
+        };
+      } else {
+        console.error('[仅选中-后端] 按钮未找到: selected-backend');
+      }
+    }, 100); // 延迟100ms确保DOM完全渲染
+  },
+  
+  // 显示状态信息
+  showStatusMessage: function(message, type = 'info', duration = 5000) {
+    const statusEl = document.getElementById('status-message');
+    if (!statusEl) return;
+    
+    // 清除之前的定时器
+    if (this._statusMessageTimeout) {
+      clearTimeout(this._statusMessageTimeout);
+      this._statusMessageTimeout = null;
+    }
+    
+    // 设置消息内容和样式
+    statusEl.textContent = message;
+    statusEl.style.display = 'block';
+    
+    // 根据类型设置颜色（使用半透明背景，更柔和）
+    const colors = {
+      'info': { bg: 'rgba(24, 144, 255, 0.15)', border: 'rgba(64, 169, 255, 0.4)', text: '#69b7ff' },
+      'success': { bg: 'rgba(82, 196, 26, 0.15)', border: 'rgba(115, 209, 61, 0.4)', text: '#95de64' },
+      'warning': { bg: 'rgba(250, 173, 20, 0.15)', border: 'rgba(255, 197, 61, 0.4)', text: '#ffd666' },
+      'error': { bg: 'rgba(245, 34, 45, 0.15)', border: 'rgba(255, 77, 79, 0.4)', text: '#ff7875' }
     };
+    const color = colors[type] || colors.info;
+    statusEl.style.background = color.bg;
+    statusEl.style.border = `1px solid ${color.border}`;
+    statusEl.style.color = color.text;
+    
+    // 自动隐藏
+    if (duration > 0) {
+      this._statusMessageTimeout = setTimeout(() => {
+        statusEl.style.opacity = '0';
+        statusEl.style.transition = 'opacity 0.3s';
+        setTimeout(() => {
+          statusEl.style.display = 'none';
+          statusEl.style.opacity = '1';
+          statusEl.style.transition = '';
+        }, 300);
+      }, duration);
+    }
+  },
+  
+  // 隐藏状态信息
+  hideStatusMessage: function() {
+    const statusEl = document.getElementById('status-message');
+    if (statusEl) {
+      statusEl.style.display = 'none';
+    }
+    if (this._statusMessageTimeout) {
+      clearTimeout(this._statusMessageTimeout);
+      this._statusMessageTimeout = null;
+    }
+  },
+  
+  // 显示自定义确认对话框
+  showConfirmDialog: function(message, title = '确认') {
+    return new Promise((resolve) => {
+      // 创建遮罩层
+      const overlay = document.createElement('div');
+      overlay.id = 'wx-confirm-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      `;
+      
+      // 创建对话框
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: #1f1f1f;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 20px;
+        min-width: 300px;
+        max-width: 500px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        color: white;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      `;
+      
+      dialog.innerHTML = `
+        <div style="font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #fff;">${title}</div>
+        <div style="font-size: 14px; line-height: 1.6; margin-bottom: 20px; color: rgba(255, 255, 255, 0.9); white-space: pre-line;">${message}</div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button id="wx-confirm-cancel" style="
+            background: #595959;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+          ">取消</button>
+          <button id="wx-confirm-ok" style="
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+          ">确定</button>
+        </div>
+      `;
+      
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      
+      // 清理函数
+      const cleanup = () => {
+        document.body.removeChild(overlay);
+      };
+      
+      // 绑定事件
+      const okBtn = dialog.querySelector('#wx-confirm-ok');
+      const cancelBtn = dialog.querySelector('#wx-confirm-cancel');
+      
+      okBtn.onclick = () => {
+        cleanup();
+        resolve(true);
+      };
+      
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(false);
+      };
+      
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
+        }
+      };
+      
+      // ESC键关闭
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          cleanup();
+          document.removeEventListener('keydown', escHandler);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', escHandler);
+    });
   },
   
   // 更新批量下载UI
@@ -2068,15 +2394,15 @@ window.__wx_channels_profile_collector = {
   },
   
   // 开始手动下载（浏览器下载对话框）
-  startManualDownload: function() {
+  startManualDownload: async function() {
     if (this.batchDownloading) {
       console.log('⚠️ 批量下载已在进行中，请等待完成后再进行手动下载');
-      alert('批量下载进行中，请等待完成后再进行手动下载');
+      this.showStatusMessage('批量下载进行中，请等待完成后再进行手动下载', 'warning');
       return;
     }
     
     if (this.videos.length === 0) {
-      alert('没有找到可下载的视频，请先刷新页面让系统自动采集视频列表');
+      this.showStatusMessage('没有找到可下载的视频，请先刷新页面让系统自动采集视频列表', 'warning');
       return;
     }
     
@@ -2090,13 +2416,14 @@ window.__wx_channels_profile_collector = {
     });
     
     if (validVideos.length === 0) {
-      alert('没有找到有效的视频URL，请刷新页面重新采集');
+      this.showStatusMessage('没有找到有效的视频URL，请刷新页面重新采集', 'warning');
       return;
     }
     
     // 显示选择对话框
     const message = `找到 ${validVideos.length} 个视频\n\n手动下载会逐个弹出浏览器下载对话框，您可以选择保存位置。\n\n是否继续？`;
-    if (!confirm(message)) {
+    const confirmed = await this.showConfirmDialog(message, '确认下载');
+    if (!confirmed) {
       return;
     }
     
@@ -2132,7 +2459,7 @@ window.__wx_channels_profile_collector = {
       }).catch(() => {});
       
       this.hideDownloadProgress();
-      alert(`手动下载完成！\n共处理 ${this.downloadProgress.total} 个视频\n成功: ${successCount} 个\n失败: ${failedCount} 个`);
+      this.showStatusMessage(`手动下载完成！共处理 ${this.downloadProgress.total} 个视频，成功: ${successCount} 个，失败: ${failedCount} 个`, 'success', 8000);
       return;
     }
     
@@ -2168,15 +2495,15 @@ window.__wx_channels_profile_collector = {
   },
   
   // 开始批量下载（自动下载到服务器）
-  startBatchDownload: function() {
+  startBatchDownload: async function() {
     if (this.batchDownloading) {
       console.log('⚠️ 自动下载已在进行中');
-      alert('自动下载进行中，请等待完成');
+      this.showStatusMessage('自动下载进行中，请等待完成', 'warning');
       return;
     }
     
     if (this.videos.length === 0) {
-      alert('没有找到可下载的视频，请先刷新页面让系统自动采集视频列表');
+      this.showStatusMessage('没有找到可下载的视频，请先刷新页面让系统自动采集视频列表', 'warning');
       return;
     }
     
@@ -2190,7 +2517,7 @@ window.__wx_channels_profile_collector = {
     });
     
     if (validVideos.length === 0) {
-      alert('没有找到有效的视频URL，请刷新页面重新采集');
+      this.showStatusMessage('没有找到有效的视频URL，请刷新页面重新采集', 'warning');
       return;
     }
     
@@ -2200,7 +2527,8 @@ window.__wx_channels_profile_collector = {
     
     // 显示确认对话框
     const message = `找到 ${validVideos.length} 个视频\n\n自动下载会将视频保存到软件的 downloads/<作者名称>/ 目录。\n\n是否继续？`;
-    if (!confirm(message)) {
+    const confirmed = await this.showConfirmDialog(message, '确认下载');
+    if (!confirmed) {
       return;
     }
     
@@ -2227,7 +2555,7 @@ window.__wx_channels_profile_collector = {
     if (this.batchCancelRequested) {
       this.batchDownloading = false;
       this.hideDownloadProgress();
-      alert('已取消批量下载');
+      this.showStatusMessage('已取消批量下载', 'info');
       return;
     }
     if (this.downloadProgress.current >= this.downloadProgress.total) {
@@ -2246,7 +2574,7 @@ window.__wx_channels_profile_collector = {
       }).catch(() => {});
       
       this.hideDownloadProgress();
-      alert(`自动下载完成！\n共处理 ${this.downloadProgress.total} 个视频\n成功: ${successCount} 个\n失败: ${failedCount} 个\n保存位置: downloads/<作者名称>/`);
+      this.showStatusMessage(`自动下载完成！共处理 ${this.downloadProgress.total} 个视频，成功: ${successCount} 个，失败: ${failedCount} 个`, 'success', 8000);
       return;
     }
     
@@ -2686,7 +3014,7 @@ window.__wx_channels_profile_collector = {
   // 导出视频链接
   exportVideoLinks: function(format) {
     if (this.videos.length === 0) {
-      alert('没有找到可导出的视频');
+      this.showStatusMessage('没有找到可导出的视频', 'warning');
       return;
     }
     

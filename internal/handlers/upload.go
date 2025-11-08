@@ -189,7 +189,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.Info("📦 upload_chunk: 接收分片 %d/%d (uploadId: %s)", index+1, total, uploadId[:8])
+	utils.Info("[分片上传] 接收分片: uploadId=%s, 分片索引=%d/%d", uploadId, index+1, total)
 
     file, _, err := Conn.Request.FormFile("chunk")
 	if err != nil {
@@ -242,10 +242,12 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
             if !strings.EqualFold(sum, checksum) {
                 _ = out.Close()
                 _ = os.Remove(partPath)
+                utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
                 h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
                 return true
             }
             written = n
+            utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
         case "sha256":
             hsh := sha256.New()
             n, err := io.Copy(io.MultiWriter(out, hsh), file)
@@ -254,10 +256,12 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
             if !strings.EqualFold(sum, checksum) {
                 _ = out.Close()
                 _ = os.Remove(partPath)
+                utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
                 h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
                 return true
             }
             written = n
+            utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
         default:
             h.sendErrorResponse(Conn, fmt.Errorf("unsupported_algo"))
             return true
@@ -271,11 +275,13 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
     // 尺寸校验（可选字段 + 上限保护）
     if expectedSize >= 0 && written != expectedSize {
         _ = out.Close(); _ = os.Remove(partPath)
+        utils.Error("[分片上传] 尺寸不匹配: uploadId=%s, 分片索引=%d, 期望=%d, 实际=%d", uploadId, index, expectedSize, written)
         h.sendErrorResponse(Conn, fmt.Errorf("size_mismatch"))
         return true
     }
     if h.config != nil && h.config.ChunkSize > 0 && written > h.config.ChunkSize*2 { // 容忍放宽至2倍
         _ = out.Close(); _ = os.Remove(partPath)
+        utils.Error("[分片上传] 分片过大: uploadId=%s, 分片索引=%d, 大小=%d, 限制=%d", uploadId, index, written, h.config.ChunkSize*2)
         h.sendErrorResponse(Conn, fmt.Errorf("chunk_too_large"))
         return true
     }
@@ -285,7 +291,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.Info("✅ upload_chunk: 分片 %d/%d 已保存 (%.2f MB)", index+1, total, float64(written)/(1024*1024))
+	utils.Info("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, float64(written)/(1024*1024), partPath)
 	h.sendSuccessResponse(Conn)
 	return true
 }
@@ -348,9 +354,11 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	if req.UploadId == "" || req.Total <= 0 || req.Filename == "" {
+		utils.Error("[分片合并] 缺少必要字段: uploadId=%s, total=%d, filename=%s", req.UploadId, req.Total, req.Filename)
 		h.sendErrorResponse(Conn, fmt.Errorf("missing fields"))
 		return true
 	}
+	utils.Info("[分片合并] 开始合并: uploadId=%s, 文件名=%s, 作者=%s, 分片数=%d", req.UploadId, req.Filename, req.AuthorName, req.Total)
 
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
@@ -406,6 +414,7 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
     for i := 0; i < req.Total; i++ {
         partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", i))
         if _, err := os.Stat(partPath); err != nil {
+            utils.Error("[分片合并] 分片缺失: uploadId=%s, 分片索引=%d, 路径=%s", req.UploadId, i, partPath)
             h.sendErrorResponse(Conn, fmt.Errorf("missing_part_%06d", i))
             return true
         }
@@ -435,6 +444,7 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	os.RemoveAll(upDir)
 
 	fileSize := float64(totalWritten) / (1024 * 1024)
+	utils.Info("[分片合并] 合并完成: uploadId=%s, 文件名=%s, 作者=%s, 路径=%s, 大小=%.2fMB, 分片数=%d", req.UploadId, req.Filename, req.AuthorName, finalPath, fileSize, req.Total)
 	color.Green("✓ 分片视频已保存: %s (%.2f MB)", finalPath, fileSize)
 
 	responseData := map[string]interface{}{
