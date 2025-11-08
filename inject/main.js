@@ -1800,7 +1800,7 @@ window.__wx_channels_profile_collector = {
       <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
         <label style="display: flex; align-items: center; color: white; font-size: 13px; cursor: pointer;">
           <input type="checkbox" id="force-redownload-checkbox" style="margin-right: 6px; cursor: pointer;" />
-          <span>强制重新下载（覆盖已存在的文件）</span>
+          <span>强制重新下载（覆盖已存在的文件，只有后端下载生效）</span>
         </label>
       </div>
       <div style="margin-top:8px;">
