@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-=======
-# 视频号下载助手beta版
-
->>>>>>> 980f21e7cd74ff797650dd97abe1c4fd74615916
 ## 项目概览
 
 本项目是一个基于 Go 与 SunnyNet 的本地 HTTP 代理工具，用于拦截微信视频号网页流量并进行脚本注入与本地交互：
@@ -19,6 +14,11 @@
 - `inject/main.js`：前端注入脚本（随 HTTP 相应注入）
 - `lib/jszip.min.js`, `lib/FileSaver.min.js`：静态依赖，由本地接口返回
 
+## 更新截图
+
+![更新截图](jietu.png)
+
+没有收到大家的反馈，我根据我自己所想，进行了版本优化。批量下载去重只有后端下载起作用，前端下载不能去重，也增加了强制下载功能。
 
 ## 构建与运行
 
@@ -39,7 +39,6 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 
 ```bash
 ./wx_channel.exe
-./wx_channel_mini.exe
 ```
 
 可选参数：
@@ -57,7 +56,7 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 - 本地令牌：设置 `WX_CHANNEL_TOKEN=你的密钥`，前端/调用方需在请求头携带 `X-Local-Auth: 你的密钥`
 - Origin 白名单：设置 `WX_CHANNEL_ALLOWED_ORIGINS=https://example.com,https://foo.bar`
   - 启用后，接口会回显 `Access-Control-Allow-Origin` 并支持 `POST, OPTIONS` 预检；允许头：`Content-Type, X-Local-Auth`
-  - 并发与限流：
+ - 并发与限流：
    - 分片并发上限 `UploadChunkConcurrency`（默认 4）
    - 合并并发上限 `UploadMergeConcurrency`（默认 1）
 
@@ -90,7 +89,7 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
   - `/__wx_channels_api/batch_start`：启动批量下载任务（入参 videos: [{id,url,title,filename,authorName}]）
   - `/__wx_channels_api/batch_progress`：查询批量下载进度（返回 total/done/failed/running）
   - `/__wx_channels_api/batch_cancel`：取消批量下载
-  - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
+ - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
   - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
 
 
@@ -130,7 +129,9 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
   - “导出链接”支持多格式选择（前端导出，字段更丰富）：
     - TXT/JSON/Markdown 三种格式
     - 字段包含：标题、ID、URL、KEY、作者、时长、大小、点赞、评论、收藏、转发、创建时间、封面
-  - “取消”按钮：前端批量下载支持即时取消（AbortController），无需刷新；同时会通知后端 `batch_cancel`
+  - “取消”按钮：面板中提供“取消”操作，可即时停止前端批量；后端批量亦提供“取消”按钮/接口
+- 取消
+  - 面板包含“取消”按钮：前端批量下载支持即时取消（AbortController），无需刷新；同时会通知后端 `batch_cancel`
 
 
 ## 打包试运行建议
@@ -141,8 +142,7 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 4) 在 `downloads/` 下查看导出记录与下载的 mp4 文件
 
 
-<<<<<<< HEAD
-## 最新更新（v20251104）
+## 最新更新（v20251108）
 
 ### UI/UX 优化
 - **状态信息栏**：替代浏览器原生 `alert`，提供更美观的提示体验
@@ -162,14 +162,9 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 - 日志默认开启（5MB 滚动）
 
 
-=======
->>>>>>> 980f21e7cd74ff797650dd97abe1c4fd74615916
 ## 备注
 
 - 首次试运行建议关注：证书安装提示、浏览器代理是否生效、控制台是否打印页面 URL 与视频信息、`downloads/` 是否生成 CSV 与 mp4。
 - 如需我在上述改进中优先实现某几项，请指出优先级，我可以直接提交对应代码编辑。
-<<<<<<< HEAD
 
 
-=======
->>>>>>> 980f21e7cd74ff797650dd97abe1c4fd74615916
