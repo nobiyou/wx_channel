@@ -93,7 +93,6 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 wx_channel.exe --help                 # 显示帮助信息
 wx_channel.exe -v, --version          # 显示版本信息
 wx_channel.exe -p, --port <端口>       # 指定代理端口（默认 2025）
-wx_channel.exe -d, --dev <设备>        # 指定网络设备（macOS 用）
 wx_channel.exe --uninstall            # 卸载根证书
 ```
 
@@ -124,6 +123,7 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
 ## 文档
 
 完整的文档可在 [docs](docs/) 目录下找到：
+也可以在线查看文档[在线文档](https://wx-channel.gitbook.io/wx_channel-docs/)
 
 - [介绍](docs/INTRODUCTION.md) - 项目概述和功能说明
 - [安装指南](docs/INSTALLATION.md) - 详细的安装和配置步骤
