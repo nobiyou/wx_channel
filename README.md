@@ -92,7 +92,7 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 ```bash
 wx_channel.exe --help                 # 显示帮助信息
 wx_channel.exe -v, --version          # 显示版本信息
-wx_channel.exe -p, --port <端口>       # 指定代理端口（默认 2025）
+wx_channel.exe -p, --port <端口>      # 指定代理端口（默认 2025）
 wx_channel.exe --uninstall            # 卸载根证书
 ```
 
