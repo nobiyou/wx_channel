@@ -33,9 +33,8 @@
 
 ## 系统要求
 
-- **操作系统**：Windows 7+、macOS 10.12+、Linux（主流发行版）
+- **操作系统**：Windows 10+
 - **Go 环境**：1.23+（仅当需要从源码编译时）
-- **浏览器**：Chrome、Edge、Firefox 等现代浏览器
 - **网络**：能够访问微信视频号网站
 - **权限**：建议以管理员身份运行（用于证书自动安装）
 
@@ -68,9 +67,6 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
    ```bash
    # Windows
    wx_channel.exe
-   
-   # macOS/Linux
-   ./wx_channel
    ```
 
 2. **配置浏览器代理**
