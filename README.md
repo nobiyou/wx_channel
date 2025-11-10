@@ -1,172 +1,213 @@
-# 视频号下载助手beta版
+# 微信视频号下载助手
 
-## 项目概览
+**WX Channel Downloader** - 一个简单易用的微信视频号下载工具
 
-本项目是一个基于 Go 与 SunnyNet 的本地 HTTP 代理工具，用于拦截微信视频号网页流量并进行脚本注入与本地交互：
-- 注入前端脚本采集视频信息、触发下载、分片上传
-- 本地提供 `__wx_channels_api/*` 接口用于信息展示、记录与保存视频
-- 将下载记录保存为 CSV，并按作者/文件名组织本地文件
+<p align="center">
+    <a href="https://github.com/nobiyou/wx_channel"><img src="https://img.shields.io/badge/GitHub-Repository-181717.svg?style=for-the-badge&logo=github" alt="GitHub Repository"></a>
+    <a href="https://github.com/nobiyou/wx_channel/issues"><img src="https://img.shields.io/badge/Report-Issues-red.svg?style=for-the-badge" alt="Report Issues"></a>
+    <a href="https://github.com/nobiyou/wx_channel/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License"></a>
+    <br>
+    <img alt="Go Version" src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
+    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square">
+    <img alt="Version" src="https://img.shields.io/badge/Version-v20251108-blue.svg?style=flat-square">
+</p>
 
-主要目录：
-- `main.go`：入口、证书安装/卸载、代理启动、HTTP 回调与路由分发
-- `internal/config`：配置（端口、目录、分片大小等）
-- `internal/handlers`：API 接口（视频信息、上传、记录、导出）
-- `internal/storage`：CSV 记录管理与去重
-- `internal/utils`：日志、输出格式、文件名清理、时长/数字格式化
-- `inject/main.js`：前端注入脚本（随 HTTP 相应注入）
-- `lib/jszip.min.js`, `lib/FileSaver.min.js`：静态依赖，由本地接口返回
+---
 
-## 更新截图
+微信视频号下载助手是一个基于 Go 与 SunnyNet 的本地 HTTP 代理工具，用于拦截微信视频号网页流量并进行脚本注入与本地交互。通过零配置、一键启动的方式，让您在几分钟内开始下载和管理视频号内容。
 
 ![更新截图](jietu.png)
 
-没有收到大家的反馈，我根据我自己所想，进行了版本优化。批量下载去重只有后端下载起作用，前端下载不能去重，也增加了强制下载功能。
+## 功能特性
 
-## 构建与运行
+- **简单安装**：下载即用，无需复杂配置，几分钟内即可开始使用
+- **自动注入**：自动在视频号页面注入友好的操作界面，无需手动操作
+- **批量下载**：支持单个和批量下载，可选择下载或全量下载
+- **智能去重**：自动去重，避免重复下载，节省存储空间
+- **分片上传**：大文件采用分片上传，支持断点续传
+- **加密支持**：支持加密视频的下载和解密
+- **多格式导出**：支持导出视频链接为 TXT、JSON、Markdown 格式
+- **下载记录**：自动记录所有下载信息到 CSV 文件，便于管理
+- **文件组织**：按作者自动分类保存视频文件
+- **日志系统**：完整的日志记录，支持文件大小滚动
 
-前置环境：Go 1.23+（toolchain 1.24.x 亦可）
+## 系统要求
 
-### Windows 本地构建
+- **操作系统**：Windows 10+
+- **Go 环境**：1.23+（仅当需要从源码编译时）
+- **网络**：能够访问微信视频号网站
+- **权限**：建议以管理员身份运行（用于证书自动安装）
+
+## 安装
+
+### 方式一：使用预编译版本（推荐）
+
+1. 访问 [GitHub Releases](https://github.com/nobiyou/wx_channel/releases)
+2. 下载对应操作系统的最新版本
+3. 解压到任意目录
+4. 运行可执行文件
+
+### 方式二：从源码编译
 
 ```bash
-# 基本打包
+# 克隆仓库
+git clone https://github.com/nobiyou/wx_channel.git
+cd wx_channel
+
+# 基本编译
 go build -o wx_channel.exe
 
-# 优化体积的打包
+# 优化体积编译（推荐）
 go build -ldflags="-s -w" -o wx_channel_mini.exe
 ```
 
+## 快速开始
 
-构建完成后，直接运行可执行文件：
+1. **启动程序**
+   ```bash
+   # Windows
+   wx_channel.exe
+   
+   # macOS/Linux
+   ./wx_channel
+   ```
+
+2. **配置浏览器代理**
+   - 设置 HTTP 代理为 `127.0.0.1:2025`（或您指定的端口）
+   - 推荐使用代理扩展（如 SwitchyOmega）进行配置
+
+3. **安装证书**
+   - 程序首次运行时会自动尝试安装根证书
+   - 如果自动安装失败，手动安装 `downloads/SunnyRoot.cer`
+   - 安装后重启浏览器
+
+4. **开始使用**
+   - 打开微信视频号页面
+   - 使用注入的前端面板进行下载
+
+## 配置
+
+### 命令行参数
 
 ```bash
-./wx_channel.exe
+wx_channel.exe --help                 # 显示帮助信息
+wx_channel.exe -v, --version          # 显示版本信息
+wx_channel.exe -p, --port <端口>       # 指定代理端口（默认 2025）
+wx_channel.exe -d, --dev <设备>        # 指定网络设备（macOS 用）
+wx_channel.exe --uninstall            # 卸载根证书
 ```
 
-可选参数：
-- `--help` 显示帮助
-- `-v, --version` 显示版本
-- `-p, --port` 指定代理端口（默认 2025）
-- `-d, --dev` 指定网络设备（macOS 代理设置用）
-- `--uninstall` 卸载根证书并退出
+### 环境变量
 
-首次运行会检测根证书（SunnyRoot.cer）：
-- 若权限不足安装失败，程序会将证书写入 `downloads/SunnyRoot.cer`，可手动安装
-- 安装后需重启浏览器；如需退出服务，使用 Ctrl+C
+```bash
+# 代理端口
+WX_CHANNEL_PORT=2025
 
-可选安全配置：
-- 本地令牌：设置 `WX_CHANNEL_TOKEN=你的密钥`，前端/调用方需在请求头携带 `X-Local-Auth: 你的密钥`
-- Origin 白名单：设置 `WX_CHANNEL_ALLOWED_ORIGINS=https://example.com,https://foo.bar`
-  - 启用后，接口会回显 `Access-Control-Allow-Origin` 并支持 `POST, OPTIONS` 预检；允许头：`Content-Type, X-Local-Auth`
- - 并发与限流：
-   - 分片并发上限 `UploadChunkConcurrency`（默认 4）
-   - 合并并发上限 `UploadMergeConcurrency`（默认 1）
+# 下载目录
+WX_CHANNEL_DOWNLOADS_DIR=downloads
 
-日志配置（可选）：
-- 默认开启：日志写入 `logs/wx_channel.log`，支持大小滚动
-- `WX_CHANNEL_LOG_FILE`：覆盖默认日志文件路径
-- `WX_CHANNEL_LOG_MAX_MB`：单个日志文件最大大小（MB，默认 5）
+# 安全配置
+WX_CHANNEL_TOKEN=your_secret_token                    # 本地授权令牌
+WX_CHANNEL_ALLOWED_ORIGINS=https://example.com        # Origin 白名单
 
+# 日志配置
+WX_CHANNEL_LOG_FILE=logs/wx_channel.log               # 日志文件路径
+WX_CHANNEL_LOG_MAX_MB=5                               # 日志文件最大大小（MB）
 
-## 运行时行为
+# 并发配置
+WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY=4                 # 分片上传并发数
+WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
+```
 
-- 代理端口：默认 `127.0.0.1:2025`（可通过参数或配置设置）
-- 注入静态资源：
-  - 命中包含 `jszip`/`FileSaver.min` 的路径时，直接返回 `lib/` 下本地文件
-- 前端→本地 API（POST）：
-  - `/__wx_channels_api/profile`：打印视频信息（昵称、标题、大小、时长、互动数据、封面、创建时间、IP 地区等）
-  - `/__wx_channels_api/tip`：打印提示
-  - `/__wx_channels_api/page_url`：记录并打印当前页面分享链接
-  - `/__wx_channels_api/init_upload`：初始化分片上传，返回 `uploadId`
-  - `/__wx_channels_api/upload_chunk`：接收分片，保存为 `downloads/.uploads/<uploadId>/<index>.part`
-    - 可选校验：表单字段 `checksum` + `algo`（`md5`/`sha256`），`size` 指定期望字节数
-  - `/__wx_channels_api/complete_upload`：合并分片为最终 mp4（合并前校验分片存在；按作者名分文件夹，冲突自动编号）
-  - `/__wx_channels_api/upload_status`：查询已上传分片列表（用于断点续传）
-  - `/__wx_channels_api/save_video`：直接保存整文件（非分片）
-  - `/__wx_channels_api/record_download`：将下载信息写入 CSV（去重）
-  - `/__wx_channels_api/export_video_list`：导出主页视频链接文本（服务端-基础字段）
-  - `/__wx_channels_api/export_video_list_json`：导出主页视频链接为 JSON 文件（服务端-基础字段）
-  - `/__wx_channels_api/export_video_list_md`：导出主页视频链接为 Markdown 文件（服务端-基础字段）
-  - `/__wx_channels_api/batch_download_status`：打印批量下载进度
-  - `/__wx_channels_api/batch_start`：启动批量下载任务（入参 videos: [{id,url,title,filename,authorName}]）
-  - `/__wx_channels_api/batch_progress`：查询批量下载进度（返回 total/done/failed/running）
-  - `/__wx_channels_api/batch_cancel`：取消批量下载
- - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
-  - `/__wx_channels_api/batch_failed`：导出失败清单（JSON），返回导出文件路径
+更多配置选项请参考 [配置文档](docs/CONFIGURATION.md)。
 
+## 文档
 
-## 下载目录与记录
+完整的文档可在 [docs](docs/) 目录下找到：
 
-- 目录结构：
-  - `downloads/` 根目录
-  - `downloads/download_records.csv`（UTF-8 BOM，首行表头）
-  - `downloads/.uploads/<uploadId>/000000.part ...`（分片临时目录）
-  - `downloads/<作者（清理后）>/<文件名>.mp4`（最终文件，重名自动 `(...n)`）
+- [介绍](docs/INTRODUCTION.md) - 项目概述和功能说明
+- [安装指南](docs/INSTALLATION.md) - 详细的安装和配置步骤
+- [配置概览](docs/CONFIGURATION.md) - 所有配置选项说明
+- [故障排除](docs/TROUBLESHOOTING.md) - 常见问题解决方案
+- [常见问题](docs/COMMON_ISSUES.md) - 快速问题解答
+- [优化记录](docs/OPTIMIZATION.md) - 项目优化历程
 
-文件名/目录将自动清理非法字符，并在缺失扩展名时补 `.mp4`。
+## 工作原理
 
+1. **代理拦截**：程序启动本地 HTTP 代理服务器，拦截浏览器流量
+2. **脚本注入**：自动在微信视频号页面注入 JavaScript 脚本
+3. **信息采集**：脚本采集视频信息并通过 API 发送到本地服务
+4. **文件保存**：本地服务接收视频数据并保存到指定目录
+5. **记录管理**：所有下载记录自动保存到 CSV 文件
 
-## 后端批量下载与解密
+## 目录结构
 
-- 选择清单提交
-  - 注入面板支持“后端批量开始”“仅选中-后端下载”。提交时每条视频携带：
-    - `id, url, title, filename, authorName`
-    - 若视频含 key：前端生成 `decryptor_array`，取前 128 KiB 作为 `decryptorPrefix`（base64）并附带 `prefixLen`
-- 服务端解密与保存
-  - `batch_start` 接收 `decryptorPrefix/prefixLen` 后传入任务
-  - Downloader 在下载时仅对前 `prefixLen` 字节做 XOR 解密，其余数据原样写入
-  - 使用 `<path>.downloading` 临时文件与原子重命名，避免半成品
-  - 进程内去重（按 `id` 优先，其次 `url`），同名非空文件直接跳过（避免重复副本）
-- 进度与失败
-  - 通过 `batch_progress` 查看 `{total, done, failed, running}`
-  - 通过 `batch_failed` 导出失败清单 JSON，便于复盘与重试
+```
+wx_channel/
+├── downloads/                    # 下载目录
+│   ├── download_records.csv     # 下载记录
+│   ├── .uploads/                 # 分片上传临时目录
+│   └── <作者名>/                 # 按作者分类的视频文件
+├── logs/                         # 日志目录
+│   └── wx_channel.log           # 日志文件
+├── docs/                         # 文档目录
+├── internal/                     # 内部包
+│   ├── config/                   # 配置管理
+│   ├── handlers/                 # API 处理器
+│   ├── services/                 # 服务层
+│   ├── storage/                  # 存储管理
+│   └── utils/                    # 工具函数
+├── inject/                       # 前端注入脚本
+├── lib/                          # 静态资源
+└── main.go                       # 主程序入口
+```
 
+## 故障排除
 
-## 前端批量下载（含解密）与选择下载
+遇到问题？请查看 [故障排除文档](docs/TROUBLESHOOTING.md) 或 [常见问题](docs/COMMON_ISSUES.md)。
 
-- 面板支持：
-  - “编辑选择”展开选择列表（可勾选需要下载的视频）；每项展示：标题、封面、创建时间、时长、大小
-  - “仅选中-前端下载”：前端解密 → 分片上传保存；可见进度；支持取消
-  - “仅选中-后端下载”：将勾选清单提交给后端队列
-  - “导出链接”支持多格式选择（前端导出，字段更丰富）：
-    - TXT/JSON/Markdown 三种格式
-    - 字段包含：标题、ID、URL、KEY、作者、时长、大小、点赞、评论、收藏、转发、创建时间、封面
-  - “取消”按钮：面板中提供“取消”操作，可即时停止前端批量；后端批量亦提供“取消”按钮/接口
-- 取消
-  - 面板包含“取消”按钮：前端批量下载支持即时取消（AbortController），无需刷新；同时会通知后端 `batch_cancel`
+如需帮助，可以：
+- 提交 [GitHub Issue](https://github.com/nobiyou/wx_channel/issues)
+- 查看 [文档](docs/)
 
+## 更新日志
 
-## 打包试运行建议
+所有版本的更新记录可在 [GitHub Releases](https://github.com/nobiyou/wx_channel/releases) 页面查看。
 
-1) 本地构建可执行文件并运行（建议以管理员身份运行，便于证书安装）
-2) 浏览器配置使用本地 HTTP 代理 `127.0.0.1:<端口>`（或按提示页面引导）
-3) 打开微信视频号相关页面，观察控制台提示与操作日志
-4) 在 `downloads/` 下查看导出记录与下载的 mp4 文件
+### 最新版本（v20251108）
 
+- **UI/UX 优化**：状态信息栏、自定义确认对话框
+- **批量下载**：支持前端和后端批量下载，支持选择下载
+- **多格式导出**：支持 TXT、JSON、Markdown 格式
+- **加密支持**：支持加密视频的前缀解密
+- **日志系统**：默认开启，支持文件大小滚动
+- **性能优化**：分片上传并发控制、CSV 去重优化
 
-## 最新更新（v20251108）
+## 贡献
 
-### UI/UX 优化
-- **状态信息栏**：替代浏览器原生 `alert`，提供更美观的提示体验
-  - 支持多种消息类型（信息/成功/警告/错误），不同颜色区分
-  - 使用半透明背景和柔和色调，视觉更舒适
-  - 自动淡入淡出动画，支持自定义显示时长
-- **自定义确认对话框**：替代浏览器原生 `confirm`
-  - 深色主题，与整体UI风格统一
-  - 支持点击遮罩或ESC键取消
-  - 更友好的交互体验
+欢迎贡献代码！请遵循以下步骤：
 
-### 功能增强
-- 主页批量下载与前端取消（支持仅选中下载）
-- 导出链接多格式：TXT / JSON / Markdown
-- 后端批量下载：去重、失败清单、前缀解密
-- 分片上传与并发限流优化
-- 日志默认开启（5MB 滚动）
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
 
+## 许可证
 
-## 备注
+本项目采用 [MIT License](LICENSE) 许可证。
 
-- 首次试运行建议关注：证书安装提示、浏览器代理是否生效、控制台是否打印页面 URL 与视频信息、`downloads/` 是否生成 CSV 与 mp4。
-- 如需我在上述改进中优先实现某几项，请指出优先级，我可以直接提交对应代码编辑。
+## 致谢
 
+- [SunnyNet](https://github.com/qtgolang/SunnyNet) - HTTP/HTTPS 代理库
+- [Go](https://golang.org/) - 编程语言
 
+## 免责声明
+
+本工具仅供学习和研究使用。请遵守相关法律法规，尊重内容创作者的版权。使用本工具下载的内容请勿用于商业用途或非法传播。
+
+---
+
+<p align="center">
+    Made with ❤️ by <a href="https://github.com/nobiyou">nobiyou</a>
+</p>
