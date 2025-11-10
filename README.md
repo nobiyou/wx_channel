@@ -8,7 +8,7 @@
     <a href="https://github.com/nobiyou/wx_channel/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License"></a>
     <br>
     <img alt="Go Version" src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
-    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square">
+    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
     <img alt="Version" src="https://img.shields.io/badge/Version-v20251108-blue.svg?style=flat-square">
 </p>
 
