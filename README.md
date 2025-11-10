@@ -197,7 +197,7 @@ wx_channel/
 
 如果本项目对你有帮助，欢迎扫码赞赏，支持后续维护与迭代：
 
-![赞赏码](zanshang.png)
+<img src="zanshang.png" width="50%" alt="赞赏码">  
 
 ### 赞赏名单
 
