@@ -33,8 +33,9 @@
 
 ## 系统要求
 
-- **操作系统**：Windows 10+
+- **操作系统**：Windows 7+、macOS 10.12+、Linux（主流发行版）
 - **Go 环境**：1.23+（仅当需要从源码编译时）
+- **浏览器**：Chrome、Edge、Firefox 等现代浏览器
 - **网络**：能够访问微信视频号网站
 - **权限**：建议以管理员身份运行（用于证书自动安装）
 
@@ -84,6 +85,8 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
 4. **开始使用**
    - 打开微信视频号页面
    - 使用注入的前端面板进行下载
+   - 支持单个下载、批量下载、选择下载等多种方式
+   - 详细使用说明请参考 [下载视频文档](docs/DOWNLOADMOVIE.md)
 
 ## 配置
 
@@ -123,11 +126,11 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
 ## 文档
 
 完整的文档可在 [docs](docs/) 目录下找到：
-也可以在线查看文档[在线文档](https://wx-channel.gitbook.io/wx_channel-docs/)
 
 - [介绍](docs/INTRODUCTION.md) - 项目概述和功能说明
 - [安装指南](docs/INSTALLATION.md) - 详细的安装和配置步骤
 - [配置概览](docs/CONFIGURATION.md) - 所有配置选项说明
+- [下载视频](docs/DOWNLOADMOVIE.md) - 下载视频及相关说明
 - [故障排除](docs/TROUBLESHOOTING.md) - 常见问题解决方案
 - [常见问题](docs/COMMON_ISSUES.md) - 快速问题解答
 - [优化记录](docs/OPTIMIZATION.md) - 项目优化历程
