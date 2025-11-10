@@ -145,11 +145,11 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
 ```
 wx_channel/
 ├── downloads/                    # 下载目录
-│   ├── download_records.csv     # 下载记录
+│   ├── download_records.csv      # 下载记录
 │   ├── .uploads/                 # 分片上传临时目录
 │   └── <作者名>/                 # 按作者分类的视频文件
 ├── logs/                         # 日志目录
-│   └── wx_channel.log           # 日志文件
+│   └── wx_channel.log            # 日志文件
 ├── docs/                         # 文档目录
 ├── internal/                     # 内部包
 │   ├── config/                   # 配置管理
