@@ -606,18 +606,7 @@ const downloadButtonStyles = `
 if (document.head) {
   document.head.insertAdjacentHTML('beforeend', downloadButtonStyles);
 }
-var $icon = document.createElement("div");
-var $svg = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M213.333333 853.333333h597.333334v-85.333333H213.333333m597.333334-384h-170.666667V128H384v256H213.333333l298.666667 298.666667 298.666667-298.666667z"></path></svg>`;
-$icon.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item download-icon" role="button" aria-label="下载" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$svg}<div data-v-1fe2ed37 class="op-text">下载</div></div></div>`;
-var __wx_channels_video_download_btn__ = $icon.firstChild;
-__wx_channels_video_download_btn__.onclick = () => {
-  if (!window.__wx_channels_store__.profile) {
-    return;
-  }
-  __wx_channels_handle_click_download__(
-    window.__wx_channels_store__.profile.spec[0]
-  );
-};
+// 按钮在各自的位置创建，不需要全局创建
 var count = 0;
 fetch("/__wx_channels_api/tip", {
   method: "POST",
@@ -675,7 +664,7 @@ async function __insert_download_btn_to_home_page() {
   }
   const $parent = $elm3.parentElement;
   if ($parent) {
-    // 使用SVG图标而不是Base64图标
+    // Home页面只创建下载按钮，不创建评论按钮
     var $icon = document.createElement("div");
     var $svg = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M213.333333 853.333333h597.333334v-85.333333H213.333333m597.333334-384h-170.666667V128H384v256H213.333333l298.666667 298.666667 298.666667-298.666667z"></path></svg>`;
     $icon.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item download-icon" role="button" aria-label="下载" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$svg}<div data-v-1fe2ed37 class="op-text">下载</div></div></div>`;
@@ -718,6 +707,7 @@ async function __insert_download_btn_to_home_page() {
       
       checkData();
     };
+    // Home页面只插入下载按钮
     $parent.appendChild(__wx_channels_video_download_btn__);
     __wx_log({
       msg: "注入下载按钮成功!",
@@ -812,18 +802,45 @@ async function insert_download_btn() {
     return document.getElementsByClassName("full-opr-wrp layout-row")[0];
   });
   if ($elm1) {
+    // 创建评论按钮
+    var $commentIcon1 = document.createElement("div");
+    var $commentSvg1 = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M853.333333 128H170.666667c-46.933333 0-85.333333 38.4-85.333334 85.333333v469.333334c0 46.933333 38.4 85.333333 85.333334 85.333333h128v128l170.666666-128h384c46.933333 0 85.333333-38.4 85.333334-85.333333V213.333333c0-46.933333-38.4-85.333333-85.333334-85.333333z m0 554.666667H469.333333l-128 96v-96H170.666667V213.333333h682.666666v469.333334z"></path></svg>`;
+    $commentIcon1.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item comment-icon" role="button" aria-label="评论" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$commentSvg1}<div data-v-1fe2ed37 class="op-text" style="margin-top:-1px;">评论</div></div></div>`;
+    var commentBtn1 = $commentIcon1.firstChild;
+    commentBtn1.onclick = () => {
+      if (window.__wx_channels_start_comment_collection) {
+        window.__wx_channels_start_comment_collection();
+      }
+    };
+    
+    // 创建下载按钮
+    var $icon1 = document.createElement("div");
+    var $svg1 = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M213.333333 853.333333h597.333334v-85.333333H213.333333m597.333334-384h-170.666667V128H384v256H213.333333l298.666667 298.666667 298.666667-298.666667z"></path></svg>`;
+    $icon1.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item download-icon" role="button" aria-label="下载" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$svg1}<div data-v-1fe2ed37 class="op-text">下载</div></div></div>`;
+    var downloadBtn1 = $icon1.firstChild;
+    downloadBtn1.onclick = () => {
+      if (!window.__wx_channels_store__.profile) {
+        return;
+      }
+      __wx_channels_handle_click_download__(
+        window.__wx_channels_store__.profile.spec[0]
+      );
+    };
+    
     var relative_node = $elm1.children[$elm1.children.length - 1];
     if (!relative_node) {
       __wx_log({
-        msg: "注入下载按钮成功1!",
+        msg: "注入评论和下载按钮成功1!",
       });
-      $elm1.appendChild(__wx_channels_video_download_btn__);
+      $elm1.appendChild(commentBtn1);
+      $elm1.appendChild(downloadBtn1);
       return;
     }
     __wx_log({
-      msg: "注入下载按钮成功2!",
+      msg: "注入评论和下载按钮成功2!",
     });
-    $elm1.insertBefore(__wx_channels_video_download_btn__, relative_node);
+    $elm1.insertBefore(commentBtn1, relative_node);
+    $elm1.insertBefore(downloadBtn1, relative_node);
     return;
   }
   
@@ -832,12 +849,23 @@ async function insert_download_btn() {
     return document.getElementsByClassName("full-opr-wrp layout-col")[0];
   });
   if ($elm2) {
-    // 使用与Home页和横向布局相同的样式
+    // 创建评论按钮
+    var $commentIcon2 = document.createElement("div");
+    var $commentSvg2 = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M853.333333 128H170.666667c-46.933333 0-85.333333 38.4-85.333334 85.333333v469.333334c0 46.933333 38.4 85.333333 85.333334 85.333333h128v128l170.666666-128h384c46.933333 0 85.333333-38.4 85.333334-85.333333V213.333333c0-46.933333-38.4-85.333333-85.333334-85.333333z m0 554.666667H469.333333l-128 96v-96H170.666667V213.333333h682.666666v469.333334z"></path></svg>`;
+    $commentIcon2.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item comment-icon" role="button" aria-label="评论" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$commentSvg2}<div data-v-1fe2ed37 class="op-text" style="margin-top:-1px;">评论</div></div></div>`;
+    var commentBtn2 = $commentIcon2.firstChild;
+    commentBtn2.onclick = () => {
+      if (window.__wx_channels_start_comment_collection) {
+        window.__wx_channels_start_comment_collection();
+      }
+    };
+    
+    // 创建下载按钮
     var $icon2 = document.createElement("div");
     var $svg2 = `<svg data-v-132dee25 class="svg-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="currentColor" width="28" height="28"><path d="M213.333333 853.333333h597.333334v-85.333333H213.333333m597.333334-384h-170.666667V128H384v256H213.333333l298.666667 298.666667 298.666667-298.666667z"></path></svg>`;
     $icon2.innerHTML = `<div class=""><div data-v-6548f11a data-v-1fe2ed37 class="click-box op-item download-icon" role="button" aria-label="下载" style="padding: 4px 4px 4px 4px; --border-radius: 4px; --left: 0; --top: 0; --right: 0; --bottom: 0;">${$svg2}<div data-v-1fe2ed37 class="op-text">下载</div></div></div>`;
-    __wx_channels_video_download_btn__ = $icon2.firstChild;
-    __wx_channels_video_download_btn__.onclick = () => {
+    var downloadBtn2 = $icon2.firstChild;
+    downloadBtn2.onclick = () => {
       if (!window.__wx_channels_store__.profile) {
         return;
       }
@@ -845,18 +873,21 @@ async function insert_download_btn() {
         window.__wx_channels_store__.profile.spec[0]
       );
     };
+    
     var relative_node = $elm2.children[$elm2.children.length - 1];
-  if (!relative_node) {
+    if (!relative_node) {
       __wx_log({
-        msg: "注入下载按钮成功3!",
+        msg: "注入评论和下载按钮成功3!",
       });
-      $elm2.appendChild(__wx_channels_video_download_btn__);
+      $elm2.appendChild(commentBtn2);
+      $elm2.appendChild(downloadBtn2);
       return;
     }
     __wx_log({
-      msg: "注入下载按钮成功4!",
+      msg: "注入评论和下载按钮成功4!",
     });
-    $elm2.insertBefore(__wx_channels_video_download_btn__, relative_node);
+    $elm2.insertBefore(commentBtn2, relative_node);
+    $elm2.insertBefore(downloadBtn2, relative_node);
     return;
   }
   
@@ -1577,6 +1608,16 @@ window.__wx_channels_profile_collector = {
     if (videoElements.length === 0) {
       console.log('⚠️ 未找到视频列表元素，尝试从API数据中获取');
       this.collectFromAPI();
+      
+      // 如果已经有视频数据（从API采集），发送日志
+      if (this.videos.length > 0) {
+        fetch('/__wx_channels_api/tip', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+        }).catch(() => {});
+      }
+      
       this.isCollecting = false;
       return;
     }
@@ -1591,6 +1632,16 @@ window.__wx_channels_profile_collector = {
     });
     
     console.log(`📊 [Profile页面] 采集到 ${this.videos.length} 个视频`);
+    
+    // 发送采集日志到后端
+    if (this.videos.length > 0) {
+      fetch('/__wx_channels_api/tip', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+      }).catch(() => {});
+    }
+    
     this.updateBatchDownloadUI();
     this.isCollecting = false;
   },
@@ -1649,6 +1700,11 @@ window.__wx_channels_profile_collector = {
   addVideoFromAPI: function(videoData) {
     if (!videoData || !videoData.id) return;
     
+    // 清理标题中的HTML标签
+    if (videoData.title) {
+      videoData.title = this.cleanHtmlTags(videoData.title);
+    }
+    
     // 检查是否已存在
     const exists = this.videos.some(v => v.id === videoData.id);
     if (!exists) {
@@ -1663,6 +1719,9 @@ window.__wx_channels_profile_collector = {
           body: JSON.stringify({msg: `📊 [主页采集器] 当前已采集 ${this.videos.length} 个视频`})
         }).catch(() => {});
       }
+      
+      // 记录最后一次添加视频的时间
+      this._lastVideoAddTime = Date.now();
       
       // 尝试立即更新UI
       this.updateBatchDownloadUI();
@@ -1681,11 +1740,25 @@ window.__wx_channels_profile_collector = {
             }
           }
           
-          // 如果采集完成（5秒内没有新视频），停止刷新
+          // 如果采集完成（5秒内没有新视频），停止刷新并发送最终日志
           if (this._lastVideoTime && Date.now() - this._lastVideoTime > 5000) {
             clearInterval(this._uiRefreshInterval);
             this._uiRefreshInterval = null;
             console.log('✓ 停止周期性UI刷新');
+            
+            // 发送最终的采集完成日志
+            if (this.videos.length > 0 && !this._finalLogSent) {
+              this._finalLogSent = true;
+              fetch('/__wx_channels_api/tip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+              }).then(() => {
+                console.log('✅ Profile采集完成日志已发送');
+              }).catch((err) => {
+                console.error('❌ Profile采集日志发送失败:', err);
+              });
+            }
           }
         }, 500);
       }
@@ -1695,11 +1768,38 @@ window.__wx_channels_profile_collector = {
     }
   },
   
+  // HTML标签清理函数
+  cleanHtmlTags: function(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    // 创建临时DOM元素来移除HTML标签
+    var tempDiv = document.createElement('div');
+    tempDiv.innerHTML = text;
+    var cleaned = tempDiv.textContent || tempDiv.innerText || '';
+    // 处理HTML实体
+    var htmlEntities = {
+      '&nbsp;': ' ',
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&apos;': "'",
+      '&#39;': "'",
+      '&#34;': '"'
+    };
+    for (var entity in htmlEntities) {
+      cleaned = cleaned.replace(new RegExp(entity, 'g'), htmlEntities[entity]);
+    }
+    // 移除剩余的HTML实体
+    cleaned = cleaned.replace(/&[a-zA-Z0-9#]+;/g, '');
+    return cleaned.trim();
+  },
+  
   // 处理API数据
   processAPIData: function(videosData) {
+    var self = this;
     this.videos = videosData.map((video, index) => ({
       id: video.id || `api_video_${index}`,
-      title: video.title || video.desc || `视频 ${index + 1}`,
+      title: self.cleanHtmlTags(video.title || video.desc) || `视频 ${index + 1}`,
       coverUrl: video.coverUrl || video.thumbUrl || '',
       element: null,
       index: index,
@@ -1708,6 +1808,21 @@ window.__wx_channels_profile_collector = {
     }));
     
     console.log(`📊 [API采集] 获取到 ${this.videos.length} 个视频`);
+    
+    // 发送采集日志到后端
+    if (this.videos.length > 0) {
+      console.log(`🚀 准备发送Profile采集日志到后端: ${this.videos.length} 个视频`);
+      fetch('/__wx_channels_api/tip', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+      }).then(() => {
+        console.log('✅ Profile采集日志发送成功');
+      }).catch((err) => {
+        console.error('❌ Profile采集日志发送失败:', err);
+      });
+    }
+    
     this.updateBatchDownloadUI();
   },
   
@@ -1722,10 +1837,14 @@ window.__wx_channels_profile_collector = {
     // 创建浮动UI
     const ui = document.createElement('div');
     ui.id = 'wx-channels-batch-download-ui';
+    
+    const isSearchPage = this.pageType === 'search';
+    const uiTitle = isSearchPage ? '搜索页面视频采集' : '主页页面视频采集';
+    const uiPosition = isSearchPage ? 'top: 80px; right: 20px;' : 'top: 20px; right: 20px;';
+    
     ui.style.cssText = `
       position: fixed;
-      top: 20px;
-      right: 20px;
+      ${uiPosition}
       background: rgba(0, 0, 0, 0.9);
       color: white;
       padding: 15px;
@@ -1738,7 +1857,7 @@ window.__wx_channels_profile_collector = {
     `;
     
     ui.innerHTML = `
-      <div style="margin-bottom: 10px; font-weight: bold;">主页页面视频采集</div>
+      <div style="margin-bottom: 10px; font-weight: bold;">${uiTitle}</div>
       <div id="video-count">已采集: 0 个视频</div>
       <div id="status-message" style="
         display: none;
@@ -1777,25 +1896,7 @@ window.__wx_channels_profile_collector = {
           padding: 6px 10px;
           border-radius: 4px;
           cursor: pointer;
-          margin-right: 6px;
         ">取消</button>
-        <button id="export-links-btn" style="
-          background: #1890ff;
-          color: white;
-          border: none;
-          padding: 6px 10px;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-right: 6px;
-        ">导出链接</button>
-        <button id="server-batch-failed" style="
-          background: #f5222d;
-          color: white;
-          border: none;
-          padding: 6px 10px;
-          border-radius: 4px;
-          cursor: pointer;
-        ">导出失败</button>
       </div>
       <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
         <label style="display: flex; align-items: center; color: white; font-size: 13px; cursor: pointer;">
@@ -1810,6 +1911,30 @@ window.__wx_channels_profile_collector = {
           background:#13c2c2;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">仅选中-前端下载</button>
         <button id="selected-backend" style="
           background:#531dab;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">仅选中-后端下载</button>
+      </div>
+      <div style="margin-top:8px;">
+        <button id="export-links-btn" style="
+          background: #1890ff;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">导出动态</button>
+        <button id="server-batch-failed" style="
+          background: #f5222d;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">导出失败</button>
+        <button id="export-profiles-btn" style="
+          background:#52c41a;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">导出账户</button>
+        <button id="export-lives-btn" style="
+          background:#fa8c16;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">导出直播</button>
       </div>
       <div id="select-list" style="display:none;max-height:240px;overflow:auto;margin-top:8px;border:1px solid rgba(255,255,255,0.15);padding:6px;border-radius:4px;"></div>
       <div id="download-progress" style="display: none; margin-top: 10px;">
@@ -1919,6 +2044,8 @@ window.__wx_channels_profile_collector = {
         btnToggleSelect: document.getElementById('toggle-select-list'),
         btnSelFrontend: document.getElementById('selected-frontend'),
         btnSelBackend: document.getElementById('selected-backend'),
+        btnExportProfiles: document.getElementById('export-profiles-btn'),
+        btnExportLives: document.getElementById('export-lives-btn'),
         selList: document.getElementById('select-list'),
         forceRedownloadCheckbox: document.getElementById('force-redownload-checkbox')
       };
@@ -2203,6 +2330,22 @@ window.__wx_channels_profile_collector = {
         };
       } else {
         console.error('[仅选中-后端] 按钮未找到: selected-backend');
+      }
+      
+      // 导出账户数据按钮
+      const btnExportProfiles = buttons.btnExportProfiles;
+      if (btnExportProfiles) {
+        btnExportProfiles.onclick = () => {
+          this.exportProfiles();
+        };
+      }
+      
+      // 导出直播数据按钮
+      const btnExportLives = buttons.btnExportLives;
+      if (btnExportLives) {
+        btnExportLives.onclick = () => {
+          this.exportLives();
+        };
       }
     }, 100); // 延迟100ms确保DOM完全渲染
   },
@@ -3055,27 +3198,120 @@ window.__wx_channels_profile_collector = {
     };
 
     const fmt = (format||'txt').toLowerCase();
+    // 根据页面类型设置标题和文件名前缀
+    const isSearchPage = this.pageType === 'search';
+    const pageTitle = isSearchPage ? '搜索页面视频列表导出' : '主页页面视频列表导出';
+    const fileNamePrefix = isSearchPage ? 'search_videos' : 'profile_videos';
+    
     if (fmt === 'json') {
       const payload = { generated_at: nowStr, count: rows.length, videos: rows };
-      download(`profile_videos_${Date.now()}.json`, 'application/json', JSON.stringify(payload, null, 2));
+      download(`${fileNamePrefix}_${Date.now()}.json`, 'application/json', JSON.stringify(payload, null, 2));
     } else if (fmt === 'md') {
       const md = [
-        `# 主页页面视频列表导出`,
+        `# ${pageTitle}`,
         `生成时间: ${nowStr}`,
         `总计: ${rows.length} 个视频`,
         ''
-      ].concat(rows.map(r => `${r.index}. [${r.title || '(无标题)'}](${r.url})  \n   作者: ${r.author}  ·  ID: ${r.id}  ·  时长: ${r.duration}  ·  大小: ${r.sizeMB}  \n   👍 ${r.like}  ·  💬 ${r.comment}  ·  🔖 ${r.fav}  ·  🔄 ${r.forward}  \n   创建时间: ${r.created}  \n   封面: ${r.cover}`)).join('\n');
-      download(`profile_videos_${Date.now()}.md`, 'text/markdown;charset=utf-8', md);
+      ].concat(rows.map(r => `${r.index}. [${r.title || '(无标题)'}](${r.url})  \n   作者: ${r.author}  ·  ID: ${r.id}  ·  KEY: ${r.key}  ·  时长: ${r.duration}  ·  大小: ${r.sizeMB}  \n   👍 ${r.like}  ·  💬 ${r.comment}  ·  🔖 ${r.fav}  ·  🔄 ${r.forward}  \n   创建时间: ${r.created}  \n   封面: ${r.cover}`)).join('\n');
+      download(`${fileNamePrefix}_${Date.now()}.md`, 'text/markdown;charset=utf-8', md);
     } else {
       const txt = [
-        `主页页面视频列表导出`,
+        `${pageTitle}`,
         `生成时间: ${nowStr}`,
         `总计: ${rows.length} 个视频`,
         ''
       ].concat(rows.map(r => `${r.index}. ${r.title}\n   作者: ${r.author}\n   ID: ${r.id}\n   URL: ${r.url}\n   KEY: ${r.key}\n   时长: ${r.duration}\n   大小: ${r.sizeMB}\n   点赞: ${r.like}  评论: ${r.comment}  收藏: ${r.fav}  转发: ${r.forward}\n   创建时间: ${r.created}\n   封面: ${r.cover}`)).join('\n');
-      download(`profile_videos_${Date.now()}.txt`, 'text/plain;charset=utf-8', txt);
+      download(`${fileNamePrefix}_${Date.now()}.txt`, 'text/plain;charset=utf-8', txt);
     }
     console.log(`📄 已导出 ${this.videos.length} 个视频（格式: ${fmt}）`);
+    
+    // 发送日志到后端
+    const formatName = fmt === 'json' ? 'JSON' : (fmt === 'md' ? 'Markdown' : 'TXT');
+    fetch('/__wx_channels_api/tip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({msg: `导出动态: 格式=${formatName}, 视频数=${this.videos.length}`})
+    }).catch(() => {});
+  },
+  
+  // 导出账户数据
+  exportProfiles: function() {
+    const searchData = window.__wx_channels_search_data;
+    if (!searchData || !searchData.profiles || searchData.profiles.length === 0) {
+      this.showStatusMessage('没有找到账户数据', 'warning');
+      return;
+    }
+    
+    const nowStr = new Date().toLocaleString();
+    let keyword = searchData.keyword || '未知关键词';
+    // 清理文件名中的非法字符
+    keyword = keyword.replace(/[<>:"/\\|?*]/g, '_').trim();
+    if (!keyword || keyword === '') keyword = '未知关键词';
+    const profiles = searchData.profiles;
+    
+    const download = (filename, mime, content) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+    
+    const jsonData = {
+      keyword: searchData.keyword || '未知关键词',
+      generated_at: nowStr,
+      count: profiles.length,
+      profiles: profiles
+    };
+    
+    const filename = `search_profiles_${keyword}_${Date.now()}.json`;
+    download(filename, 'application/json', JSON.stringify(jsonData, null, 2));
+    this.showStatusMessage(`已导出 ${profiles.length} 个账户数据`, 'success');
+    console.log(`📄 已导出 ${profiles.length} 个账户数据`);
+  },
+  
+  // 导出直播数据
+  exportLives: function() {
+    const searchData = window.__wx_channels_search_data;
+    if (!searchData || !searchData.liveResults || searchData.liveResults.length === 0) {
+      this.showStatusMessage('没有找到直播数据', 'warning');
+      return;
+    }
+    
+    const nowStr = new Date().toLocaleString();
+    let keyword = searchData.keyword || '未知关键词';
+    // 清理文件名中的非法字符
+    keyword = keyword.replace(/[<>:"/\\|?*]/g, '_').trim();
+    if (!keyword || keyword === '') keyword = '未知关键词';
+    const lives = searchData.liveResults;
+    
+    const download = (filename, mime, content) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+    
+    const jsonData = {
+      keyword: searchData.keyword || '未知关键词',
+      generated_at: nowStr,
+      count: lives.length,
+      liveResults: lives
+    };
+    
+    const filename = `search_lives_${keyword}_${Date.now()}.json`;
+    download(filename, 'application/json', JSON.stringify(jsonData, null, 2));
+    this.showStatusMessage(`已导出 ${lives.length} 个直播数据`, 'success');
+    console.log(`📄 已导出 ${lives.length} 个直播数据`);
   }
 };
 
