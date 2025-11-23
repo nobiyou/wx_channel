@@ -86,8 +86,8 @@ go build -ldflags="-s -w" -o wx_channel_mini.exe
    ```
 
 2. **配置浏览器代理**
-   - 进入面板查看服务状态
-   - 查看代理端口
+   - 设置 HTTP 代理为 `127.0.0.1:2025`（或您指定的端口）
+   - 推荐使用代理扩展（如 SwitchyOmega）进行配置
 
 3. **安装证书**
    - 程序首次运行时会自动尝试安装根证书
@@ -131,6 +131,9 @@ WX_CHANNEL_LOG_MAX_MB=5                               # 日志文件最大大小
 # 并发配置
 WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY=4                 # 分片上传并发数
 WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
+
+# UI 功能开关
+WX_CHANNEL_SHOW_LOG_BUTTON=false                      # 是否显示左下角日志按钮（默认：false）
 ```
 
 更多配置选项请参考 [配置文档](docs/CONFIGURATION.md)。
@@ -139,10 +142,18 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
 
 完整的文档可在 [docs](docs/) 目录下找到：
 
+### 使用文档
 - [介绍](docs/INTRODUCTION.md) - 项目概述和功能说明
 - [安装指南](docs/INSTALLATION.md) - 详细的安装和配置步骤
+- [版本更新说明](docs/RELEASE_NOTES.md) - 版本更新记录
+- [API 文档](docs/API.md) - HTTP API 接口说明
+- [批量下载使用指南](docs/BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整功能说明
+- [Web 控制台](docs/WEB_CONSOLE.md) - 浏览器控制台使用
+- [构建打包](docs/BUILD.md) - 从源码构建和打包指南
 - [配置概览](docs/CONFIGURATION.md) - 所有配置选项说明
+- [评论采集](docs/COMMENT_CAPTURE.md) - 评论采集功能使用
 - [下载视频](docs/DOWNLOADMOVIE.md) - 下载视频及相关说明
+- [日志按钮配置](docs/LOG_BUTTON_CONFIG.md) - 日志按钮显示配置
 - [故障排除](docs/TROUBLESHOOTING.md) - 常见问题解决方案
 - [常见问题](docs/COMMON_ISSUES.md) - 快速问题解答
 - [优化记录](docs/OPTIMIZATION.md) - 项目优化历程
@@ -189,13 +200,13 @@ wx_channel/
 
 所有版本的更新记录可在 [GitHub Releases](https://github.com/nobiyou/wx_channel/releases) 页面查看。
 
-### 最新版本（v20251108）
+### 最新版本（v5.0.0）
 
-- **UI/UX 优化**：状态信息栏、自定义确认对话框
-- **批量下载**：支持前端和后端批量下载，支持选择下载
-- **多格式导出**：支持 TXT、JSON、Markdown 格式
-- **加密支持**：支持加密视频的前缀解密
-- **日志系统**：默认开启，支持文件大小滚动
+- **批量下载功能**：完整的批量下载系统，支持多种数据格式
+- **加密视频支持**：自动解密加密视频，WASM 集成自动处理密钥
+- **Web 控制台**：微信风格界面，实时进度显示和日志
+- **重试机制**：网络问题自动重试，Context 超时控制
+- **文档完善**：完整的用户文档和开发文档
 - **性能优化**：分片上传并发控制、CSV 去重优化
 
 ## 支持项目
