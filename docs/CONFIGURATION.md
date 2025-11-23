@@ -74,6 +74,18 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2
 WX_CHANNEL_DOWNLOAD_RETRY_COUNT=3
 ```
 
+#### UI 功能开关
+
+```bash
+# 是否显示左下角日志按钮（默认：false）
+WX_CHANNEL_SHOW_LOG_BUTTON=false
+```
+
+**说明**：
+* 设置为 `true` 或 `1` 或 `yes` 时显示日志按钮
+* 默认隐藏，避免干扰正常使用
+* 即使隐藏按钮，仍可通过快捷键 `Ctrl+Shift+L` 打开日志面板（桌面浏览器）
+
 ### 命令行参数
 
 程序支持以下命令行参数：
