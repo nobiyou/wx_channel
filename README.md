@@ -1,67 +1,170 @@
 # 微信视频号下载助手
 
-**WX Channel Downloader** - 一个简单易用的微信视频号下载工具
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-v5.0.0-blue.svg?style=flat-square">
+  <img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
+  <img src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
+  <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square">
+  <a href="https://github.com/nobiyou/wx_channel/stargazers"><img src="https://img.shields.io/github/stars/nobiyou/wx_channel?style=flat-square" alt="Stars"></a>
+</p>
 
 <p align="center">
-    <a href="https://github.com/nobiyou/wx_channel"><img src="https://img.shields.io/badge/GitHub-Repository-181717.svg?style=for-the-badge&logo=github" alt="GitHub Repository"></a>
-    <a href="https://github.com/nobiyou/wx_channel/issues"><img src="https://img.shields.io/badge/Report-Issues-red.svg?style=for-the-badge" alt="Report Issues"></a>
-    <a href="https://github.com/nobiyou/wx_channel/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License"></a>
-    <br>
-    <img alt="Go Version" src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
-    <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
-    <img alt="Version" src="https://img.shields.io/badge/Version-v20251108-blue.svg?style=flat-square">
+  <b>一键下载微信视频号视频，支持批量下载、加密视频解密、自动去重</b>
+</p>
+
+<p align="center">
+  <a href="#-快速开始">快速开始</a> •
+  <a href="#-核心功能">核心功能</a> •
+  <a href="#-使用场景">使用场景</a> •
+  <a href="#-文档">文档</a> •
+  <a href="#-支持项目">支持项目</a>
 </p>
 
 ---
 
-微信视频号下载助手是一个基于 Go 与 SunnyNet 的本地 HTTP 代理工具，用于拦截微信视频号网页流量并进行脚本注入与本地交互。通过零配置、一键启动的方式，让您在几分钟内开始下载和管理视频号内容。
+## ✨ 为什么选择这个工具？
 
-![更新截图](jietu.png)
+### 😫 你是否遇到过这些问题？
 
-## 近期更新计划
+- ❌ 视频号视频无法直接下载保存
+- ❌ 想批量下载某个作者的所有视频，但只能一个个点
+- ❌ 加密视频下载后无法播放
+- ❌ 需要保存视频做备份或二次创作
+- ❌ 想离线观看喜欢的视频内容
 
-版本已发布，但截图没有，晚点修改文档。加入搜索批量下载功能以及评论的获取，看难度，难度太难进度会缓慢些。~~在看代码了，js都是加密的，难度有些大。~~
+### ✅ 这个工具帮你解决
 
-已经完成搜索批量下载的功能，还在测试，没有问题了会在几天后更新。
+- ✅ **一键下载**：点击即可下载，无需复杂操作
+- ✅ **批量处理**：支持批量下载，一次搞定几十上百个视频
+- ✅ **自动解密**：加密视频自动解密，下载即可播放
+- ✅ **智能去重**：自动识别已下载视频，避免重复
+- ✅ **完整记录**：自动记录所有下载信息，便于管理
 
-![搜索批量下载截图](sous.png)
+---
 
-在测试评论保存功能了，目前评论多的能达到93%，再优化几天，周末会发一版，具体看功能测试怎样。
+## 🎬 效果演示
 
-![评论保存截图](pinglun.png)
+![主界面](jietu.png)
 
-最近忙，都没有时间测试，现不更新了，想体验测试的加群。可以在更新中下载exe文件。
-<img src="wxq.png" width="50%" alt="测试群"> 
+> 💡 **提示**：更多演示图片和视频请查看 [使用文档](docs/DOWNLOADMOVIE.md)
 
-## 功能特性
+---
 
-- **简单安装**：下载即用，无需复杂配置，几分钟内即可开始使用
-- **自动注入**：自动在视频号页面注入友好的操作界面，无需手动操作
-- **批量下载**：支持单个和批量下载，可选择下载或全量下载
-- **智能去重**：自动去重，避免重复下载，节省存储空间
-- **分片上传**：大文件采用分片上传，支持断点续传
-- **加密支持**：支持加密视频的下载和解密
-- **多格式导出**：支持导出视频链接为 TXT、JSON、Markdown 格式
-- **下载记录**：自动记录所有下载信息到 CSV 文件，便于管理
-- **文件组织**：按作者自动分类保存视频文件
-- **日志系统**：完整的日志记录，支持文件大小滚动
+## 🚀 快速开始
 
-## 系统要求
+### 三步开始使用
 
-- **操作系统**：Windows 10+
-- **Go 环境**：1.23+（仅当需要从源码编译时）
-- **浏览器**：微信浏览器
-- **网络**：能够访问微信视频号网站
-- **权限**：建议以管理员身份运行（用于证书自动安装）
+```bash
+# 1️⃣ 下载程序
+# 访问 https://github.com/nobiyou/wx_channel/releases 下载最新版本
 
-## 安装
+# 2️⃣ 启动程序
+wx_channel.exe
 
-### 方式一：使用预编译版本（推荐）
+# 3️⃣ 打开视频号页面，点击下载按钮
+# 就这么简单！
+```
+
+### 详细步骤
+
+1. **下载并启动**
+   - 从 [Releases](https://github.com/nobiyou/wx_channel/releases) 下载最新版本
+   - 解压后双击 `wx_channel.exe` 启动
+
+2. **安装证书**（首次使用）
+   - 程序会自动尝试安装证书
+   - 如果失败，手动安装 `downloads/SunnyRoot.cer`
+
+3. **开始下载**
+   - 打开微信视频号页面
+   - 页面会自动注入下载按钮
+   - 点击按钮即可下载
+
+📖 **详细教程**：[安装指南](docs/INSTALLATION.md) | [使用教程](docs/DOWNLOADMOVIE.md)
+
+---
+
+## 🎯 核心功能
+
+### 🎥 视频下载
+
+| 功能 | 说明 |
+|------|------|
+| **单个下载** | 点击按钮即可下载当前视频 |
+| **批量下载** | 一次下载多个视频，支持选择下载 |
+| **加密视频** | 自动解密加密视频，下载即可播放 |
+| **断点续传** | 大文件支持断点续传，不怕中断 |
+| **智能去重** | 自动识别已下载视频，避免重复 |
+
+### 📊 数据管理
+
+| 功能 | 说明 |
+|------|------|
+| **自动分类** | 按作者自动创建文件夹，整理有序 |
+| **下载记录** | CSV 格式记录所有下载信息 |
+| **多格式导出** | 支持 TXT、JSON、Markdown 格式 |
+| **评论采集** | 可选采集视频评论数据 |
+
+### 🎨 用户体验
+
+| 功能 | 说明 |
+|------|------|
+| **Web 控制台** | 微信风格界面，实时查看进度 |
+| **实时日志** | 详细的操作日志，问题一目了然 |
+| **进度显示** | 实时显示下载进度和状态 |
+| **错误处理** | 自动重试，失败清单导出 |
+
+---
+
+## 💡 使用场景
+
+### 📚 内容创作者
+
+- 备份自己的视频号内容
+- 下载素材用于二次创作
+- 整理视频资料库
+
+### 🎓 学习研究
+
+- 下载教程视频离线学习
+- 收集行业案例分析
+- 保存学习资料
+
+### 💼 企业团队
+
+- 备份企业视频号内容
+- 下载竞品分析素材
+- 整理营销案例库
+
+### 👤 个人用户
+
+- 保存喜欢的视频内容
+- 离线观看视频
+- 整理收藏的视频
+
+---
+
+## 🆚 对比其他方案
+
+| 特性 | 本工具 | 在线下载网站 | 其他软件 | 录屏软件 |
+|------|--------|------------|----------|---------|
+| **批量下载** | ✅ | ❌ | ⚠️ 有限 | ❌ |
+| **加密视频** | ✅ 自动解密 | ❌ | ❌ | ⚠️ 画质损失 |
+| **下载速度** | ✅ 快速 | ⚠️ 较慢 | ✅ 快速 | ❌ 很慢 |
+| **隐私安全** | ✅ 本地运行 | ❌ 上传到服务器 | ⚠️ 依赖插件 | ✅ 本地 |
+| **自动去重** | ✅ | ❌ | ❌ | ❌ |
+| **下载记录** | ✅ CSV 记录 | ❌ | ❌ | ❌ |
+| **使用成本** | ✅ 免费开源 | ⚠️ 可能收费 | ⚠️ 可能收费 | ⚠️ 软件费用 |
+
+---
+
+## 📦 安装方式
+
+### 方式一：下载预编译版本（推荐）
 
 1. 访问 [GitHub Releases](https://github.com/nobiyou/wx_channel/releases)
-2. 下载对应操作系统的最新版本
-3. 解压到任意目录
-4. 运行可执行文件
+2. 下载最新版本的 `wx_channel.exe`
+3. 解压后直接运行
 
 ### 方式二：从源码编译
 
@@ -70,152 +173,101 @@
 git clone https://github.com/nobiyou/wx_channel.git
 cd wx_channel
 
-# 基本编译
-go build -o wx_channel.exe
-
-# 优化体积编译（推荐）
-go build -ldflags="-s -w" -o wx_channel_mini.exe
+# 编译
+go build -ldflags="-s -w" -o wx_channel.exe
 ```
 
-## 快速开始
+---
 
-1. **启动程序**
-   ```bash
-   # Windows
-   wx_channel.exe
-   ```
+## ⚙️ 配置选项
 
-2. **配置浏览器代理**
-   - 设置 HTTP 代理为 `127.0.0.1:2025`（或您指定的端口）
-   - 推荐使用代理扩展（如 SwitchyOmega）进行配置
-
-3. **安装证书**
-   - 程序首次运行时会自动尝试安装根证书
-   - 如果自动安装失败，手动安装 `downloads/SunnyRoot.cer`
-   - 安装后重新打开视频号
-
-4. **开始使用**
-   - 打开微信视频号页面
-   - 使用注入的前端面板进行下载
-   - 支持单个下载、批量下载、选择下载等多种方式
-   - 详细使用说明请参考 [下载视频文档](docs/DOWNLOADMOVIE.md)
-
-## 配置
-
-### 命令行参数
+### 基础配置
 
 ```bash
-wx_channel.exe --help                 # 显示帮助信息
-wx_channel.exe -v, --version          # 显示版本信息
-wx_channel.exe -p, --port <端口>      # 指定代理端口（默认 2025）
-wx_channel.exe --uninstall            # 卸载根证书
+# 修改代理端口
+wx_channel.exe -p 8080
+
+# 查看版本
+wx_channel.exe -v
+
+# 卸载证书
+wx_channel.exe --uninstall
 ```
 
 ### 环境变量
 
 ```bash
-# 代理端口
-WX_CHANNEL_PORT=2025
-
 # 下载目录
 WX_CHANNEL_DOWNLOADS_DIR=downloads
 
-# 安全配置
-WX_CHANNEL_TOKEN=your_secret_token                    # 本地授权令牌
-WX_CHANNEL_ALLOWED_ORIGINS=https://example.com        # Origin 白名单
-
 # 日志配置
-WX_CHANNEL_LOG_FILE=logs/wx_channel.log               # 日志文件路径
-WX_CHANNEL_LOG_MAX_MB=5                               # 日志文件最大大小（MB）
+WX_CHANNEL_LOG_FILE=logs/wx_channel.log
+WX_CHANNEL_LOG_MAX_MB=5
 
 # 并发配置
-WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY=4                 # 分片上传并发数
-WX_CHANNEL_DOWNLOAD_CONCURRENCY=2                     # 批量下载并发数
-
-# UI 功能开关
-WX_CHANNEL_SHOW_LOG_BUTTON=false                      # 是否显示左下角日志按钮（默认：false）
+WX_CHANNEL_DOWNLOAD_CONCURRENCY=2
 ```
 
-更多配置选项请参考 [配置文档](docs/CONFIGURATION.md)。
+📖 **完整配置**：[配置文档](docs/CONFIGURATION.md)
 
-## 文档
+---
 
-完整的文档可在 [docs](docs/) 目录下找到：
+## 📚 文档
 
-### 使用文档
-- [介绍](docs/INTRODUCTION.md) - 项目概述和功能说明
-- [安装指南](docs/INSTALLATION.md) - 详细的安装和配置步骤
-- [版本更新说明](docs/RELEASE_NOTES.md) - 版本更新记录
-- [API 文档](docs/API.md) - HTTP API 接口说明
-- [批量下载使用指南](docs/BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整功能说明
-- [Web 控制台](docs/WEB_CONSOLE.md) - 浏览器控制台使用
-- [构建打包](docs/BUILD.md) - 从源码构建和打包指南
-- [配置概览](docs/CONFIGURATION.md) - 所有配置选项说明
-- [评论采集](docs/COMMENT_CAPTURE.md) - 评论采集功能使用
-- [下载视频](docs/DOWNLOADMOVIE.md) - 下载视频及相关说明
-- [日志按钮配置](docs/LOG_BUTTON_CONFIG.md) - 日志按钮显示配置
-- [故障排除](docs/TROUBLESHOOTING.md) - 常见问题解决方案
-- [常见问题](docs/COMMON_ISSUES.md) - 快速问题解答
-- [优化记录](docs/OPTIMIZATION.md) - 项目优化历程
+### 快速入门
+- [安装指南](docs/INSTALLATION.md) - 详细的安装步骤
+- [使用教程](docs/DOWNLOADMOVIE.md) - 如何下载视频
+- [常见问题](docs/COMMON_ISSUES.md) - 快速解决问题
 
-## 工作原理
+### 进阶功能
+- [批量下载](docs/BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整指南
+- [Web 控制台](docs/WEB_CONSOLE.md) - 使用 Web 界面
+- [API 文档](docs/API.md) - HTTP API 接口
 
-1. **代理拦截**：程序启动本地 HTTP 代理服务器，拦截微信浏览器流量
-2. **脚本注入**：自动在微信视频号页面注入 JavaScript 脚本
-3. **信息采集**：脚本采集视频信息并通过 API 发送到本地服务
-4. **文件保存**：本地服务接收视频数据并保存到指定目录
-5. **记录管理**：所有下载记录自动保存到 CSV 文件
+### 开发文档
+- [构建指南](docs/BUILD.md) - 从源码构建
+- [配置说明](docs/CONFIGURATION.md) - 所有配置选项
+- [故障排除](docs/TROUBLESHOOTING.md) - 问题诊断
 
-## 目录结构
+---
 
-```
-wx_channel/
-├── downloads/                    # 下载目录
-│   ├── download_records.csv      # 下载记录
-│   ├── .uploads/                 # 分片上传临时目录
-│   └── <作者名>/                 # 按作者分类的视频文件
-├── logs/                         # 日志目录
-│   └── wx_channel.log            # 日志文件
-├── docs/                         # 文档目录
-├── internal/                     # 内部包
-│   ├── config/                   # 配置管理
-│   ├── handlers/                 # API 处理器
-│   ├── services/                 # 服务层
-│   ├── storage/                  # 存储管理
-│   └── utils/                    # 工具函数
-├── inject/                       # 前端注入脚本
-├── lib/                          # 静态资源
-└── main.go                       # 主程序入口
-```
+## 🎉 最新版本 v5.0.0
 
-## 故障排除
+### 🆕 新增功能
 
-遇到问题？请查看 [故障排除文档](docs/TROUBLESHOOTING.md) 或 [常见问题](docs/COMMON_ISSUES.md)。
+- ✨ **批量下载系统**：完整的批量下载功能，支持多种数据格式
+- 🔐 **加密视频支持**：自动解密加密视频，WASM 集成自动处理密钥
+- 🎨 **Web 控制台**：微信风格界面，实时进度显示和日志
+- 🔄 **重试机制**：网络问题自动重试，Context 超时控制
+- 📖 **文档完善**：完整的用户文档和开发文档
 
-如需帮助，可以：
-- 提交 [GitHub Issue](https://github.com/nobiyou/wx_channel/issues)
-- 查看 [文档](docs/)
+### 🐛 问题修复
 
-## 更新日志
+- 修复文件句柄泄漏问题
+- 修复加密视频处理问题
+- 修复网络中断恢复问题
+- 优化用户体验
 
-所有版本的更新记录可在 [GitHub Releases](https://github.com/nobiyou/wx_channel/releases) 页面查看。
+📝 **完整更新日志**：[版本更新说明](docs/RELEASE_NOTES.md)
 
-### 最新版本（v5.0.0）
+---
 
-- **批量下载功能**：完整的批量下载系统，支持多种数据格式
-- **加密视频支持**：自动解密加密视频，WASM 集成自动处理密钥
-- **Web 控制台**：微信风格界面，实时进度显示和日志
-- **重试机制**：网络问题自动重试，Context 超时控制
-- **文档完善**：完整的用户文档和开发文档
-- **性能优化**：分片上传并发控制、CSV 去重优化
+## 💖 支持项目
 
-## 支持项目
+如果这个项目对你有帮助，欢迎：
 
-如果本项目对你有帮助，欢迎扫码赞赏，支持后续维护与迭代：
+- ⭐ 给项目点个 Star
+- 🐛 提交 Bug 报告和功能建议
+- 📖 完善文档和教程
+- 💰 赞赏支持开发
 
-<img src="zanshang.png" width="50%" alt="赞赏码">  
+### 赞赏支持
+
+<img src="zanshang.png" width="300" alt="赞赏码">
 
 ### 赞赏名单
+
+感谢以下用户的支持：
 
 | 日期       | 昵称      | 金额 | 留言                     |
 | ---------- | --------- | ---- | ------------------------ |
@@ -227,25 +279,46 @@ wx_channel/
 | 2025-11-05 | 李*辰 | ￥5.00   | 有群吗 v:****（个人微信：tutuixiu） |
 | 2025-11-10 | 我**我在 | ￥1.00   | 希望可以一键批量下载某视频号特定时间范围内的所有视频（视频<br>号没有这样的接口，等视频号有这样的功能了我弄上，有其他疑问<br>可以看文档，文档内容还是很丰富的，整理了很久） |
 | 2025-11-17 | 方* | ￥100.00   | 加油，真心感谢您的付出，谢谢！（感谢赞赏，功能也在慢慢的添<br>加中，目前在弄的是搜索批量下载和评论保存） |
-| 2025-11-05 | 匿名 | ￥10.00   | 非常给力。就是当版本不能用了可以发个提示啥的。（具体可以提issues，描述具体些） |
+| 2025-11-19 | 匿名 | ￥10.00   | 非常给力。就是当版本不能用了可以发个提示啥的。（具体可以提issues，描述具体些） |
+| 2025-11-23 | 李*辰 | ￥5.00   | 好用 希望能坚持住（个人精力有限，不能保证，感谢大家的赞赏） |
 
-> 欢迎在赞赏备注中写下昵称与留言，收到后会及时更新名单。
 
-## 许可证
+> 💝 感谢每一位支持者！你们的支持是项目持续更新的动力。
 
-本项目采用 [MIT License](LICENSE) 许可证。
+---
 
-## 致谢
-
-- [SunnyNet](https://github.com/qtgolang/SunnyNet) - HTTP/HTTPS 代理库
-- [Go](https://golang.org/) - 编程语言
-
-## 免责声明
+## ⚠️ 免责声明
 
 本工具仅供学习和研究使用。请遵守相关法律法规，尊重内容创作者的版权。使用本工具下载的内容请勿用于商业用途或非法传播。
 
 ---
 
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE) 许可证。
+
+---
+
+## 🙏 致谢
+
+- [SunnyNet](https://github.com/qtgolang/SunnyNet) - HTTP/HTTPS 代理库
+- [Go](https://golang.org/) - 编程语言
+- 所有贡献者和支持者
+
+---
+
+## 📞 联系方式
+
+- **GitHub Issues**：[提交问题](https://github.com/nobiyou/wx_channel/issues)
+- **个人微信**：tutuixiu（备注：视频号下载）
+- **项目地址**：https://github.com/nobiyou/wx_channel
+
+---
+
 <p align="center">
-    Made with ❤️ by <a href="https://github.com/nobiyou">nobiyou</a>
+  <b>如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！</b>
+</p>
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/nobiyou">nobiyou</a>
 </p>
