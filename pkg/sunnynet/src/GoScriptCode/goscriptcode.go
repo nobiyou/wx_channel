@@ -1,0 +1,3 @@
+package GoScriptCode
+
+// Empty implementation
