@@ -51,17 +51,18 @@ var logInitMsg string
 
 // 全局管理器
 var (
-	csvManager    *storage.CSVManager
-	fileManager   *storage.FileManager
-	apiHandler    *handlers.APIHandler
-	uploadHandler *handlers.UploadHandler
-	recordHandler *handlers.RecordHandler
-	scriptHandler *handlers.ScriptHandler
-	batchHandler  *handlers.BatchHandler
+	csvManager     *storage.CSVManager
+	fileManager    *storage.FileManager
+	apiHandler     *handlers.APIHandler
+	uploadHandler  *handlers.UploadHandler
+	recordHandler  *handlers.RecordHandler
+	scriptHandler  *handlers.ScriptHandler
+	batchHandler   *handlers.BatchHandler
+	commentHandler *handlers.CommentHandler
 )
 
 // downloadRecordsHeader CSV 文件的表头
-var downloadRecordsHeader = []string{"ID", "标题", "视频号名称", "视频号分类", "公众号名称", "视频链接", "页面链接", "文件大小", "时长", "阅读量", "点赞量", "评论量", "收藏数", "转发数", "创建时间", "IP所在地", "下载时间"}
+var downloadRecordsHeader = []string{"ID", "标题", "视频号名称", "视频号分类", "公众号名称", "视频链接", "页面链接", "文件大小", "时长", "阅读量", "点赞量", "评论量", "收藏数", "转发数", "创建时间", "IP所在地", "下载时间", "页面来源", "搜索关键词"}
 
 // initDownloadRecords 初始化下载记录系统
 func initDownloadRecords() error {
@@ -88,7 +89,229 @@ func initDownloadRecords() error {
 	return nil
 }
 
-// 已废弃的辅助函数：addDownloadRecord/saveDynamicHTML 已移除，避免未使用告警
+// 已废弃的辅助函数：addDownloadRecord 已移除，避免未使用告警
+
+// saveDynamicHTML 保存动态页面的完整HTML内容，按日期和域名归档
+func saveDynamicHTML(htmlContent string, parsedURL *url.URL, fullURL string, timestamp int64) {
+	if fileManager == nil {
+		utils.Warn("文件管理器未初始化，无法保存页面内容: %s", fullURL)
+		return
+	}
+	if cfg == nil {
+		utils.Warn("配置尚未初始化，无法保存页面内容: %s", fullURL)
+		return
+	}
+	// 检查是否启用页面快照保存
+	if !cfg.SavePageSnapshot {
+		return
+	}
+	if htmlContent == "" {
+		utils.Warn("收到空的HTML内容，跳过保存: %s", fullURL)
+		return
+	}
+	if parsedURL == nil {
+		utils.Warn("解析页面URL失败，跳过保存: %s", fullURL)
+		return
+	}
+
+	if cfg.SaveDelay > 0 {
+		time.Sleep(cfg.SaveDelay)
+	}
+
+	saveTime := time.Now()
+	if timestamp > 0 {
+		saveTime = time.Unix(0, timestamp*int64(time.Millisecond))
+	}
+
+	baseDir, err := utils.GetBaseDir()
+	if err != nil {
+		utils.HandleError(err, "获取基础目录用于保存页面内容")
+		return
+	}
+
+	downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
+	if err := utils.EnsureDir(downloadsDir); err != nil {
+		utils.HandleError(err, "创建下载目录用于保存页面内容")
+		return
+	}
+
+	pagesRoot := filepath.Join(downloadsDir, "page_snapshots")
+	if err := utils.EnsureDir(pagesRoot); err != nil {
+		utils.HandleError(err, "创建页面保存根目录")
+		return
+	}
+
+	// 去掉域名文件夹，直接使用日期目录
+	dateDir := filepath.Join(pagesRoot, saveTime.Format("2006-01-02"))
+	if err := utils.EnsureDir(dateDir); err != nil {
+		utils.HandleError(err, "创建页面保存日期目录")
+		return
+	}
+
+	var filenameParts []string
+	if parsedURL.Path != "" && parsedURL.Path != "/" {
+		segments := strings.Split(parsedURL.Path, "/")
+		for _, segment := range segments {
+			segment = strings.TrimSpace(segment)
+			if segment == "" || segment == "." {
+				continue
+			}
+			filenameParts = append(filenameParts, utils.CleanFilename(segment))
+		}
+	}
+
+	if parsedURL.RawQuery != "" {
+		querySegment := strings.ReplaceAll(parsedURL.RawQuery, "&", "_")
+		querySegment = strings.ReplaceAll(querySegment, "=", "-")
+		querySegment = utils.CleanFilename(querySegment)
+		if querySegment != "" {
+			filenameParts = append(filenameParts, querySegment)
+		}
+	}
+
+	if len(filenameParts) == 0 {
+		filenameParts = append(filenameParts, "page")
+	}
+
+	baseName := strings.Join(filenameParts, "_")
+	// CleanFilename 已经处理了长度限制，这里不需要再次限制
+	
+	fileName := fmt.Sprintf("%s_%s.html", saveTime.Format("150405"), baseName)
+	targetPath := utils.GenerateUniqueFilename(dateDir, fileName, 100)
+
+	if err := os.WriteFile(targetPath, []byte(htmlContent), 0644); err != nil {
+		utils.HandleError(err, "保存页面HTML内容")
+		return
+	}
+
+	metaData := map[string]interface{}{
+		"url":       fullURL,
+		"host":      parsedURL.Host,
+		"path":      parsedURL.Path,
+		"query":     parsedURL.RawQuery,
+		"saved_at":  saveTime.Format(time.RFC3339),
+		"timestamp": timestamp,
+	}
+
+	metaBytes, err := json.MarshalIndent(metaData, "", "  ")
+	if err == nil {
+		metaPath := strings.TrimSuffix(targetPath, filepath.Ext(targetPath)) + ".meta.json"
+		if err := os.WriteFile(metaPath, metaBytes, 0644); err != nil {
+			utils.HandleError(err, "保存页面HTML元数据")
+		}
+	} else {
+		utils.HandleError(err, "序列化页面HTML元数据")
+	}
+
+	relativePath, err := filepath.Rel(downloadsDir, targetPath)
+	if err != nil {
+		relativePath = targetPath
+	}
+	utils.Info("页面HTML已保存: %s -> %s", fullURL, relativePath)
+	utils.LogInfo("[页面快照] URL=%s | 路径=%s", fullURL, relativePath)
+}
+
+// saveSearchData 保存搜索页面的结构化数据（账号信息、直播数据、动态数据）
+func saveSearchData(fullURL string, parsedURL *url.URL, keyword string, profiles, liveResults, feedResults []map[string]interface{}, timestamp int64) {
+	if fileManager == nil {
+		utils.Warn("文件管理器未初始化，无法保存搜索数据: %s", fullURL)
+		return
+	}
+	if cfg == nil {
+		utils.Warn("配置尚未初始化，无法保存搜索数据: %s", fullURL)
+		return
+	}
+	// 检查是否启用搜索数据保存
+	if !cfg.SaveSearchData {
+		return
+	}
+	if parsedURL == nil {
+		utils.Warn("解析搜索页面URL失败，跳过保存: %s", fullURL)
+		return
+	}
+
+	if cfg.SaveDelay > 0 {
+		time.Sleep(cfg.SaveDelay)
+	}
+
+	saveTime := time.Now()
+	if timestamp > 0 {
+		saveTime = time.Unix(0, timestamp*int64(time.Millisecond))
+	}
+
+	baseDir, err := utils.GetBaseDir()
+	if err != nil {
+		utils.HandleError(err, "获取基础目录用于保存搜索数据")
+		return
+	}
+
+	downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
+	if err := utils.EnsureDir(downloadsDir); err != nil {
+		utils.HandleError(err, "创建下载目录用于保存搜索数据")
+		return
+	}
+
+	searchDataRoot := filepath.Join(downloadsDir, "search_data")
+	if err := utils.EnsureDir(searchDataRoot); err != nil {
+		utils.HandleError(err, "创建搜索数据根目录")
+		return
+	}
+
+	// 去掉域名文件夹，直接使用日期目录
+	dateDir := filepath.Join(searchDataRoot, saveTime.Format("2006-01-02"))
+	if err := utils.EnsureDir(dateDir); err != nil {
+		utils.HandleError(err, "创建搜索数据日期目录")
+		return
+	}
+
+	// 构建文件名
+	sanitizedKeyword := utils.CleanFilename(keyword)
+	if sanitizedKeyword == "" {
+		sanitizedKeyword = "search"
+	}
+	// CleanFilename 已经处理了长度限制（100字符），这里不需要再次限制
+
+	fileName := fmt.Sprintf("%s_%s.json", saveTime.Format("150405"), sanitizedKeyword)
+	targetPath := utils.GenerateUniqueFilename(dateDir, fileName, 100)
+
+	// 构建数据结构
+	searchData := map[string]interface{}{
+		"url":          fullURL,
+		"host":         parsedURL.Host,
+		"path":         parsedURL.Path,
+		"query":        parsedURL.RawQuery,
+		"keyword":      keyword,
+		"profiles":     profiles,
+		"liveResults":  liveResults,
+		"feedResults":  feedResults,
+		"profileCount": len(profiles),
+		"liveCount":    len(liveResults),
+		"feedCount":    len(feedResults),
+		"saved_at":     saveTime.Format(time.RFC3339),
+		"timestamp":    timestamp,
+	}
+
+	// 保存JSON数据
+	dataBytes, err := json.MarshalIndent(searchData, "", "  ")
+	if err != nil {
+		utils.HandleError(err, "序列化搜索数据")
+		return
+	}
+
+	if err := os.WriteFile(targetPath, dataBytes, 0644); err != nil {
+		utils.HandleError(err, "保存搜索数据")
+		return
+	}
+
+	relativePath, err := filepath.Rel(downloadsDir, targetPath)
+	if err != nil {
+		relativePath = targetPath
+	}
+	utils.Info("搜索数据已保存: 关键词=%s, 账号=%d, 直播=%d, 动态=%d -> %s",
+		keyword, len(profiles), len(liveResults), len(feedResults), relativePath)
+	utils.LogInfo("[搜索数据] 关键词=%s | 账号=%d | 直播=%d | 动态=%d | 路径=%s",
+		keyword, len(profiles), len(liveResults), len(feedResults), relativePath)
+}
 
 // printDownloadRecordInfo 打印下载记录信息
 func printDownloadRecordInfo() {
@@ -163,16 +386,14 @@ func printTitle() {
 	fmt.Println("  ╚══╝╚══╝ ╚═╝  ╚═╝     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚══════╝")
 	color.Unset()
 
-	color.Yellow("    视频号下载助手beta版 v%s", cfg.Version)
+	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    更新要点：")
-	color.Green("    • 状态信息栏：替代alert，更美观的提示体验")
-	color.Green("    • 自定义确认对话框：替代原生confirm，统一UI风格")
-	color.Green("    • 主页批量下载与前端取消（支持仅选中下载）")
-	color.Green("    • 导出链接多格式：TXT / JSON / Markdown")
-	color.Green("    • 后端批量下载：去重、失败清单、前缀解密")
-	color.Green("    • 分片上传与并发限流优化")
-	color.Green("    • 日志默认开启（5MB 滚动）")
+	color.Green("    v5.0.0 更新要点：")
+	color.Green("    • 代码重构，完善文档")
+	color.Green("    • 搜索批量下载，主页批量下载")
+	color.Green("    • 下载保持评论")
+	color.Green("    • web控制台批量下载")
+	color.Green("    • 修复已知bug")
 	fmt.Println()
 }
 
@@ -181,6 +402,9 @@ func printTitle() {
 func main() {
 	// 初始化配置
 	cfg = config.Load()
+	// 记录配置加载
+	utils.LogConfigLoad("config.yaml", true)
+	
 	// 初始化日志（可选滚动）
 	if cfg.LogFile != "" {
 		_ = utils.InitLoggerWithRotation(utils.INFO, cfg.LogFile, cfg.MaxLogSizeMB)
@@ -226,6 +450,8 @@ func main() {
 	go func() {
 		sig := <-signalChan
 		color.Red("\n正在关闭服务...%v\n\n", sig)
+		// 记录系统关闭
+		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
 		if os_env == "darwin" {
 			proxy.DisableProxyInMacOS(proxy.ProxySettings{
 				Device:   args["dev"],
@@ -267,6 +493,9 @@ func main() {
 	if csvManager != nil {
 		batchHandler = handlers.NewBatchHandler(cfg, csvManager)
 	}
+
+	// 初始化评论处理器
+	commentHandler = handlers.NewCommentHandler(cfg)
 
 	existing, err1 := certificate.CheckCertificate("SunnyNet")
 	if err1 != nil {
@@ -342,6 +571,13 @@ func main() {
 		utils.PrintLabelValue("🔌", "代理端口", port)
 		utils.PrintLabelValue("📱", "支持平台", "微信视频号")
 
+		// 记录系统启动
+		proxyMode := "进程代理"
+		if os_env != "windows" {
+			proxyMode = "系统代理"
+		}
+		utils.LogSystemStart(port, proxyMode)
+		
 		utils.Info("🔍 请打开需要下载的视频号页面进行下载")
 	} else {
 		utils.PrintSeparator()
@@ -457,6 +693,27 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			}
 		}
 
+		// 处理评论数据保存请求
+		if commentHandler != nil {
+			if commentHandler.HandleSaveCommentData(Conn) {
+				return
+			}
+		}
+
+		// 提供 Web 控制台
+		if path == "/console" || path == "/console/" {
+			consoleHTML, err := os.ReadFile("web/console.html")
+			if err != nil {
+				utils.Warn("无法读取 web/console.html: %v", err)
+				Conn.StopRequest(404, "Console not found", http.Header{})
+				return
+			}
+			headers := http.Header{}
+			headers.Set("Content-Type", "text/html; charset=utf-8")
+			Conn.StopRequest(200, string(consoleHTML), headers)
+			return
+		}
+
 		// 处理预检请求（CORS）
 		if strings.HasPrefix(path, "/__wx_channels_api/") && Conn.Request.Method == "OPTIONS" {
 			headers := http.Header{}
@@ -496,15 +753,48 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			if err != nil {
 				utils.HandleError(err, "解析页面内容数据")
 			} else {
-				// 动态HTML保存功能已被禁用
-				// 解析URL获取更详细的文件名信息
-				// parsedURL, err := url.Parse(contentData.URL)
-				// if err != nil {
-				// 	fmt.Printf("解析URL失败: %v\n", err)
-				// } else {
-				// 	// 保存动态加载后的完整HTML内容
-				// 	saveDynamicHTML(contentData.HTML, parsedURL.Host, parsedURL.Path, contentData.URL, contentData.Timestamp)
-				// }
+				parsedURL, err := url.Parse(contentData.URL)
+				if err != nil {
+					utils.HandleError(err, "解析页面内容URL")
+				} else {
+					saveDynamicHTML(contentData.HTML, parsedURL, contentData.URL, contentData.Timestamp)
+				}
+			}
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("__debug", "fake_resp")
+			Conn.StopRequest(200, "{}", headers)
+			return
+		}
+
+		// 保存搜索页面结构化数据的API端点
+		if path == "/__wx_channels_api/save_search_data" {
+			var searchData struct {
+				URL         string                   `json:"url"`
+				Keyword     string                   `json:"keyword"`
+				Profiles    []map[string]interface{} `json:"profiles"`    // 账号信息
+				LiveResults []map[string]interface{} `json:"liveResults"` // 直播数据
+				FeedResults []map[string]interface{} `json:"feedResults"` // 动态数据
+				Timestamp   int64                    `json:"timestamp"`
+			}
+			body, err := io.ReadAll(Conn.Request.Body)
+			if err != nil {
+				utils.HandleError(err, "读取save_search_data请求体")
+				return
+			}
+			if err := Conn.Request.Body.Close(); err != nil {
+				utils.HandleError(err, "关闭请求体")
+			}
+			err = json.Unmarshal(body, &searchData)
+			if err != nil {
+				utils.HandleError(err, "解析搜索数据")
+			} else {
+				parsedURL, err := url.Parse(searchData.URL)
+				if err != nil {
+					utils.HandleError(err, "解析搜索页面URL")
+				} else {
+					saveSearchData(searchData.URL, parsedURL, searchData.Keyword, searchData.Profiles, searchData.LiveResults, searchData.FeedResults, searchData.Timestamp)
+				}
 			}
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
@@ -517,6 +807,12 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 		if Conn.Response.Body != nil {
 			Body, _ := io.ReadAll(Conn.Response.Body)
 			_ = Conn.Response.Body.Close()
+
+			// 记录JS文件请求（调试用）
+			if strings.Contains(path, ".js") {
+				contentType := strings.ToLower(Conn.Response.Header.Get("content-type"))
+				utils.LogInfo("[响应] Path=%s | ContentType=%s", path, contentType)
+			}
 
 			// 使用ScriptHandler处理HTML响应
 			if scriptHandler != nil {
