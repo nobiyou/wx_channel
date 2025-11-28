@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/fatih/color"
 )
@@ -51,4 +52,36 @@ func FormatNumber(num float64) string {
 		return fmt.Sprintf("%.1f万", num/10000)
 	}
 	return fmt.Sprintf("%.0f", num)
+}
+
+// Info 信息日志（仅控制台输出，不写入文件）
+// 如需同时写入文件，请使用 LogInfo() 或专门的日志函数
+func Info(format string, args ...interface{}) {
+	timestamp := color.New(color.FgCyan).Sprintf("[%s]", formatTime())
+	level := color.New(color.FgGreen).Sprint("INFO")
+	message := fmt.Sprintf(format, args...)
+	fmt.Printf("%s %s %s\n", timestamp, level, message)
+}
+
+// Warn 警告日志（仅控制台输出，不写入文件）
+// 如需同时写入文件，请使用 LogWarn() 或专门的日志函数
+func Warn(format string, args ...interface{}) {
+	timestamp := color.New(color.FgCyan).Sprintf("[%s]", formatTime())
+	level := color.New(color.FgYellow).Sprint("WARN")
+	message := fmt.Sprintf(format, args...)
+	fmt.Printf("%s %s %s\n", timestamp, level, message)
+}
+
+// Error 错误日志（仅控制台输出，不写入文件）
+// 如需同时写入文件，请使用 LogError() 或专门的日志函数
+func Error(format string, args ...interface{}) {
+	timestamp := color.New(color.FgCyan).Sprintf("[%s]", formatTime())
+	level := color.New(color.FgRed).Sprint("ERROR")
+	message := fmt.Sprintf(format, args...)
+	fmt.Printf("%s %s %s\n", timestamp, level, message)
+}
+
+// formatTime 格式化当前时间
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
 }

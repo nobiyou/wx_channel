@@ -1,7 +1,7 @@
 # 微信视频号下载助手
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v5.0.0-blue.svg?style=flat-square">
+  <img src="https://img.shields.io/badge/Version-v5.1.0-blue.svg?style=flat-square">
   <img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square">
@@ -41,8 +41,6 @@
 - ✅ **完整记录**：自动记录所有下载信息，便于管理
 
 ---
-
-- 发现推荐的视频页抓取视频的代码失效，应该是tx更新规则了，正在整理中，修复后发版。
 
 ## 🎬 效果演示
 
@@ -175,8 +173,11 @@ wx_channel.exe
 git clone https://github.com/nobiyou/wx_channel.git
 cd wx_channel
 
-# 编译
-go build -ldflags="-s -w" -o wx_channel.exe
+# 基本编译
+go build -o wx_channel.exe
+
+# 优化体积编译（推荐）
+go build -ldflags="-s -w" -o wx_channel_mini.exe
 ```
 
 ---
@@ -207,7 +208,8 @@ WX_CHANNEL_LOG_FILE=logs/wx_channel.log
 WX_CHANNEL_LOG_MAX_MB=5
 
 # 并发配置
-WX_CHANNEL_DOWNLOAD_CONCURRENCY=2
+WX_CHANNEL_DOWNLOAD_CONCURRENCY=5
+WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 ```
 
 📖 **完整配置**：[配置文档](docs/CONFIGURATION.md)
@@ -233,22 +235,27 @@ WX_CHANNEL_DOWNLOAD_CONCURRENCY=2
 
 ---
 
-## 🎉 最新版本 v5.0.0
+## 🎉 最新版本 v5.1.0
+
+### 🚀 性能优化
+
+- ⚡ **并发下载**：支持多视频同时下载（默认5并发）
+- � **断点续传支**：大文件中断后可继续下载
+- 🔄 **智能重试**：指数退避 + 随机抖动，避免重试风暴
+- 🎯 **Payload 优化**：批量下载请求大小减少 180 倍
 
 ### 🆕 新增功能
 
-- ✨ **批量下载系统**：完整的批量下载功能，支持多种数据格式
-- 🔐 **加密视频支持**：自动解密加密视频，WASM 集成自动处理密钥
-- 🎨 **Web 控制台**：微信风格界面，实时进度显示和日志
-- 🔄 **重试机制**：网络问题自动重试，Context 超时控制
-- 📖 **文档完善**：完整的用户文档和开发文档
+- 🔐 **后端解密**：Go 实现 Isaac64 算法，无需前端 WASM
+- ⏹️ **立即取消**：取消下载时立即中断当前任务
+- ⚙️ **可配置项**：并发数、重试次数、超时时间均可配置
 
 ### 🐛 问题修复
 
-- 修复文件句柄泄漏问题
-- 修复加密视频处理问题
-- 修复网络中断恢复问题
-- 优化用户体验
+- 修复首页视频下载失效的问题
+- 修复大量视频批量下载时请求卡住的问题
+- 修复取消下载后任务仍继续的问题
+- 修复重试延迟固定导致的重试风暴
 
 📝 **完整更新日志**：[版本更新说明](docs/RELEASE_NOTES.md)
 

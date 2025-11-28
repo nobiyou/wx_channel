@@ -381,14 +381,10 @@
                     <strong style="color: #07c160; font-size: 14px;">自动解密功能</strong>
                     <ul style="margin-left: 20px; margin-top: 8px; color: #191919; font-size: 13px; line-height: 1.8;">
                         <li><code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">author</code> → <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">authorName</code></li>
-                        <li><code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">key</code> → <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">decryptorPrefix</code>（自动通过 WASM 处理）</li>
-                        <li>自动添加 <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">prefixLen</code></li>
+                        <li><code style="background: #f0f0f0; padding: 2px 6px; border-radius: 2px; font-size: 12px;">key</code> 字段由后端自动处理解密</li>
                     </ul>
                     <small style="display: block; margin-top: 8px; color: #576b95; font-size: 12px;">
                         提示：直接粘贴账户导出的数据即可，系统会自动处理加密密钥
-                    </small>
-                    <small style="display: block; margin-top: 4px; color: #888; font-size: 12px;">
-                        注意：首次使用时需要加载解密库（约 1-2 秒）
                     </small>
                 </div>
             </div>
@@ -451,94 +447,6 @@
 
     <script>
         let progressInterval = null;
-        let wasmLoaded = false;
-        let wasmLoading = false;
-        
-        // WASM 相关变量
-        window.VTS_WASM_URL = "https://res.wx.qq.com/t/wx_fed/cdn_libs/res/decrypt-video-core/1.3.0/wasm_video_decode.wasm";
-        window.MAX_HEAP_SIZE = 33554432;
-        let decryptor_array;
-        let decryptor;
-        
-        // 加载脚本
-        function loadScript(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        }
-        
-        // WASM 回调函数
-        function wasm_isaac_generate(t, e) {
-            decryptor_array = new Uint8Array(e);
-            var r = new Uint8Array(Module.HEAPU8.buffer, t, e);
-            decryptor_array.set(r.reverse());
-            if (decryptor) {
-                decryptor.delete();
-            }
-        }
-        
-        // 加载 WASM 库
-        async function loadWasm() {
-            if (wasmLoaded) return true;
-            if (wasmLoading) {
-                // 等待加载完成
-                while (wasmLoading) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                }
-                return wasmLoaded;
-            }
-            
-            wasmLoading = true;
-            try {
-                showMessage('正在加载解密库...', 'info');
-                await loadScript("https://res.wx.qq.com/t/wx_fed/cdn_libs/res/decrypt-video-core/1.3.0/wasm_video_decode.js");
-                
-                // 等待 Module 初始化
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                wasmLoaded = true;
-                showMessage('✓ 解密库加载成功', 'success');
-                return true;
-            } catch (e) {
-                console.error('WASM 加载失败:', e);
-                showMessage('⚠️ 解密库加载失败，加密视频将无法处理', 'error');
-                return false;
-            } finally {
-                wasmLoading = false;
-            }
-        }
-        
-        // 生成解密数组
-        async function generateDecryptorArray(seed) {
-            if (!wasmLoaded) {
-                const loaded = await loadWasm();
-                if (!loaded) {
-                    throw new Error('WASM 库未加载');
-                }
-            }
-            
-            try {
-                decryptor = new Module.WxIsaac64(seed);
-                decryptor.generate(131072);
-                return decryptor_array;
-            } catch (e) {
-                console.error('生成解密数组失败:', e);
-                throw e;
-            }
-        }
-        
-        // Uint8Array 转 Base64
-        function uint8ArrayToBase64(u8) {
-            let s = '';
-            for (let i = 0; i < u8.length; i++) {
-                s += String.fromCharCode(u8[i]);
-            }
-            return btoa(s);
-        }
 
         // 显示消息
         function showMessage(message, type = 'info') {
@@ -557,8 +465,8 @@
             }, 5000);
         }
 
-        // 检测并转换数据格式（异步版本）
-        async function detectAndConvertFormat(data) {
+        // 检测并转换数据格式（同步版本，key 直接传给后端处理）
+        function detectAndConvertFormat(data) {
             // 如果已经是数组格式，检查是否需要转换字段
             if (Array.isArray(data)) {
                 let needsConversion = false;
@@ -575,23 +483,11 @@
                         needsConversion = true;
                     }
                     
-                    // 使用 WASM 处理 key 字段
-                    if (video.key && !video.decryptorPrefix) {
-                        try {
-                            showMessage(`正在处理加密密钥 (${keyCount + 1})...`, 'info');
-                            const decArray = await generateDecryptorArray(video.key);
-                            const prefixLen = Math.min(decArray.length, 131072);
-                            result.decryptorPrefix = uint8ArrayToBase64(decArray.slice(0, prefixLen));
-                            result.prefixLen = prefixLen;
-                            delete result.key;
-                            keyCount++;
-                            needsConversion = true;
-                            console.log('✓ 密钥处理成功:', video.id || video.title);
-                        } catch (e) {
-                            console.error('密钥处理失败:', video.key, e);
-                            showMessage(`⚠️ 密钥处理失败: ${video.title}`, 'error');
-                            delete result.key;
-                        }
+                    // 保留 key 字段，让后端处理解密
+                    if (video.key) {
+                        result.key = String(video.key);
+                        keyCount++;
+                        needsConversion = true;
                     }
                     
                     converted.push(result);
@@ -618,24 +514,15 @@
                         authorName: video.author || video.authorName || ''
                     };
                     
-                    // 处理密钥
+                    // 处理密钥：优先使用 decryptorPrefix（旧方式），否则保留 key（新方式）
                     if (video.decryptorPrefix) {
                         result.decryptorPrefix = video.decryptorPrefix;
-                        result.prefixLen = video.prefixLen || 1024;
+                        result.prefixLen = video.prefixLen || 131072;
                         keyCount++;
                     } else if (video.key) {
-                        try {
-                            showMessage(`正在处理加密密钥 (${keyCount + 1})...`, 'info');
-                            const decArray = await generateDecryptorArray(video.key);
-                            const prefixLen = Math.min(decArray.length, 131072);
-                            result.decryptorPrefix = uint8ArrayToBase64(decArray.slice(0, prefixLen));
-                            result.prefixLen = prefixLen;
-                            keyCount++;
-                            console.log('✓ 密钥处理成功:', video.id || video.title);
-                        } catch (e) {
-                            console.error('密钥处理失败:', video.key, e);
-                            showMessage(`⚠️ 密钥处理失败: ${video.title}`, 'error');
-                        }
+                        // 直接传 key，让后端处理
+                        result.key = String(video.key);
+                        keyCount++;
                     }
                     
                     converted.push(result);
@@ -705,9 +592,9 @@
             
             addLog('JSON 解析成功', 'success');
             
-            // 自动检测并转换格式（异步）
+            // 自动检测并转换格式
             addLog('检测并转换数据格式...', 'info');
-            let videos = await detectAndConvertFormat(parsedData);
+            let videos = detectAndConvertFormat(parsedData);
             
             if (!Array.isArray(videos) || videos.length === 0) {
                 showMessage('转换后的视频列表为空或格式不正确', 'error');
@@ -715,9 +602,9 @@
                 return;
             }
             
-            // 检查解密信息
-            const withDecryption = videos.filter(v => v.decryptorPrefix).length;
-            addLog(`格式转换完成: 共 ${videos.length} 个视频，${withDecryption} 个包含解密信息`, 'success');
+            // 检查加密视频数量
+            const withEncryption = videos.filter(v => v.key || v.decryptorPrefix).length;
+            addLog(`格式转换完成: 共 ${videos.length} 个视频，${withEncryption} 个加密视频`, 'success');
             
             const { apiUrl, headers } = getApiConfig();
             

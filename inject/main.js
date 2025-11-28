@@ -77,23 +77,33 @@ function wasm_isaac_generate(t, e) {
   }
 }
 let loaded = false;
-/** 获取 decrypt_array */
+// 解密数组缓存，避免重复计算
+const __decrypt_cache__ = new Map();
+/** 获取 decrypt_array（带缓存） */
 async function __wx_channels_decrypt(seed) {
+  // 检查缓存
+  const cacheKey = String(seed);
+  if (__decrypt_cache__.has(cacheKey)) {
+    return __decrypt_cache__.get(cacheKey);
+  }
+  
   if (!loaded) {
     await __wx_load_script(
       "https://res.wx.qq.com/t/wx_fed/cdn_libs/res/decrypt-video-core/1.3.0/wasm_video_decode.js"
     );
     loaded = true;
+    await sleep(); // 仅首次加载WASM时等待
   }
-  await sleep();
   decryptor = new Module.WxIsaac64(seed);
   // 调用该方法时，会调用 wasm_isaac_generate 方法
   // 131072 是 decryptor_array 的长度
   decryptor.generate(131072);
-  // decryptor.delete();
-  // const r = Uint8ArrayToBase64(decryptor_array);
-  // decryptor_array = undefined;
-  return decryptor_array;
+  
+  // 复制一份存入缓存（因为decryptor_array会被覆盖）
+  const result = new Uint8Array(decryptor_array);
+  __decrypt_cache__.set(cacheKey, result);
+  
+  return result;
 }
 async function show_progress_or_loaded_size(response) {
   const content_length = response.headers.get("Content-Length");
@@ -677,14 +687,8 @@ async function __insert_download_btn_to_home_page() {
       var checkData = () => {
         if (window.__wx_channels_store__ && window.__wx_channels_store__.profile) {
           var profile = window.__wx_channels_store__.profile;
-          if (profile.key && window.__wx_channels_store__.buffers.length === 0) {
-            __wx_log({
-              msg: '⏳ 视频尚未缓存完成\n请等待视频播放一段时间后再下载\n或者切换到视频详情页进行下载',
-            });
-            return;
-          }
-          
-          // 显示下载选项菜单
+          // 直接显示下载选项菜单，不检查缓存
+          // 非加密视频可以直接通过URL下载，加密视频在下载时会自动处理
           __show_home_download_options(profile);
         } else {
           checkCount++;
@@ -768,6 +772,9 @@ function __start_home_slide_monitor() {
           }
           
           __last_slide_index__ = idx;
+          
+          // 注意：视频数据应该由JS拦截代码自动填充到store中
+          // 如果store中没有数据，说明JS拦截代码未执行（缓存问题）
           
           // 缩短延迟到200ms，加快按钮注入速度
           setTimeout(() => {
@@ -1392,7 +1399,20 @@ function __show_home_download_options(profile) {
 
 // 检测是否为profile页面
 function is_profile_page() {
-  return window.location.pathname.includes('/pages/profile');
+  const pathname = window.location.pathname;
+  // 排除搜索页面
+  if (pathname.includes('/pages/search') || window.location.href.includes('search')) {
+    return false;
+  }
+  // 排除Home页面
+  if (pathname.includes('/pages/home')) {
+    return false;
+  }
+  // 排除Feed页面（视频详情页）
+  if (pathname.includes('/pages/feed')) {
+    return false;
+  }
+  return pathname.includes('/pages/profile');
 }
 
 // Profile页面视频列表采集器
@@ -1611,10 +1631,11 @@ window.__wx_channels_profile_collector = {
       
       // 如果已经有视频数据（从API采集），发送日志
       if (this.videos.length > 0) {
+        const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
         fetch('/__wx_channels_api/tip', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+          body: JSON.stringify({msg: `📊 [${pageTypeName}] 采集到 ${this.videos.length} 个视频`})
         }).catch(() => {});
       }
       
@@ -1635,10 +1656,11 @@ window.__wx_channels_profile_collector = {
     
     // 发送采集日志到后端
     if (this.videos.length > 0) {
+      const pageType = window.location.href.includes('search') ? '搜索页面' : 'Profile页面';
       fetch('/__wx_channels_api/tip', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+        body: JSON.stringify({msg: `${pageType}视频采集: 采集到 ${this.videos.length} 个视频`})
       }).catch(() => {});
     }
     
@@ -1679,11 +1701,20 @@ window.__wx_channels_profile_collector = {
   
   // 从API数据中采集（备用方案）
   collectFromAPI: function() {
+    // 只在Profile页面才拦截API
+    if (!is_profile_page()) {
+      return;
+    }
+    
     // 监听网络请求，尝试从API响应中获取视频列表
     const originalFetch = window.fetch;
     window.fetch = function(...args) {
       return originalFetch.apply(this, args).then(response => {
-        if (response.url.includes('author_page') || response.url.includes('profile')) {
+        // 排除内部API调用，只拦截微信的author_page API
+        const isInternalAPI = response.url.includes('/__wx_channels_api/');
+        const isAuthorPageAPI = response.url.includes('author_page');
+        
+        if (!isInternalAPI && isAuthorPageAPI && is_profile_page()) {
           response.clone().json().then(data => {
             if (data && data.data && data.data.videos) {
               console.log('📡 从API获取到视频列表数据');
@@ -1698,6 +1729,15 @@ window.__wx_channels_profile_collector = {
   
   // 从API添加单个视频（由main.go注入的代码调用）
   addVideoFromAPI: function(videoData) {
+    // 检查是否是Profile页面或搜索页面
+    const isSearchPage = window.location.pathname.includes('/pages/s');
+    const isProfilePageCheck = is_profile_page();
+    
+    // 只在Profile页面或搜索页面才处理
+    if (!isProfilePageCheck && !isSearchPage) {
+      return;
+    }
+    
     if (!videoData || !videoData.id) return;
     
     // 清理标题中的HTML标签
@@ -1713,10 +1753,11 @@ window.__wx_channels_profile_collector = {
       
       // 每10个视频发送一次日志到后端
       if (this.videos.length % 10 === 0) {
+        const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
         fetch('/__wx_channels_api/tip', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({msg: `📊 [主页采集器] 当前已采集 ${this.videos.length} 个视频`})
+          body: JSON.stringify({msg: `📊 [${pageTypeName}] 当前已采集 ${this.videos.length} 个视频`})
         }).catch(() => {});
       }
       
@@ -1749,14 +1790,15 @@ window.__wx_channels_profile_collector = {
             // 发送最终的采集完成日志
             if (this.videos.length > 0 && !this._finalLogSent) {
               this._finalLogSent = true;
+              const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
               fetch('/__wx_channels_api/tip', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+                body: JSON.stringify({msg: `📊 [${pageTypeName}] 采集完成，共 ${this.videos.length} 个视频`})
               }).then(() => {
-                console.log('✅ Profile采集完成日志已发送');
+                console.log(`✅ ${pageTypeName}采集完成日志已发送`);
               }).catch((err) => {
-                console.error('❌ Profile采集日志发送失败:', err);
+                console.error(`❌ ${pageTypeName}采集日志发送失败:`, err);
               });
             }
           }
@@ -1796,6 +1838,15 @@ window.__wx_channels_profile_collector = {
   
   // 处理API数据
   processAPIData: function(videosData) {
+    // 检查是否是Profile页面或搜索页面
+    const isSearchPage = window.location.pathname.includes('/pages/s');
+    const isProfilePageCheck = is_profile_page();
+    
+    // 只在Profile页面或搜索页面才处理
+    if (!isProfilePageCheck && !isSearchPage) {
+      return;
+    }
+    
     var self = this;
     this.videos = videosData.map((video, index) => ({
       id: video.id || `api_video_${index}`,
@@ -1811,15 +1862,16 @@ window.__wx_channels_profile_collector = {
     
     // 发送采集日志到后端
     if (this.videos.length > 0) {
-      console.log(`🚀 准备发送Profile采集日志到后端: ${this.videos.length} 个视频`);
+      const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
+      console.log(`🚀 准备发送${pageTypeName}采集日志到后端: ${this.videos.length} 个视频`);
       fetch('/__wx_channels_api/tip', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({msg: `Profile视频采集: 采集到 ${this.videos.length} 个视频`})
+        body: JSON.stringify({msg: `📊 [${pageTypeName}] 采集到 ${this.videos.length} 个视频`})
       }).then(() => {
-        console.log('✅ Profile采集日志发送成功');
+        console.log(`✅ ${pageTypeName}采集日志发送成功`);
       }).catch((err) => {
-        console.error('❌ Profile采集日志发送失败:', err);
+        console.error(`❌ ${pageTypeName}采集日志发送失败:`, err);
       });
     }
     
@@ -2007,9 +2059,10 @@ window.__wx_channels_profile_collector = {
       return headers;
     };
     const toBase64 = (u8) => { let s=''; for (let i=0;i<u8.length;i++) s += String.fromCharCode(u8[i]); return btoa(s); };
-    const buildBatchPayload = async (list, forceRedownload = false) => {
+    const buildBatchPayload = (list, forceRedownload = false) => {
       const items = (list || this.videos || []).filter(v => v && v.url);
       const out = [];
+      
       for (const v of items) {
         const rec = {
           id: String(v.id || ''),
@@ -2018,19 +2071,15 @@ window.__wx_channels_profile_collector = {
           filename: String(v.title || ''),
           authorName: String(v.nickname || (v.contact && v.contact.nickname) || '')
         };
-        try {
-          if (v.key && v.key.length > 0 && typeof __wx_channels_decrypt === 'function') {
-            const dec = await __wx_channels_decrypt(v.key);
-            const prefixLen = Math.min(dec.length, 131072); // 128 KiB 前缀
-            rec.decryptorPrefix = toBase64(dec.slice(0, prefixLen));
-            rec.prefixLen = prefixLen;
-          }
-        } catch(_) {}
+        // 只传 key，让后端自己处理解密
+        if (v.key && v.key.length > 0) {
+          rec.key = String(v.key);
+        }
         out.push(rec);
       }
+      
       // 优先使用传入的参数，如果没有则使用自动设置的标志
       const finalForceRedownload = forceRedownload !== undefined ? forceRedownload : this._forceRedownload;
-      console.log('[构建payload] forceRedownload参数:', forceRedownload, '自动标志:', this._forceRedownload, '最终值:', finalForceRedownload);
       return { videos: out, forceRedownload: finalForceRedownload };
     };
     const safeFetch = (url, opt) => fetch(url, opt).catch(() => ({ ok:false }));
@@ -2179,7 +2228,7 @@ window.__wx_channels_profile_collector = {
             stopServerProgressPolling();
             // 从复选框获取强制重新下载选项，或使用自动设置的标志
             const forceRedownload = forceRedownloadCheckbox ? forceRedownloadCheckbox.checked : this._forceRedownload;
-            const payload = await buildBatchPayload(null, forceRedownload);
+            const payload = buildBatchPayload(null, forceRedownload);
             console.log('[后端批量] payload构建完成，视频数量:', payload.videos.length, '强制重新下载:', payload.forceRedownload);
             if (!payload.videos.length) { 
               this.showStatusMessage('没有可用视频', 'warning');
@@ -2187,9 +2236,16 @@ window.__wx_channels_profile_collector = {
             }
             // 下载开始后，清除自动设置的强制重新下载标志（但保留用户手动选择的复选框状态）
             this._forceRedownload = false;
+            
+            // 计算 payload 大小
+            const payloadStr = JSON.stringify(payload);
+            const payloadSizeMB = (payloadStr.length / 1024 / 1024).toFixed(2);
+            console.log(`[后端批量] payload 大小: ${payloadSizeMB} MB`);
+            __wx_log({ msg: `正在提交 ${payload.videos.length} 个视频 (${payloadSizeMB} MB)...` });
+            
             const headers = addAuthHeader({'Content-Type':'application/json'});
             console.log('[后端批量] 发送请求到后端...');
-            const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: JSON.stringify(payload) });
+            const res = await safeFetch('/__wx_channels_api/batch_start', { method:'POST', headers, body: payloadStr });
             if (res && res.ok) {
               this.showStatusMessage('已提交到后端下载队列' + (forceRedownload ? '（将重新下载已存在的文件）' : ''), 'success');
               // 自动开始显示进度并轮询
@@ -2310,7 +2366,7 @@ window.__wx_channels_profile_collector = {
             }
             const headers = addAuthHeader({'Content-Type':'application/json'});
             console.log('[仅选中-后端] 构建payload...');
-            const payload = await buildBatchPayload(list, forceRedownload);
+            const payload = buildBatchPayload(list, forceRedownload);
             console.log('[仅选中-后端] payload构建完成，视频数量:', payload.videos.length, '强制重新下载:', payload.forceRedownload);
             // 下载开始后，清除自动设置的强制重新下载标志（但保留用户手动选择的复选框状态）
             this._forceRedownload = false;
@@ -3341,4 +3397,3 @@ if (is_profile_page()) {
     }, 1000);
   }
 }
-

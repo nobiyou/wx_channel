@@ -27,23 +27,25 @@ type VideoProfile struct {
 
 // VideoDownloadRecord 下载记录模型
 type VideoDownloadRecord struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Author       string    `json:"nickname"`
-	AuthorType   string    `json:"author_type"`
-	OfficialName string    `json:"official_name"`
-	URL          string    `json:"url"`
-	PageURL      string    `json:"page_url"`
-	FileSize     string    `json:"file_size"`
-	Duration     string    `json:"duration"`
-	PlayCount    string    `json:"play_count"`
-	LikeCount    string    `json:"like_count"`
-	CommentCount string    `json:"comment_count"`
-	FavCount     string    `json:"fav_count"`
-	ForwardCount string    `json:"forward_count"`
-	CreateTime   string    `json:"create_time"`
-	IPRegion     string    `json:"ip_region"`
-	DownloadAt   time.Time `json:"download_at"`
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Author        string    `json:"nickname"`
+	AuthorType    string    `json:"author_type"`
+	OfficialName  string    `json:"official_name"`
+	URL           string    `json:"url"`
+	PageURL       string    `json:"page_url"`
+	FileSize      string    `json:"file_size"`
+	Duration      string    `json:"duration"`
+	PlayCount     string    `json:"play_count"`
+	LikeCount     string    `json:"like_count"`
+	CommentCount  string    `json:"comment_count"`
+	FavCount      string    `json:"fav_count"`
+	ForwardCount  string    `json:"forward_count"`
+	CreateTime    string    `json:"create_time"`
+	IPRegion      string    `json:"ip_region"`
+	DownloadAt    time.Time `json:"download_at"`
+	PageSource    string    `json:"page_source"`     // 页面来源标识（feed/home/profile/search）
+	SearchKeyword string    `json:"search_keyword"`  // 搜索关键词（仅S页）
 }
 
 // FromMap 从map创建VideoProfile
@@ -70,23 +72,25 @@ func (v *VideoProfile) FromMap(data map[string]interface{}) {
 // ToDownloadRecord 转换为下载记录
 func (v *VideoProfile) ToDownloadRecord(pageURL string) *VideoDownloadRecord {
 	return &VideoDownloadRecord{
-		ID:           v.ID,
-		Title:        v.Title,
-		Author:       v.Author,
-		AuthorType:   v.AuthorType,
-		OfficialName: v.OfficialName,
-		URL:          v.URL,
-		PageURL:      pageURL,
-		FileSize:     v.FileSize,
-		Duration:     v.Duration,
-		PlayCount:    v.PlayCount,
-		LikeCount:    v.LikeCount,
-		CommentCount: v.CommentCount,
-		FavCount:     v.FavCount,
-		ForwardCount: v.ForwardCount,
-		CreateTime:   v.CreateTime,
-		IPRegion:     v.IPRegion,
-		DownloadAt:   time.Now(),
+		ID:            v.ID,
+		Title:         v.Title,
+		Author:        v.Author,
+		AuthorType:    v.AuthorType,
+		OfficialName:  v.OfficialName,
+		URL:           v.URL,
+		PageURL:       pageURL,
+		FileSize:      v.FileSize,
+		Duration:      v.Duration,
+		PlayCount:     v.PlayCount,
+		LikeCount:     v.LikeCount,
+		CommentCount:  v.CommentCount,
+		FavCount:      v.FavCount,
+		ForwardCount:  v.ForwardCount,
+		CreateTime:    v.CreateTime,
+		IPRegion:      v.IPRegion,
+		DownloadAt:    time.Now(),
+		PageSource:    "",
+		SearchKeyword: "",
 	}
 }
 
@@ -110,5 +114,7 @@ func (v *VideoDownloadRecord) ToCSVRow() []string {
 		v.CreateTime,
 		v.IPRegion,
 		v.DownloadAt.Format("2006-01-02 15:04:05"),
+		v.PageSource,
+		v.SearchKeyword,
 	}
 }

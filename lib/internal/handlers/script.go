@@ -2660,7 +2660,7 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 	}async`
 	if regexp1.MatchString(content) {
 		utils.Info("视频详情数据已获取成功！")
-	utils.LogInfo("[视频详情] 视频详情API已拦截 | Path=%s", path)
+		utils.LogInfo("[视频详情] 视频详情API已拦截 | Path=%s", path)
 	}
 	content = regexp1.ReplaceAllString(content, replaceStr1)
 	regex2 := regexp.MustCompile(`i.default={dialog`)
@@ -2777,7 +2777,7 @@ func (h *ScriptHandler) handleVuexStores(Conn *SunnyNet.HttpConn, path string, c
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
 
 	// 数据采集代码（通用，包含互动数据）
-	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:__feed.nickname,createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功:",__profile.title,"时长:",__duration)}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功:",__profile.title,"时长:",__duration)}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {
@@ -4889,7 +4889,7 @@ func (h *ScriptHandler) getLogPanelScript() string {
 	if h.config.ShowLogButton {
 		showLogButton = "true"
 	}
-	
+
 	return `<script>
 // 日志按钮显示配置
 window.__wx_channels_show_log_button__ = ` + showLogButton + `;

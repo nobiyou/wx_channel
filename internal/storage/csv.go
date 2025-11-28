@@ -85,6 +85,8 @@ func (m *CSVManager) AddRecord(record *models.VideoDownloadRecord) error {
 
     formattedID := "ID_" + record.ID
     if _, ok := m.seenIDs[formattedID]; ok {
+		// 记录重复跳过
+		utils.LogCSVOperation("添加记录", record.ID, record.Title, false, "记录已存在")
 		return nil // 记录已存在，不重复添加
 	}
 
@@ -104,11 +106,15 @@ func (m *CSVManager) AddRecord(record *models.VideoDownloadRecord) error {
 	writer.Flush()
 
 	if err := writer.Error(); err != nil {
+		utils.LogCSVOperation("添加记录", record.ID, record.Title, false, err.Error())
 		return fmt.Errorf("写入记录时出错: %v", err)
 	}
 
     // 更新内存索引
     m.seenIDs[formattedID] = struct{}{}
+	
+	// 记录添加成功
+	utils.LogCSVOperation("添加记录", record.ID, record.Title, true, "")
 
 	return nil
 }
@@ -122,26 +128,57 @@ func (m *CSVManager) loadIndex() error {
     defer file.Close()
 
     reader := csv.NewReader(file)
+    // 允许字段数量不一致，跳过格式错误的行
+    reader.FieldsPerRecord = -1
+    reader.LazyQuotes = true
+    reader.TrimLeadingSpace = true
+    
     // 跳过标题行
     _, err = reader.Read()
     if err != nil {
         if err == io.EOF {
             return nil
         }
-        return err
+        // 如果标题行读取失败，尝试重建文件
+        return m.rebuildCSVFile()
     }
 
+    lineNum := 1
     for {
         row, err := reader.Read()
         if err != nil {
             if err == io.EOF {
                 break
             }
-            return err
+            // 记录错误但继续处理其他行
+            fmt.Printf("⚠️ CSV第%d行格式错误，已跳过: %v\n", lineNum+1, err)
+            lineNum++
+            continue
         }
         if len(row) > 0 {
             m.seenIDs[row[0]] = struct{}{}
         }
+        lineNum++
     }
+    return nil
+}
+
+// rebuildCSVFile 重建CSV文件（当文件损坏时）
+func (m *CSVManager) rebuildCSVFile() error {
+    // 备份原文件
+    backupPath := m.filePath + ".backup"
+    if err := os.Rename(m.filePath, backupPath); err != nil {
+        // 如果重命名失败，直接删除原文件
+        os.Remove(m.filePath)
+    }
+    
+    // 创建新文件
+    err := m.initFile()
+    if err != nil {
+        utils.LogCSVRebuild(m.filePath, false)
+        return err
+    }
+    
+    utils.LogCSVRebuild(m.filePath, true)
     return nil
 }

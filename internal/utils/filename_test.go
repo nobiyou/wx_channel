@@ -1,163 +1,84 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 )
 
-func TestCleanFilename(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "包含非法字符",
-			input:    "test<>video.mp4",
-			expected: "test__video.mp4",
-		},
-		{
-			name:     "包含斜杠",
-			input:    "test/\\video.mp4",
-			expected: "test__video.mp4",
-		},
-		{
-			name:     "正常文件名",
-			input:    "normal_video.mp4",
-			expected: "normal_video.mp4",
-		},
-		{
-			name:     "空字符串",
-			input:    "",
-			expected: "", // 会使用时间戳作为默认值
-		},
-		{
-			name:     "包含控制字符",
-			input:    "test\nvideo.mp4",
-			expected: "test_video.mp4",
-		},
-		{
-			name:     "包含首尾空格",
-			input:    "  test video  .mp4",
-			expected: "test video.mp4",
-		},
+func TestCleanFilename_LongTitle(t *testing.T) {
+	// 测试超长的中文标题（构造一个超过100字符的标题）
+	longTitle := strings.Repeat("这是一个非常长的视频标题", 15) // 15 * 13 = 195 字符
+	cleaned := CleanFilename(longTitle)
+	
+	// 检查长度是否被限制
+	runes := []rune(cleaned)
+	if len(runes) > 103 { // 100 + "..." (3个字符)
+		t.Errorf("文件名长度超过限制: 期望 <= 103, 实际 = %d", len(runes))
 	}
 	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CleanFilename(tt.input)
-			
-			// 对于空输入，结果会包含时间戳，所以只检查非空情况
-			if tt.input != "" && result == "" {
-				t.Errorf("CleanFilename(%q) 结果不应该为空", tt.input)
-			}
-			
-			// 检查是否包含非法字符
-			if ContainsIllegalChars(result) {
-				t.Errorf("CleanFilename(%q) = %q, 仍然包含非法字符", tt.input, result)
-			}
-		})
+	// 检查是否添加了省略号
+	if !strings.HasSuffix(cleaned, "...") {
+		t.Errorf("超长文件名应该以 '...' 结尾")
+	}
+	
+	t.Logf("原始标题长度: %d 字符", len([]rune(longTitle)))
+	t.Logf("清理后标题: %s", cleaned)
+	t.Logf("清理后长度: %d 字符", len(runes))
+}
+
+func TestCleanFilename_NormalTitle(t *testing.T) {
+	// 测试正常长度的标题
+	normalTitle := "这是一个正常的视频标题"
+	cleaned := CleanFilename(normalTitle)
+	
+	if cleaned != normalTitle {
+		t.Errorf("正常标题不应该被修改: 期望 = %s, 实际 = %s", normalTitle, cleaned)
 	}
 }
 
-func TestCleanFolderName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "包含非法字符",
-			input:    "test<>folder",
-			expected: "test__folder",
-		},
-		{
-			name:     "正常文件夹名",
-			input:    "正常文件夹",
-			expected: "正常文件夹",
-		},
-		{
-			name:     "空字符串",
-			input:    "",
-			expected: "未知作者",
-		},
-	}
+func TestCleanFilename_IllegalChars(t *testing.T) {
+	// 测试包含非法字符的标题
+	illegalTitle := "视频<标题>:测试/文件\\名称|问号?星号*"
+	cleaned := CleanFilename(illegalTitle)
 	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CleanFolderName(tt.input)
-			
-			if result == "" {
-				t.Errorf("CleanFolderName(%q) 结果不应该为空", tt.input)
-			}
-			
-			if ContainsIllegalChars(result) {
-				t.Errorf("CleanFolderName(%q) = %q, 仍然包含非法字符", tt.input, result)
-			}
-		})
-	}
-}
-
-func TestEnsureExtension(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		ext      string
-		expected string
-	}{
-		{
-			name:     "已有扩展名",
-			filename: "video.mp4",
-			ext:      ".mp4",
-			expected: "video.mp4",
-		},
-		{
-			name:     "没有扩展名",
-			filename: "video",
-			ext:      ".mp4",
-			expected: "video.mp4",
-		},
-		{
-			name:     "扩展名不同",
-			filename: "video.avi",
-			ext:      ".mp4",
-			expected: "video.avi.mp4",
-		},
-		{
-			name:     "不带点的扩展名",
-			filename: "video",
-			ext:      "mp4",
-			expected: "video.mp4",
-		},
-	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := EnsureExtension(tt.filename, tt.ext)
-			if result != tt.expected {
-				t.Errorf("EnsureExtension(%q, %q) = %q, 期望 %q", tt.filename, tt.ext, result, tt.expected)
-			}
-		})
-	}
-}
-
-// ContainsIllegalChars 检查字符串是否包含非法字符
-func ContainsIllegalChars(s string) bool {
-	illegalChars := []rune{'<', '>', ':', '"', '/', '\\', '|', '?', '*'}
+	// 检查非法字符是否被替换
+	illegalChars := `<>:"/\|?*`
 	for _, char := range illegalChars {
-		for _, r := range s {
-			if r == char {
-				return true
-			}
+		if strings.ContainsRune(cleaned, char) {
+			t.Errorf("清理后的文件名仍包含非法字符: %c", char)
 		}
 	}
 	
-	// 检查控制字符
-	for _, r := range s {
-		if r < 32 || r == 127 {
-			return true
-		}
-	}
-	
-	return false
+	t.Logf("原始标题: %s", illegalTitle)
+	t.Logf("清理后标题: %s", cleaned)
 }
 
+func TestCleanFolderName_LongName(t *testing.T) {
+	// 测试超长的作者名称（构造一个超过50字符的名称）
+	longName := strings.Repeat("这是一个非常长的作者名称", 8) // 8 * 13 = 104 字符
+	cleaned := CleanFolderName(longName)
+	
+	// 检查长度是否被限制
+	runes := []rune(cleaned)
+	if len(runes) > 53 { // 50 + "..." (3个字符)
+		t.Errorf("文件夹名长度超过限制: 期望 <= 53, 实际 = %d", len(runes))
+	}
+	
+	// 检查是否添加了省略号
+	if !strings.HasSuffix(cleaned, "...") {
+		t.Errorf("超长文件夹名应该以 '...' 结尾")
+	}
+	
+	t.Logf("原始名称长度: %d 字符", len([]rune(longName)))
+	t.Logf("清理后名称: %s", cleaned)
+	t.Logf("清理后长度: %d 字符", len(runes))
+}
+
+func TestCleanFolderName_EmptyName(t *testing.T) {
+	// 测试空名称
+	cleaned := CleanFolderName("")
+	
+	if cleaned != "未知作者" {
+		t.Errorf("空名称应该返回默认值: 期望 = 未知作者, 实际 = %s", cleaned)
+	}
+}

@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"crypto/md5"
 	"crypto/rand"
-    "crypto/md5"
-    "crypto/sha256"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,10 +13,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fatih/color"
 	"wx_channel/internal/config"
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
+
+	"github.com/fatih/color"
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
 
@@ -24,22 +25,26 @@ import (
 type UploadHandler struct {
 	config     *config.Config
 	csvManager *storage.CSVManager
-    chunkSem   chan struct{}
-    mergeSem   chan struct{}
+	chunkSem   chan struct{}
+	mergeSem   chan struct{}
 }
 
 // NewUploadHandler 创建上传处理器
 func NewUploadHandler(cfg *config.Config, csvManager *storage.CSVManager) *UploadHandler {
-    ch := cfg.UploadChunkConcurrency
-    if ch <= 0 { ch = 4 }
-    mg := cfg.UploadMergeConcurrency
-    if mg <= 0 { mg = 1 }
-    return &UploadHandler{
-        config:     cfg,
-        csvManager: csvManager,
-        chunkSem:   make(chan struct{}, ch),
-        mergeSem:   make(chan struct{}, mg),
-    }
+	ch := cfg.UploadChunkConcurrency
+	if ch <= 0 {
+		ch = 4
+	}
+	mg := cfg.UploadMergeConcurrency
+	if mg <= 0 {
+		mg = 1
+	}
+	return &UploadHandler{
+		config:     cfg,
+		csvManager: csvManager,
+		chunkSem:   make(chan struct{}, ch),
+		mergeSem:   make(chan struct{}, mg),
+	}
 }
 
 // HandleInitUpload 处理分片上传初始化请求
@@ -49,31 +54,34 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.config.AllowedOrigins {
-                if o == origin { allowed = true; break }
-            }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.config != nil && h.config.SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	// 计算基路径
 	baseDir, err := utils.GetBaseDir()
@@ -106,7 +114,7 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-	
+
 	// 记录上传初始化成功
 	utils.LogUploadInit(uploadId, true)
 
@@ -129,38 +137,44 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 
 // HandleUploadChunk 处理分片上传请求
 func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
-    // 并发限流（分片）
-    if h.chunkSem != nil { h.chunkSem <- struct{}{}; defer func(){ <-h.chunkSem }() }
+	// 并发限流（分片）
+	if h.chunkSem != nil {
+		h.chunkSem <- struct{}{}
+		defer func() { <-h.chunkSem }()
+	}
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/upload_chunk" {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.config.AllowedOrigins {
-                if o == origin { allowed = true; break }
-            }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.config != nil && h.config.SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	// 解析multipart表单
 	err := Conn.Request.ParseMultipartForm(h.config.MaxUploadSize)
@@ -195,7 +209,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 
 	utils.Info("[分片上传] 接收分片: uploadId=%s, 分片索引=%d/%d", uploadId, index+1, total)
 
-    file, _, err := Conn.Request.FormFile("chunk")
+	file, _, err := Conn.Request.FormFile("chunk")
 	if err != nil {
 		utils.HandleError(err, "获取分片文件")
 		h.sendErrorResponse(Conn, err)
@@ -203,13 +217,17 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 	}
 	defer file.Close()
 
-    checksum := Conn.Request.FormValue("checksum")
-    algo := strings.ToLower(Conn.Request.FormValue("algo"))
-    if algo == "" { algo = "md5" }
-    var expectedSize int64 = -1
-    if sz := Conn.Request.FormValue("size"); sz != "" {
-        if v, convErr := strconv.ParseInt(sz, 10, 64); convErr == nil { expectedSize = v }
-    }
+	checksum := Conn.Request.FormValue("checksum")
+	algo := strings.ToLower(Conn.Request.FormValue("algo"))
+	if algo == "" {
+		algo = "md5"
+	}
+	var expectedSize int64 = -1
+	if sz := Conn.Request.FormValue("size"); sz != "" {
+		if v, convErr := strconv.ParseInt(sz, 10, 64); convErr == nil {
+			expectedSize = v
+		}
+	}
 
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
@@ -227,7 +245,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", index))
-    out, err := os.Create(partPath)
+	out, err := os.Create(partPath)
 	if err != nil {
 		utils.HandleError(err, "创建分片文件")
 		h.sendErrorResponse(Conn, err)
@@ -235,60 +253,74 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 	}
 	defer out.Close()
 
-    var written int64
-    if checksum != "" {
-        switch algo {
-        case "md5":
-            hsh := md5.New()
-            n, err := io.Copy(io.MultiWriter(out, hsh), file)
-            if err != nil { utils.HandleError(err, "写入分片数据"); h.sendErrorResponse(Conn, err); return true }
-            sum := fmt.Sprintf("%x", hsh.Sum(nil))
-            if !strings.EqualFold(sum, checksum) {
-                _ = out.Close()
-                _ = os.Remove(partPath)
-                utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
-                h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
-                return true
-            }
-            written = n
-            utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
-        case "sha256":
-            hsh := sha256.New()
-            n, err := io.Copy(io.MultiWriter(out, hsh), file)
-            if err != nil { utils.HandleError(err, "写入分片数据"); h.sendErrorResponse(Conn, err); return true }
-            sum := fmt.Sprintf("%x", hsh.Sum(nil))
-            if !strings.EqualFold(sum, checksum) {
-                _ = out.Close()
-                _ = os.Remove(partPath)
-                utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
-                h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
-                return true
-            }
-            written = n
-            utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
-        default:
-            h.sendErrorResponse(Conn, fmt.Errorf("unsupported_algo"))
-            return true
-        }
-    } else {
-        n, err := io.Copy(out, file)
-        if err != nil { utils.HandleError(err, "写入分片数据"); h.sendErrorResponse(Conn, err); return true }
-        written = n
-    }
+	var written int64
+	if checksum != "" {
+		switch algo {
+		case "md5":
+			hsh := md5.New()
+			n, err := io.Copy(io.MultiWriter(out, hsh), file)
+			if err != nil {
+				utils.HandleError(err, "写入分片数据")
+				h.sendErrorResponse(Conn, err)
+				return true
+			}
+			sum := fmt.Sprintf("%x", hsh.Sum(nil))
+			if !strings.EqualFold(sum, checksum) {
+				_ = out.Close()
+				_ = os.Remove(partPath)
+				utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
+				h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
+				return true
+			}
+			written = n
+			utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
+		case "sha256":
+			hsh := sha256.New()
+			n, err := io.Copy(io.MultiWriter(out, hsh), file)
+			if err != nil {
+				utils.HandleError(err, "写入分片数据")
+				h.sendErrorResponse(Conn, err)
+				return true
+			}
+			sum := fmt.Sprintf("%x", hsh.Sum(nil))
+			if !strings.EqualFold(sum, checksum) {
+				_ = out.Close()
+				_ = os.Remove(partPath)
+				utils.Error("[分片上传] 校验失败: uploadId=%s, 分片索引=%d, 算法=%s, 期望=%s, 实际=%s", uploadId, index, algo, checksum, sum)
+				h.sendErrorResponse(Conn, fmt.Errorf("checksum_mismatch"))
+				return true
+			}
+			written = n
+			utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
+		default:
+			h.sendErrorResponse(Conn, fmt.Errorf("unsupported_algo"))
+			return true
+		}
+	} else {
+		n, err := io.Copy(out, file)
+		if err != nil {
+			utils.HandleError(err, "写入分片数据")
+			h.sendErrorResponse(Conn, err)
+			return true
+		}
+		written = n
+	}
 
-    // 尺寸校验（可选字段 + 上限保护）
-    if expectedSize >= 0 && written != expectedSize {
-        _ = out.Close(); _ = os.Remove(partPath)
-        utils.Error("[分片上传] 尺寸不匹配: uploadId=%s, 分片索引=%d, 期望=%d, 实际=%d", uploadId, index, expectedSize, written)
-        h.sendErrorResponse(Conn, fmt.Errorf("size_mismatch"))
-        return true
-    }
-    if h.config != nil && h.config.ChunkSize > 0 && written > h.config.ChunkSize*2 { // 容忍放宽至2倍
-        _ = out.Close(); _ = os.Remove(partPath)
-        utils.Error("[分片上传] 分片过大: uploadId=%s, 分片索引=%d, 大小=%d, 限制=%d", uploadId, index, written, h.config.ChunkSize*2)
-        h.sendErrorResponse(Conn, fmt.Errorf("chunk_too_large"))
-        return true
-    }
+	// 尺寸校验（可选字段 + 上限保护）
+	if expectedSize >= 0 && written != expectedSize {
+		_ = out.Close()
+		_ = os.Remove(partPath)
+		utils.Error("[分片上传] 尺寸不匹配: uploadId=%s, 分片索引=%d, 期望=%d, 实际=%d", uploadId, index, expectedSize, written)
+		h.sendErrorResponse(Conn, fmt.Errorf("size_mismatch"))
+		return true
+	}
+	if h.config != nil && h.config.ChunkSize > 0 && written > h.config.ChunkSize*2 { // 容忍放宽至2倍
+		_ = out.Close()
+		_ = os.Remove(partPath)
+		utils.Error("[分片上传] 分片过大: uploadId=%s, 分片索引=%d, 大小=%d, 限制=%d", uploadId, index, written, h.config.ChunkSize*2)
+		h.sendErrorResponse(Conn, fmt.Errorf("chunk_too_large"))
+		return true
+	}
 	if err != nil {
 		utils.HandleError(err, "写入分片数据")
 		h.sendErrorResponse(Conn, err)
@@ -297,46 +329,54 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 
 	sizeMB := float64(written) / (1024 * 1024)
 	utils.Info("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, sizeMB, partPath)
-	
+
 	// 记录分片上传成功
 	utils.LogUploadChunk(uploadId, index, total, sizeMB, true)
-	
+
 	h.sendSuccessResponse(Conn)
 	return true
 }
 
 // HandleCompleteUpload 处理分片上传完成请求
 func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
-    // 并发限流（合并）
-    if h.mergeSem != nil { h.mergeSem <- struct{}{}; defer func(){ <-h.mergeSem }() }
+	// 并发限流（合并）
+	if h.mergeSem != nil {
+		h.mergeSem <- struct{}{}
+		defer func() { <-h.mergeSem }()
+	}
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/complete_upload" {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.config.AllowedOrigins { if o == origin { allowed = true; break } }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.config != nil && h.config.SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	body, err := io.ReadAll(Conn.Request.Body)
 	if err != nil {
@@ -376,8 +416,8 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-    uploadsRoot := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads")
-    upDir := filepath.Join(uploadsRoot, req.UploadId)
+	uploadsRoot := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads")
+	upDir := filepath.Join(uploadsRoot, req.UploadId)
 
 	// 目标作者目录
 	authorFolder := utils.CleanFolderName(req.AuthorName)
@@ -419,17 +459,17 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	}
 	defer out.Close()
 
-    // 基本存在性与数量校验
-    for i := 0; i < req.Total; i++ {
-        partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", i))
-        if _, err := os.Stat(partPath); err != nil {
-            utils.Error("[分片合并] 分片缺失: uploadId=%s, 分片索引=%d, 路径=%s", req.UploadId, i, partPath)
-            h.sendErrorResponse(Conn, fmt.Errorf("missing_part_%06d", i))
-            return true
-        }
-    }
+	// 基本存在性与数量校验
+	for i := 0; i < req.Total; i++ {
+		partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", i))
+		if _, err := os.Stat(partPath); err != nil {
+			utils.Error("[分片合并] 分片缺失: uploadId=%s, 分片索引=%d, 路径=%s", req.UploadId, i, partPath)
+			h.sendErrorResponse(Conn, fmt.Errorf("missing_part_%06d", i))
+			return true
+		}
+	}
 
-    var totalWritten int64
+	var totalWritten int64
 	for i := 0; i < req.Total; i++ {
 		partPath := filepath.Join(upDir, fmt.Sprintf("%06d.part", i))
 		in, err := os.Open(partPath)
@@ -455,7 +495,7 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	fileSize := float64(totalWritten) / (1024 * 1024)
 	utils.Info("[分片合并] 合并完成: uploadId=%s, 文件名=%s, 作者=%s, 路径=%s, 大小=%.2fMB, 分片数=%d", req.UploadId, req.Filename, req.AuthorName, finalPath, fileSize, req.Total)
 	color.Green("✓ 分片视频已保存: %s (%.2f MB)", finalPath, fileSize)
-	
+
 	// 记录分片合并成功
 	utils.LogUploadMerge(req.UploadId, req.Filename, req.AuthorName, req.Total, fileSize, true)
 
@@ -483,31 +523,34 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.config.AllowedOrigins { if o == origin { allowed = true; break } }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
-
-    
+	if h.config != nil && h.config.SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
 	utils.Info("🔄 save_video: 开始处理请求")
 
@@ -600,7 +643,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		statusMsg = " [已解密]"
 	}
 	utils.Info("✓ 视频已保存: %s (%.2f MB)%s", filePath, fileSize, statusMsg)
-	
+
 	// 记录直接上传成功
 	utils.LogDirectUpload(filename, authorName, fileSize, isEncrypted, true)
 
@@ -623,66 +666,88 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 
 // HandleUploadStatus 查询已上传的分片列表
 func (h *UploadHandler) HandleUploadStatus(Conn *SunnyNet.HttpConn) bool {
-    path := Conn.Request.URL.Path
-    if path != "/__wx_channels_api/upload_status" {
-        return false
-    }
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/upload_status" {
+		return false
+	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
-            headers := http.Header{}
-            headers.Set("Content-Type", "application/json")
-            headers.Set("X-Content-Type-Options", "nosniff")
-            Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
-            return true
-        }
-    }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            allowed := false
-            for _, o := range h.config.AllowedOrigins { if o == origin { allowed = true; break } }
-            if !allowed {
-                headers := http.Header{}
-                headers.Set("Content-Type", "application/json")
-                headers.Set("X-Content-Type-Options", "nosniff")
-                Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
-                return true
-            }
-        }
-    }
+	if h.config != nil && h.config.SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+			headers := http.Header{}
+			headers.Set("Content-Type", "application/json")
+			headers.Set("X-Content-Type-Options", "nosniff")
+			Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+			return true
+		}
+	}
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			allowed := false
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				headers := http.Header{}
+				headers.Set("Content-Type", "application/json")
+				headers.Set("X-Content-Type-Options", "nosniff")
+				Conn.StopRequest(403, `{"success":false,"error":"forbidden_origin"}`, headers)
+				return true
+			}
+		}
+	}
 
-    body, err := io.ReadAll(Conn.Request.Body)
-    if err != nil { h.sendErrorResponse(Conn, err); return true }
-    _ = Conn.Request.Body.Close()
+	body, err := io.ReadAll(Conn.Request.Body)
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	_ = Conn.Request.Body.Close()
 
-    var req struct { UploadId string `json:"uploadId"` }
-    if err := json.Unmarshal(body, &req); err != nil { h.sendErrorResponse(Conn, err); return true }
-    if req.UploadId == "" { h.sendErrorResponse(Conn, fmt.Errorf("missing_uploadId")); return true }
+	var req struct {
+		UploadId string `json:"uploadId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	if req.UploadId == "" {
+		h.sendErrorResponse(Conn, fmt.Errorf("missing_uploadId"))
+		return true
+	}
 
-    baseDir, err := utils.GetBaseDir()
-    if err != nil { h.sendErrorResponse(Conn, err); return true }
-    upDir := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads", req.UploadId)
-    entries, err := os.ReadDir(upDir)
-    if err != nil { h.sendErrorResponse(Conn, err); return true }
+	baseDir, err := utils.GetBaseDir()
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	upDir := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads", req.UploadId)
+	entries, err := os.ReadDir(upDir)
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
 
-    parts := []int{}
-    for _, e := range entries {
-        name := e.Name()
-        if strings.HasSuffix(name, ".part") && len(name) >= 10 {
-            idxStr := strings.TrimSuffix(name, ".part")
-            if n, convErr := strconv.Atoi(strings.TrimLeft(idxStr, "0")); convErr == nil {
-                parts = append(parts, n)
-            } else if idxStr == "000000" { // 0 特判
-                parts = append(parts, 0)
-            }
-        }
-    }
+	parts := []int{}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasSuffix(name, ".part") && len(name) >= 10 {
+			idxStr := strings.TrimSuffix(name, ".part")
+			if n, convErr := strconv.Atoi(strings.TrimLeft(idxStr, "0")); convErr == nil {
+				parts = append(parts, n)
+			} else if idxStr == "000000" { // 0 特判
+				parts = append(parts, 0)
+			}
+		}
+	}
 
-    resp := map[string]interface{}{"success": true, "parts": parts}
-    b, _ := json.Marshal(resp)
-    h.sendJSONResponse(Conn, 200, b)
-    return true
+	resp := map[string]interface{}{"success": true, "parts": parts}
+	b, _ := json.Marshal(resp)
+	h.sendJSONResponse(Conn, 200, b)
+	return true
 }
 
 // sendSuccessResponse 发送成功响应
@@ -692,19 +757,21 @@ func (h *UploadHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn) {
 	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	headers.Set("Pragma", "no-cache")
 	headers.Set("Expires", "0")
-    headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            for _, o := range h.config.AllowedOrigins { if o == origin {
-                headers.Set("Access-Control-Allow-Origin", origin)
-                headers.Set("Vary", "Origin")
-                headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-                headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-                break
-            }}
-        }
-    }
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
+	}
 	Conn.StopRequest(200, `{"success":true}`, headers)
 }
 
@@ -715,19 +782,21 @@ func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int
 	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	headers.Set("Pragma", "no-cache")
 	headers.Set("Expires", "0")
-    headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            for _, o := range h.config.AllowedOrigins { if o == origin {
-                headers.Set("Access-Control-Allow-Origin", origin)
-                headers.Set("Vary", "Origin")
-                headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-                headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-                break
-            }}
-        }
-    }
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
+	}
 	Conn.StopRequest(statusCode, string(body), headers)
 }
 
@@ -735,20 +804,21 @@ func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int
 func (h *UploadHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
-    headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-        origin := Conn.Request.Header.Get("Origin")
-        if origin != "" {
-            for _, o := range h.config.AllowedOrigins { if o == origin {
-                headers.Set("Access-Control-Allow-Origin", origin)
-                headers.Set("Vary", "Origin")
-                headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-                headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-                break
-            }}
-        }
-    }
+	headers.Set("X-Content-Type-Options", "nosniff")
+	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+		origin := Conn.Request.Header.Get("Origin")
+		if origin != "" {
+			for _, o := range h.config.AllowedOrigins {
+				if o == origin {
+					headers.Set("Access-Control-Allow-Origin", origin)
+					headers.Set("Vary", "Origin")
+					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+					headers.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+					break
+				}
+			}
+		}
+	}
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
 	Conn.StopRequest(500, errorMsg, headers)
 }
-

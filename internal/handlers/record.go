@@ -87,12 +87,14 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 
 	// 创建下载记录
 	record := &models.VideoDownloadRecord{
-		ID:         fmt.Sprintf("%v", data["id"]),
-		Title:      fmt.Sprintf("%v", data["title"]),
-		Author:     "", // 将在后面从contact中获取
-		URL:        fmt.Sprintf("%v", data["url"]),
-		PageURL:    h.currentURL,
-		DownloadAt: time.Now(),
+		ID:            fmt.Sprintf("%v", data["id"]),
+		Title:         fmt.Sprintf("%v", data["title"]),
+		Author:        "", // 将在后面从contact中获取
+		URL:           fmt.Sprintf("%v", data["url"]),
+		PageURL:       h.currentURL,
+		DownloadAt:    time.Now(),
+		PageSource:    "",  // 将从请求数据中获取
+		SearchKeyword: "",  // 将从请求数据中获取
 	}
 
 	// 从正确的位置获取作者昵称
@@ -173,6 +175,19 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
+	// 添加页面来源标识
+	if pageSource, ok := data["pageSource"].(string); ok {
+		record.PageSource = pageSource
+	} else {
+		// 如果前端没有提供，尝试从URL推断
+		record.PageSource = h.inferPageSource(h.currentURL)
+	}
+
+	// 添加搜索关键词（仅S页）
+	if searchKeyword, ok := data["searchKeyword"].(string); ok {
+		record.SearchKeyword = searchKeyword
+	}
+
 	// 保存记录
 	if h.csvManager != nil {
 		if err := h.csvManager.AddRecord(record); err != nil {
@@ -180,6 +195,15 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 			utils.HandleError(err, "保存下载记录")
 		} else {
 			utils.Info("[下载记录] 已保存: ID=%s, 标题=%s, 作者=%s, 大小=%s, 时长=%s", record.ID, record.Title, record.Author, record.FileSize, record.Duration)
+			
+			// 记录到日志文件，包含页面来源和搜索关键词
+			logMsg := fmt.Sprintf("[下载记录] ID=%s | 标题=%s | 作者=%s | 大小=%s | 时长=%s | 页面=%s",
+				record.ID, record.Title, record.Author, record.FileSize, record.Duration, record.PageSource)
+			if record.SearchKeyword != "" {
+				logMsg += fmt.Sprintf(" | 搜索词=%s", record.SearchKeyword)
+			}
+			utils.LogInfo(logMsg)
+			
 			utils.PrintSeparator()
 			color.Green("✅ 下载记录已保存")
 			utils.PrintSeparator()
@@ -259,6 +283,9 @@ func (h *RecordHandler) HandleExportVideoList(Conn *SunnyNet.HttpConn) bool {
 				utils.PrintLabelValue("📁", "导出文件", exportFile)
 				utils.PrintLabelValue("📊", "视频数量", len(requestData.Videos))
 				utils.PrintSeparator()
+				
+				// 记录导出操作
+				utils.LogInfo("[导出动态] 格式=TXT | 视频数=%d | 路径=%s", len(requestData.Videos), exportFile)
 			} else {
 				utils.HandleError(err, "保存导出文件")
 			}
@@ -330,6 +357,9 @@ func (h *RecordHandler) HandleExportVideoListJSON(Conn *SunnyNet.HttpConn) bool 
                 utils.PrintLabelValue("📁", "导出文件", exportFile)
                 utils.PrintLabelValue("📊", "视频数量", len(requestData.Videos))
                 utils.PrintSeparator()
+                
+                // 记录导出操作
+                utils.LogInfo("[导出动态] 格式=JSON | 视频数=%d | 路径=%s", len(requestData.Videos), exportFile)
             } else {
                 utils.HandleError(err, "保存JSON导出文件")
             }
@@ -397,10 +427,12 @@ func (h *RecordHandler) HandleExportVideoListMarkdown(Conn *SunnyNet.HttpConn) b
             if err := os.WriteFile(exportFile, []byte(sb.String()), 0644); err == nil {
                 utils.PrintSeparator()
                 color.Green("📄 视频列表已导出(Markdown)")
-                utils.PrintSeparator()
                 utils.PrintLabelValue("📁", "导出文件", exportFile)
                 utils.PrintLabelValue("📊", "视频数量", len(requestData.Videos))
                 utils.PrintSeparator()
+                
+                // 记录导出操作
+                utils.LogInfo("[导出动态] 格式=Markdown | 视频数=%d | 路径=%s", len(requestData.Videos), exportFile)
             } else {
                 utils.HandleError(err, "保存Markdown导出文件")
             }
@@ -464,6 +496,20 @@ func (h *RecordHandler) HandleBatchDownloadStatus(Conn *SunnyNet.HttpConn) bool 
 
 	h.sendEmptyResponse(Conn)
 	return true
+}
+
+// inferPageSource 从URL推断页面来源
+func (h *RecordHandler) inferPageSource(url string) string {
+	if strings.Contains(url, "/pages/feed") {
+		return "feed"
+	} else if strings.Contains(url, "/pages/home") {
+		return "home"
+	} else if strings.Contains(url, "/pages/profile") {
+		return "profile"
+	} else if strings.Contains(url, "/pages/s") {
+		return "search"
+	}
+	return "unknown"
 }
 
 // sendEmptyResponse 发送空JSON响应

@@ -34,14 +34,24 @@ type Config struct {
 	AllowedOrigins []string // 允许的 Origin 白名单（可选，通过 WX_CHANNEL_ALLOWED_ORIGINS 注入，逗号分隔）
 
 	// 并发与限流
-	UploadChunkConcurrency int // 分片上传并发上限
-	UploadMergeConcurrency int // 合并并发上限
-	DownloadConcurrency    int // 批量下载并发上限
-	DownloadRetryCount     int // 批量下载重试次数
+	UploadChunkConcurrency int           // 分片上传并发上限
+	UploadMergeConcurrency int           // 合并并发上限
+	DownloadConcurrency    int           // 批量下载并发上限
+	DownloadRetryCount     int           // 批量下载重试次数
+	DownloadResumeEnabled  bool          // 批量下载断点续传开关
+	DownloadTimeout        time.Duration // 批量下载单个文件超时时间
 
 	// 日志配置
 	LogFile      string // 日志文件路径（可选：WX_CHANNEL_LOG_FILE）
 	MaxLogSizeMB int    // 单个日志文件最大 MB，达到后滚动（可选：WX_CHANNEL_LOG_MAX_MB）
+
+	// 保存功能开关
+	SavePageSnapshot bool // 是否保存页面快照（可选：WX_CHANNEL_SAVE_PAGE_SNAPSHOT，默认：true）
+	SaveSearchData   bool // 是否保存搜索数据（可选：WX_CHANNEL_SAVE_SEARCH_DATA，默认：true）
+	SavePageJS       bool // 是否保存页面JS文件（可选：WX_CHANNEL_SAVE_PAGE_JS，默认：false）
+
+	// UI 功能开关
+	ShowLogButton bool // 是否显示左下角日志按钮（可选：WX_CHANNEL_SHOW_LOG_BUTTON，默认：false）
 }
 
 var globalConfig *Config
@@ -52,7 +62,7 @@ func Load() *Config {
 		globalConfig = &Config{
 			Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 			DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-			Version:                "20251108",             // 版本号（用于前端缓存破坏等）
+			Version:                "5.1.0.0",              // 版本号（用于前端缓存破坏等）
 			DownloadsDir:           "downloads",            // 下载根目录
 			RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 			CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）
@@ -66,10 +76,16 @@ func Load() *Config {
 			AllowedOrigins:         nil,                    // CORS 允许的 Origin 白名单（env WX_CHANNEL_ALLOWED_ORIGINS）
 			UploadChunkConcurrency: 4,                      // 分片上传并发上限
 			UploadMergeConcurrency: 1,                      // 分片合并并发上限
-			DownloadConcurrency:    2,                      // 后端批量下载并发上限
+			DownloadConcurrency:    5,                      // 后端批量下载并发上限
 			DownloadRetryCount:     3,                      // 后端批量下载重试次数
+			DownloadResumeEnabled:  true,                   // 默认开启断点续传
+			DownloadTimeout:        30 * time.Minute,       // 单个文件下载超时
 			LogFile:                "logs/wx_channel.log",  // 日志文件路径（默认开启）
 			MaxLogSizeMB:           5,                      // 单个日志文件最大大小（MB），达到后滚动
+			SavePageSnapshot:       true,                   // 默认开启页面快照保存
+			SaveSearchData:         false,                  // 默认开启搜索数据保存
+			SavePageJS:             true,                   // 默认开启JS文件保存（用于页面分析）
+			ShowLogButton:          false,                  // 默认隐藏日志按钮
 		}
 		// 从环境变量加载可选令牌
 		if token := os.Getenv("WX_CHANNEL_TOKEN"); token != "" {
@@ -122,6 +138,22 @@ func Load() *Config {
 					globalConfig.MaxLogSizeMB = val
 				}
 			}
+		}
+
+		// 保存功能开关环境变量
+		if saveSnapshot := os.Getenv("WX_CHANNEL_SAVE_PAGE_SNAPSHOT"); saveSnapshot != "" {
+			globalConfig.SavePageSnapshot = saveSnapshot == "true" || saveSnapshot == "1" || saveSnapshot == "yes"
+		}
+		if saveSearch := os.Getenv("WX_CHANNEL_SAVE_SEARCH_DATA"); saveSearch != "" {
+			globalConfig.SaveSearchData = saveSearch == "true" || saveSearch == "1" || saveSearch == "yes"
+		}
+		if saveJS := os.Getenv("WX_CHANNEL_SAVE_PAGE_JS"); saveJS != "" {
+			globalConfig.SavePageJS = saveJS == "true" || saveJS == "1" || saveJS == "yes"
+		}
+
+		// UI 功能开关环境变量
+		if showLogBtn := os.Getenv("WX_CHANNEL_SHOW_LOG_BUTTON"); showLogBtn != "" {
+			globalConfig.ShowLogButton = showLogBtn == "true" || showLogBtn == "1" || showLogBtn == "yes"
 		}
 	}
 	return globalConfig

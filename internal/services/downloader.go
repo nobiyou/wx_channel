@@ -164,6 +164,8 @@ func (d *Downloader) downloadOne(client *http.Client, task DownloadTask) Downloa
 		path, size, err := d.tryDownload(client, task)
 		if err == nil {
 			utils.Info("[批量下载] 下载成功: ID=%s, 标题=%s, 路径=%s, 大小=%.2fMB", task.ID, task.Filename, path, size)
+			// 记录详细下载日志
+			utils.LogDownload(task.ID, task.Filename, task.AuthorName, task.URL, int64(size*1024*1024), true)
 			return DownloadResult{Task: task, Path: path, SizeMB: size, Err: nil}
 		}
 		lastErr = err

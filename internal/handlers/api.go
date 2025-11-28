@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"wx_channel/internal/config"
@@ -108,6 +109,32 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	// 打印提醒
 	utils.Info("💡 [提醒] 视频已成功播放")
 	utils.Info("💡 [提醒] 可以在「更多」菜单中下载视频啦！")
+	
+	// 记录视频信息到日志文件
+	videoID := ""
+	if id, ok := data["id"].(string); ok {
+		videoID = id
+	}
+	title := ""
+	if t, ok := data["title"].(string); ok {
+		title = t
+	}
+	author := ""
+	if n, ok := data["nickname"].(string); ok {
+		author = n
+	}
+	sizeMB := 0.0
+	if size, ok := data["size"].(float64); ok {
+		sizeMB = size / (1024 * 1024)
+	}
+	url := ""
+	if u, ok := data["url"].(string); ok {
+		url = u
+	}
+	
+	utils.LogInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s",
+		videoID, title, author, sizeMB, url)
+	
 	color.Yellow("\n")
 
 	// 打印视频详细信息
@@ -258,6 +285,122 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	utils.PrintLabelValue("💡", "[提醒]", data.Msg)
+	
+	// 记录关键操作到日志文件
+	msg := data.Msg
+	if strings.Contains(msg, "下载封面") {
+		// 提取封面URL
+		lines := strings.Split(msg, "\n")
+		if len(lines) > 1 {
+			coverURL := lines[1]
+			utils.LogInfo("[下载封面] URL=%s", coverURL)
+		}
+	} else if strings.Contains(msg, "下载文件名") {
+		// 提取文件名，判断是否为不同格式
+		filename := strings.TrimPrefix(msg, "下载文件名<")
+		filename = strings.TrimSuffix(filename, ">")
+		
+		// 检查是否包含格式标识（如 xWT111_1280x720）
+		if strings.Contains(filename, "xWT") || strings.Contains(filename, "_") {
+			parts := strings.Split(filename, "_")
+			if len(parts) > 1 {
+				format := parts[len(parts)-2] // 格式标识
+				resolution := ""
+				if len(parts) > 2 {
+					resolution = parts[len(parts)-1] // 分辨率
+				}
+				utils.LogInfo("[格式下载] 文件名=%s | 格式=%s | 分辨率=%s", filename, format, resolution)
+			} else {
+				utils.LogInfo("[视频下载] 文件名=%s", filename)
+			}
+		} else {
+			utils.LogInfo("[视频下载] 文件名=%s", filename)
+		}
+	} else if strings.Contains(msg, "视频链接") {
+		// 提取视频链接
+		videoURL := strings.TrimPrefix(msg, "视频链接<")
+		videoURL = strings.TrimSuffix(videoURL, ">")
+		utils.LogInfo("[视频链接] URL=%s", videoURL)
+	} else if strings.Contains(msg, "页面链接") {
+		// 提取页面链接
+		pageURL := strings.TrimPrefix(msg, "页面链接<")
+		pageURL = strings.TrimSuffix(pageURL, ">")
+		utils.LogInfo("[页面链接] URL=%s", pageURL)
+	} else if strings.Contains(msg, "搜索页面已加载") {
+		// 记录搜索页面加载
+		utils.LogInfo("[搜索页面] 页面已加载")
+	} else if strings.Contains(msg, "搜索关键词:") {
+		// 提取搜索关键词
+		keyword := strings.TrimPrefix(msg, "搜索关键词: ")
+		keyword = strings.TrimSpace(keyword)
+		utils.LogInfo("[搜索关键词] 关键词=%s", keyword)
+	} else if strings.Contains(msg, "导出动态:") {
+		// 提取导出信息
+		// 格式: "导出动态: 格式=JSON, 视频数=10"
+		parts := strings.Split(msg, ",")
+		format := ""
+		count := ""
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if strings.Contains(part, "格式=") {
+				format = strings.TrimPrefix(part, "格式=")
+				format = strings.TrimPrefix(format, "导出动态: 格式=")
+			} else if strings.Contains(part, "视频数=") {
+				count = strings.TrimPrefix(part, "视频数=")
+			}
+		}
+		utils.LogInfo("[导出动态] 格式=%s | 视频数=%s", format, count)
+	} else if strings.Contains(msg, "[Profile自动下载]") {
+		// Profile 页面批量下载日志
+		if strings.Contains(msg, "开始自动下载") {
+			// 提取视频数量
+			// 格式: "🚀 [Profile自动下载] 开始自动下载 10 个视频"
+			parts := strings.Split(msg, " ")
+			for i, part := range parts {
+				if part == "个视频" && i > 0 {
+					count := parts[i-1]
+					utils.LogInfo("[Profile批量下载] 开始 | 视频数=%s", count)
+					break
+				}
+			}
+		} else if strings.Contains(msg, "完成") {
+			// 提取统计信息
+			// 格式: "✅ [Profile自动下载] 完成！共处理 10 个视频，成功 8 个，失败 2 个"
+			var total, success, failed string
+			parts := strings.Split(msg, " ")
+			for i, part := range parts {
+				if part == "个视频，成功" && i > 0 {
+					total = parts[i-1]
+				} else if part == "个，失败" && i > 0 {
+					success = parts[i-1]
+				} else if part == "个" && i > 0 && strings.Contains(parts[i-1], "失败") {
+					// 已经在上面处理了
+				} else if strings.HasSuffix(part, "个") && i > 0 && success != "" {
+					failed = strings.TrimSuffix(part, "个")
+				}
+			}
+			if total != "" {
+				utils.LogInfo("[Profile批量下载] 完成 | 总数=%s | 成功=%s | 失败=%s", total, success, failed)
+			}
+		} else if strings.Contains(msg, "进度:") {
+			// 进度日志
+			// 格式: "📥 [Profile自动下载] 进度: 5/10"
+			progress := strings.TrimSpace(strings.Split(msg, "进度:")[1])
+			utils.LogInfo("[Profile批量下载] 进度=%s", progress)
+		}
+	} else if strings.Contains(msg, "Profile视频采集:") {
+		// Profile 页面视频采集日志
+		// 格式: "Profile视频采集: 采集到 10 个视频"
+		parts := strings.Split(msg, " ")
+		for i, part := range parts {
+			if part == "个视频" && i > 0 {
+				count := parts[i-1]
+				utils.LogInfo("[Profile视频采集] 采集数=%s", count)
+				break
+			}
+		}
+	}
+	
 	h.sendEmptyResponse(Conn)
 	return true
 }

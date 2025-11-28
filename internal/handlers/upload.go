@@ -102,9 +102,13 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 	upDir := filepath.Join(uploadsRoot, uploadId)
 	if err := os.MkdirAll(upDir, 0755); err != nil {
 		utils.HandleError(err, "创建上传目录")
+		utils.LogUploadInit(uploadId, false)
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
+	
+	// 记录上传初始化成功
+	utils.LogUploadInit(uploadId, true)
 
 	// 使用 JSON 编码确保正确转义
 	responseData := map[string]interface{}{
@@ -291,7 +295,12 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.Info("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, float64(written)/(1024*1024), partPath)
+	sizeMB := float64(written) / (1024 * 1024)
+	utils.Info("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, sizeMB, partPath)
+	
+	// 记录分片上传成功
+	utils.LogUploadChunk(uploadId, index, total, sizeMB, true)
+	
 	h.sendSuccessResponse(Conn)
 	return true
 }
@@ -446,6 +455,9 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	fileSize := float64(totalWritten) / (1024 * 1024)
 	utils.Info("[分片合并] 合并完成: uploadId=%s, 文件名=%s, 作者=%s, 路径=%s, 大小=%.2fMB, 分片数=%d", req.UploadId, req.Filename, req.AuthorName, finalPath, fileSize, req.Total)
 	color.Green("✓ 分片视频已保存: %s (%.2f MB)", finalPath, fileSize)
+	
+	// 记录分片合并成功
+	utils.LogUploadMerge(req.UploadId, req.Filename, req.AuthorName, req.Total, fileSize, true)
 
 	responseData := map[string]interface{}{
 		"success": true,
@@ -588,6 +600,9 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		statusMsg = " [已解密]"
 	}
 	utils.Info("✓ 视频已保存: %s (%.2f MB)%s", filePath, fileSize, statusMsg)
+	
+	// 记录直接上传成功
+	utils.LogDirectUpload(filename, authorName, fileSize, isEncrypted, true)
 
 	responseData := map[string]interface{}{
 		"success": true,

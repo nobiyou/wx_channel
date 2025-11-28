@@ -118,7 +118,7 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 
 	// 文件日志（无颜色，纯文本）
 	fileLogLine := fmt.Sprintf("[%s] %s %s", timestamp, levelName, message)
-	
+
 	// 只写入文件
 	l.logger.Println(fileLogLine)
 }

@@ -46,6 +46,7 @@ type Config struct {
 	// 保存功能开关
 	SavePageSnapshot bool // 是否保存页面快照（可选：WX_CHANNEL_SAVE_PAGE_SNAPSHOT，默认：true）
 	SaveSearchData   bool // 是否保存搜索数据（可选：WX_CHANNEL_SAVE_SEARCH_DATA，默认：true）
+	SavePageJS       bool // 是否保存页面JS文件（可选：WX_CHANNEL_SAVE_PAGE_JS，默认：false）
 	
 	// UI 功能开关
 	ShowLogButton bool // 是否显示左下角日志按钮（可选：WX_CHANNEL_SHOW_LOG_BUTTON，默认：false）
@@ -79,6 +80,7 @@ func Load() *Config {
 			MaxLogSizeMB:           5,                      // 单个日志文件最大大小（MB），达到后滚动
 			SavePageSnapshot:       true,                  // 默认开启页面快照保存
 			SaveSearchData:         false,                  // 默认开启搜索数据保存
+			SavePageJS:             true,                   // 默认开启JS文件保存（用于页面分析）
 			ShowLogButton:          false,                  // 默认隐藏日志按钮
 		}
 		// 从环境变量加载可选令牌
@@ -140,6 +142,9 @@ func Load() *Config {
 		}
 		if saveSearch := os.Getenv("WX_CHANNEL_SAVE_SEARCH_DATA"); saveSearch != "" {
 			globalConfig.SaveSearchData = saveSearch == "true" || saveSearch == "1" || saveSearch == "yes"
+		}
+		if saveJS := os.Getenv("WX_CHANNEL_SAVE_PAGE_JS"); saveJS != "" {
+			globalConfig.SavePageJS = saveJS == "true" || saveJS == "1" || saveJS == "yes"
 		}
 		
 		// UI 功能开关环境变量
