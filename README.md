@@ -1,10 +1,11 @@
 # 微信视频号下载助手
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v5.1.0-blue.svg?style=flat-square">
+  <a href="https://github.com/nobiyou/wx_channel/releases"><img src="https://img.shields.io/github/v/release/nobiyou/wx_channel?style=flat-square&label=Version" alt="Release"></a>
+  <a href="https://github.com/nobiyou/wx_channel/releases"><img src="https://img.shields.io/github/release-date/nobiyou/wx_channel?style=flat-square&label=Released" alt="Release Date"></a>
   <img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
   <img src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
-  <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square">
+  <img src="https://img.shields.io/github/license/nobiyou/wx_channel?style=flat-square" alt="License">
   <a href="https://github.com/nobiyou/wx_channel/stargazers"><img src="https://img.shields.io/github/stars/nobiyou/wx_channel?style=flat-square" alt="Stars"></a>
 </p>
 
