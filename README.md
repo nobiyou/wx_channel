@@ -330,6 +330,10 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=nobiyou/wx_channel&type=date&legend=top-left)](https://www.star-history.com/#nobiyou/wx_channel&type=date&legend=top-left)
+
 <p align="center">
   <b>如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！</b>
 </p>
