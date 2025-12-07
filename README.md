@@ -47,7 +47,6 @@
 
 ![主界面](jietu.png)
 
-<<<<<<< HEAD
 ### Web 控制台界面
 
 访问 `https://dongzuren.com/wx_channel` 使用 Web 控制台：
@@ -59,9 +58,6 @@
 - **数据导出**：导出 JSON/CSV 格式数据
 
 > 💡 **提示**：更多功能说明请查看 [文档目录](docs/README.md) 和 [Web 控制台指南](docs/WEB_CONSOLE.md)
-=======
-> 💡 **提示**：更多演示图片和视频请查看 [使用文档](docs/INTRODUCTION.md)
->>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 
 ---
 
@@ -95,11 +91,7 @@ wx_channel.exe
    - 页面会自动注入下载按钮
    - 点击按钮即可下载
 
-<<<<<<< HEAD
 📖 **详细教程**：[安装指南](docs/INSTALLATION.md) | [文档目录](docs/README.md)
-=======
-📖 **详细教程**：[安装指南](docs/INSTALLATION.md) | [使用教程](docs/INTRODUCTION.md)
->>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 
 ---
 
@@ -241,11 +233,7 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ### 快速入门
 - [安装指南](docs/INSTALLATION.md) - 详细的安装步骤
-<<<<<<< HEAD
 - [项目介绍](docs/INTRODUCTION.md) - 功能特性和工作原理
-=======
-- [使用教程](docs/INTRODUCTION.md) - 如何下载视频
->>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 - [故障排除](docs/TROUBLESHOOTING.md) - 快速解决问题
 
 ### 进阶功能
