@@ -52,6 +52,7 @@ var logInitMsg string
 
 // 全局管理器
 var (
+<<<<<<< HEAD
 	csvManager         *storage.CSVManager
 	fileManager        *storage.FileManager
 	apiHandler         *handlers.APIHandler
@@ -62,6 +63,16 @@ var (
 	commentHandler     *handlers.CommentHandler
 	consoleAPIHandler  *handlers.ConsoleAPIHandler
 	webSocketHandler   *handlers.WebSocketHandler
+=======
+	csvManager     *storage.CSVManager
+	fileManager    *storage.FileManager
+	apiHandler     *handlers.APIHandler
+	uploadHandler  *handlers.UploadHandler
+	recordHandler  *handlers.RecordHandler
+	scriptHandler  *handlers.ScriptHandler
+	batchHandler   *handlers.BatchHandler
+	commentHandler *handlers.CommentHandler
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 )
 
 // downloadRecordsHeader CSV 文件的表头
@@ -391,6 +402,7 @@ func printTitle() {
 
 	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
+<<<<<<< HEAD
 	color.Green("    v5.2.0 更新要点：")
 	color.Green("    • Web控制台全面升级：浏览记录、下载记录、下载队列管理")
 	color.Green("    • 支持数据导出（JSON/CSV格式）和批量操作")
@@ -398,6 +410,14 @@ func printTitle() {
 	color.Green("    • 支持超长视频分片下载和断点续传")
 	color.Green("    • 新增深色模式和响应式设计")
 	color.Green("    • 完善文档和使用指南")
+=======
+	color.Green("    v5.0.0 更新要点：")
+	color.Green("    • 代码重构，完善文档")
+	color.Green("    • 搜索批量下载，主页批量下载")
+	color.Green("    • 下载保持评论")
+	color.Green("    • web控制台批量下载")
+	color.Green("    • 修复已知bug")
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 	fmt.Println()
 }
 
@@ -456,8 +476,11 @@ func main() {
 		color.Red("\n正在关闭服务...%v\n\n", sig)
 		// 记录系统关闭
 		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
+<<<<<<< HEAD
 		// 关闭数据库连接
 		database.Close()
+=======
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 		if os_env == "darwin" {
 			proxy.DisableProxyInMacOS(proxy.ProxySettings{
 				Device:   args["dev"],
@@ -503,6 +526,7 @@ func main() {
 	// 初始化评论处理器
 	commentHandler = handlers.NewCommentHandler(cfg)
 
+<<<<<<< HEAD
 	// 初始化数据库（用于Web控制台API）
 	baseDir, err := utils.GetBaseDir()
 	if err != nil {
@@ -523,6 +547,8 @@ func main() {
 	// 初始化WebSocket处理器
 	webSocketHandler = handlers.NewWebSocketHandler()
 
+=======
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 	existing, err1 := certificate.CheckCertificate("SunnyNet")
 	if err1 != nil {
 		utils.HandleError(err1, "检查证书")
@@ -604,11 +630,14 @@ func main() {
 		}
 		utils.LogSystemStart(port, proxyMode)
 		
+<<<<<<< HEAD
 		// 启动WebSocket服务器（使用代理端口+1）
 		// Requirements: 14.5 - WebSocket endpoint for real-time updates
 		wsPort := port + 1
 		go startWebSocketServer(wsPort)
 		
+=======
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 		utils.Info("🔍 请打开需要下载的视频号页面进行下载")
 	} else {
 		utils.PrintSeparator()
@@ -825,6 +854,7 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			return
 		}
 
+<<<<<<< HEAD
 		// 提供 Web 控制台静态资源 (js/, css/, docs/, 图片等)
 		if strings.HasPrefix(path, "/js/") || strings.HasPrefix(path, "/css/") || strings.HasPrefix(path, "/docs/") ||
 		   strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") || 
@@ -872,6 +902,8 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			return
 		}
 
+=======
+>>>>>>> 78ecd6eadca3961bb5593a0d558877e5a92e94ab
 		// 处理预检请求（CORS）
 		if strings.HasPrefix(path, "/__wx_channels_api/") && Conn.Request.Method == "OPTIONS" {
 			headers := http.Header{}
