@@ -55,13 +55,13 @@ func CleanFilename(filename string) string {
 	}
 
 	// 限制文件名长度，避免路径过长导致保存失败
-	// Windows 路径限制为 260 字符，考虑到目录路径和扩展名，文件名主体限制为 100 个字符
+	// Windows 路径限制为 260 字符，考虑到目录路径和扩展名，文件名主体限制为 50 个字符
 	// 使用 rune 而不是 byte 来正确处理中文等多字节字符
-	maxLength := 100
+	maxLength := 50
 	runes := []rune(filename)
 	if len(runes) > maxLength {
-		// 截断并添加省略号标记
-		filename = string(runes[:maxLength]) + "..."
+		// 截断，不添加省略号（避免文件名中出现特殊字符）
+		filename = string(runes[:maxLength])
 	}
 
 	return filename

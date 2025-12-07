@@ -197,6 +197,18 @@ func LogBatchDownload(total, success, failed int) {
 		total, success, failed)
 }
 
+// LogDownloadError 记录下载错误详情
+func LogDownloadError(videoID, title, author, url string, err error, retryCount int) {
+	GetLogger().Error("[下载错误] ID=%s | 标题=%s | 作者=%s | 重试次数=%d | 错误=%v | URL=%s",
+		videoID, title, author, retryCount, err, url)
+}
+
+// LogDownloadRetry 记录下载重试
+func LogDownloadRetry(videoID, title string, attempt, maxRetries int, err error) {
+	GetLogger().Warn("[下载重试] ID=%s | 标题=%s | 尝试=%d/%d | 错误=%v",
+		videoID, title, attempt, maxRetries, err)
+}
+
 // LogAPI 记录API调用
 func LogAPI(method, path string, statusCode int, duration time.Duration) {
 	GetLogger().Info("[API] %s %s | 状态=%d | 耗时=%v",

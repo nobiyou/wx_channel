@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/database"
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
 	"wx_channel/pkg/util"
@@ -48,8 +49,9 @@ type BatchTask struct {
 	ID              string  `json:"id"`
 	URL             string  `json:"url"`
 	Title           string  `json:"title"`
-	AuthorName      string  `json:"authorName"`
-	Key             string  `json:"key,omitempty"`             // 加密密钥（新方式，后端生成解密数组）
+	AuthorName      string  `json:"authorName,omitempty"` // 兼容旧格式
+	Author          string  `json:"author,omitempty"`     // 新格式
+	Key             string  `json:"key,omitempty"`        // 加密密钥（新方式，后端生成解密数组）
 	DecryptorPrefix string  `json:"decryptorPrefix,omitempty"` // 解密前缀（旧方式，前端传递）
 	PrefixLen       int     `json:"prefixLen,omitempty"`
 	Status          string  `json:"status"` // pending, downloading, done, failed
@@ -57,6 +59,49 @@ type BatchTask struct {
 	Progress        float64 `json:"progress,omitempty"`
 	DownloadedMB    float64 `json:"downloadedMB,omitempty"`
 	TotalMB         float64 `json:"totalMB,omitempty"`
+	// 额外字段用于下载记录（批量下载JSON格式）
+	Duration   string `json:"duration,omitempty"`   // 时长字符串，如 "00:22"
+	SizeMB     string `json:"sizeMB,omitempty"`     // 大小字符串，如 "28.77MB"
+	Cover      string `json:"cover,omitempty"`      // 封面URL（批量下载格式）
+	Resolution string `json:"resolution,omitempty"` // 分辨率
+	// 兼容数据库导出格式
+	VideoURL   string `json:"videoUrl,omitempty"`   // 视频URL（数据库格式）
+	CoverURL   string `json:"coverUrl,omitempty"`   // 封面URL（数据库格式）
+	DecryptKey string `json:"decryptKey,omitempty"` // 解密密钥（数据库格式）
+	DurationMs int64  `json:"durationMs,omitempty"` // 时长毫秒（数据库格式，字段名为duration但类型是int64）
+	Size       int64  `json:"size,omitempty"`       // 大小字节（数据库格式）
+}
+
+// GetAuthor 获取作者名称，兼容两种字段
+func (t *BatchTask) GetAuthor() string {
+	if t.Author != "" {
+		return t.Author
+	}
+	return t.AuthorName
+}
+
+// GetURL 获取视频URL，兼容两种格式
+func (t *BatchTask) GetURL() string {
+	if t.URL != "" {
+		return t.URL
+	}
+	return t.VideoURL
+}
+
+// GetKey 获取解密密钥，兼容两种格式
+func (t *BatchTask) GetKey() string {
+	if t.Key != "" {
+		return t.Key
+	}
+	return t.DecryptKey
+}
+
+// GetCover 获取封面URL，兼容两种格式
+func (t *BatchTask) GetCover() string {
+	if t.Cover != "" {
+		return t.Cover
+	}
+	return t.CoverURL
 }
 
 // NewBatchHandler 创建批量下载处理器
@@ -77,6 +122,18 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 
 	utils.Info("📥 [批量下载] 收到 batch_start 请求")
 
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
+	}
+
+	// 只处理 POST 请求
+	if Conn.Request.Method != "POST" {
+		h.sendErrorResponse(Conn, fmt.Errorf("method not allowed: %s", Conn.Request.Method))
+		return true
+	}
+
 	// 授权校验
 	if h.config != nil && h.config.SecretToken != "" {
 		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
@@ -86,6 +143,15 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	utils.Info("📥 [批量下载] 开始读取请求体...")
+	
+	// 检查请求体是否为空
+	if Conn.Request.Body == nil {
+		err := fmt.Errorf("request body is nil")
+		utils.HandleError(err, "读取batch_start请求体")
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	
 	body, err := io.ReadAll(Conn.Request.Body)
 	if err != nil {
 		utils.HandleError(err, "读取batch_start请求体")
@@ -123,24 +189,36 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			ID:              v.ID,
 			URL:             v.URL,
 			Title:           v.Title,
-			AuthorName:      v.AuthorName,
+			AuthorName:      v.GetAuthor(), // 兼容 author 和 authorName
+			Author:          v.Author,
 			Key:             v.Key,
 			DecryptorPrefix: v.DecryptorPrefix,
 			PrefixLen:       v.PrefixLen,
 			Status:          "pending",
+			// 保留额外字段
+			Duration:   v.Duration,
+			SizeMB:     v.SizeMB,
+			Cover:      v.Cover,
+			Resolution: v.Resolution,
 		}
 	}
 	h.running = true
 	h.mu.Unlock()
 
-	utils.Info("🚀 [批量下载] 开始下载 %d 个视频，并发数: %d", len(req.Videos), h.config.DownloadConcurrency)
+	// 获取并发数配置
+	concurrency := 3 // 默认值
+	if h.config != nil {
+		concurrency = h.config.DownloadConcurrency
+	}
+
+	utils.Info("🚀 [批量下载] 开始下载 %d 个视频，并发数: %d", len(req.Videos), concurrency)
 
 	// 启动后台下载
 	go h.startBatchDownload(req.ForceRedownload)
 
 	h.sendSuccessResponse(Conn, map[string]interface{}{
 		"total":       len(req.Videos),
-		"concurrency": h.config.DownloadConcurrency,
+		"concurrency": concurrency,
 	})
 	return true
 }
@@ -166,10 +244,18 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 		utils.HandleError(err, "获取基础目录")
 		return
 	}
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
+	// 获取下载目录
+	downloadsDir := "downloads"
+	if h.config != nil && h.config.DownloadsDir != "" {
+		downloadsDir = h.config.DownloadsDir
+	}
+	downloadsDir = filepath.Join(baseDir, downloadsDir)
 
 	// 获取并发数
-	concurrency := h.config.DownloadConcurrency
+	concurrency := 3
+	if h.config != nil {
+		concurrency = h.config.DownloadConcurrency
+	}
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -252,7 +338,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 // downloadVideo 下载单个视频（带重试和断点续传）
 func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downloadsDir string, forceRedownload bool, taskIdx int) error {
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(task.AuthorName)
+	authorFolder := utils.CleanFolderName(task.GetAuthor())
 	savePath := filepath.Join(downloadsDir, authorFolder)
 	if err := utils.EnsureDir(savePath); err != nil {
 		return fmt.Errorf("创建作者目录失败: %v", err)
@@ -267,12 +353,17 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 	if !forceRedownload {
 		if _, err := os.Stat(filePath); err == nil {
 			utils.Info("⏭️ [批量下载] 文件已存在，跳过: %s", cleanFilename)
+			// 文件已存在也保存记录（标记为已完成）
+			h.saveDownloadRecord(task, filePath, "completed")
 			return nil
 		}
 	}
 
 	// 使用配置的重试次数
-	maxRetries := h.config.DownloadRetryCount
+	maxRetries := 3
+	if h.config != nil {
+		maxRetries = h.config.DownloadRetryCount
+	}
 	if maxRetries < 1 {
 		maxRetries = 3
 	}
@@ -301,27 +392,33 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		}
 
 		// 使用配置的超时时间
-		timeout := h.config.DownloadTimeout
-		if timeout == 0 {
-			timeout = 10 * time.Minute
+		timeout := 10 * time.Minute
+		if h.config != nil && h.config.DownloadTimeout > 0 {
+			timeout = h.config.DownloadTimeout
 		}
 		downloadCtx, cancel := context.WithTimeout(ctx, timeout)
 		err := h.downloadVideoOnce(downloadCtx, task, filePath, taskIdx)
 		cancel()
 
 		if err == nil {
+			// 下载成功，保存到下载记录数据库
+			h.saveDownloadRecord(task, filePath, "completed")
 			return nil
 		}
 
 		lastErr = err
+		utils.LogDownloadRetry(task.ID, task.Title, retry+1, maxRetries, err)
 		utils.Warn("⚠️ [批量下载] 下载失败 (尝试 %d/%d): %v", retry+1, maxRetries, err)
 
 		// 如果不支持断点续传或是加密视频，清理临时文件
-		if task.DecryptorPrefix != "" || !h.config.DownloadResumeEnabled {
+		resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+		if task.DecryptorPrefix != "" || !resumeEnabled {
 			os.Remove(filePath + ".tmp")
 		}
 	}
 
+	// 记录最终失败的详细错误
+	utils.LogDownloadError(task.ID, task.Title, task.GetAuthor(), task.URL, lastErr, maxRetries)
 	return fmt.Errorf("下载失败（已重试 %d 次）: %v", maxRetries, lastErr)
 }
 
@@ -334,7 +431,8 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 
 	// 断点续传：检查已下载的部分（仅非加密视频支持）
 	var resumeOffset int64 = 0
-	if !needDecrypt && h.config.DownloadResumeEnabled {
+	resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+	if !needDecrypt && resumeEnabled {
 		if stat, err := os.Stat(tmpPath); err == nil {
 			resumeOffset = stat.Size()
 			utils.Info("📍 [批量下载] 断点续传，从 %.2f MB 继续", float64(resumeOffset)/(1024*1024))
@@ -426,7 +524,8 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 
 	if writeErr != nil {
 		// 断点续传模式下不删除临时文件
-		if !h.config.DownloadResumeEnabled || needDecrypt {
+		resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+		if !resumeEnabled || needDecrypt {
 			os.Remove(tmpPath)
 		}
 		return fmt.Errorf("写入文件失败: %v", writeErr)
@@ -624,11 +723,104 @@ func (h *BatchHandler) downloadAndDecrypt(ctx context.Context, reader io.Reader,
 	return nil
 }
 
+// saveDownloadRecord 保存下载记录到数据库
+func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, status string) {
+	// 获取文件大小
+	var fileSize int64 = 0
+	if stat, err := os.Stat(filePath); err == nil {
+		fileSize = stat.Size()
+	}
+
+	// 解析时长字符串为毫秒 (格式: "00:22" 或 "1:23:45")
+	duration := parseDurationToMs(task.Duration)
+
+	// 尝试从浏览记录获取更多信息（分辨率、封面等）
+	resolution := task.Resolution
+	coverURL := task.Cover
+	if resolution == "" || coverURL == "" {
+		browseRepo := database.NewBrowseHistoryRepository()
+		if browseRecord, err := browseRepo.GetByID(task.ID); err == nil && browseRecord != nil {
+			if resolution == "" {
+				resolution = browseRecord.Resolution
+			}
+			if coverURL == "" {
+				coverURL = browseRecord.CoverURL
+			}
+			// 如果时长为0，也从浏览记录获取
+			if duration == 0 {
+				duration = browseRecord.Duration
+			}
+		}
+	}
+
+	// 创建下载记录
+	record := &database.DownloadRecord{
+		ID:           task.ID,
+		VideoID:      task.ID,
+		Title:        task.Title,
+		Author:       task.GetAuthor(),
+		CoverURL:     coverURL,
+		Duration:     duration,
+		FileSize:     fileSize,
+		FilePath:     filePath,
+		Format:       "mp4",
+		Resolution:   resolution,
+		Status:       status,
+		DownloadTime: time.Now(),
+	}
+
+	// 保存到数据库
+	repo := database.NewDownloadRecordRepository()
+	if err := repo.Create(record); err != nil {
+		// 如果是重复记录，尝试更新
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			if updateErr := repo.Update(record); updateErr != nil {
+				utils.Warn("更新下载记录失败: %v", updateErr)
+			}
+		} else {
+			utils.Warn("保存下载记录失败: %v", err)
+		}
+	} else {
+		utils.Info("📝 [下载记录] 已保存: %s - %s", task.Title, task.GetAuthor())
+	}
+}
+
+// parseDurationToMs 解析时长字符串为毫秒
+// 支持格式: "00:22", "1:23", "1:23:45"
+func parseDurationToMs(duration string) int64 {
+	if duration == "" {
+		return 0
+	}
+
+	parts := strings.Split(duration, ":")
+	var totalSeconds int64 = 0
+
+	switch len(parts) {
+	case 2: // MM:SS
+		minutes, _ := strconv.ParseInt(parts[0], 10, 64)
+		seconds, _ := strconv.ParseInt(parts[1], 10, 64)
+		totalSeconds = minutes*60 + seconds
+	case 3: // HH:MM:SS
+		hours, _ := strconv.ParseInt(parts[0], 10, 64)
+		minutes, _ := strconv.ParseInt(parts[1], 10, 64)
+		seconds, _ := strconv.ParseInt(parts[2], 10, 64)
+		totalSeconds = hours*3600 + minutes*60 + seconds
+	}
+
+	return totalSeconds * 1000 // 转换为毫秒
+}
+
 // HandleBatchProgress 处理批量下载进度查询请求
 func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/batch_progress" {
 		return false
+	}
+
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
 	}
 
 	// 授权校验
@@ -643,8 +835,21 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 	total := len(h.tasks)
 	done, failed, running := 0, 0, 0
 	var downloadingTasks []map[string]interface{}
+	var allTasks []map[string]interface{}
 
 	for _, t := range h.tasks {
+		taskInfo := map[string]interface{}{
+			"id":           t.ID,
+			"title":        t.Title,
+			"authorName":   t.GetAuthor(),
+			"status":       t.Status,
+			"progress":     t.Progress,
+			"downloadedMB": t.DownloadedMB,
+			"totalMB":      t.TotalMB,
+			"error":        t.Error,
+		}
+		allTasks = append(allTasks, taskInfo)
+
 		switch t.Status {
 		case "done":
 			done++
@@ -652,12 +857,7 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 			failed++
 		case "downloading":
 			running++
-			downloadingTasks = append(downloadingTasks, map[string]interface{}{
-				"title":        t.Title,
-				"progress":     t.Progress,
-				"downloadedMB": t.DownloadedMB,
-				"totalMB":      t.TotalMB,
-			})
+			downloadingTasks = append(downloadingTasks, taskInfo)
 		}
 	}
 	h.mu.RUnlock()
@@ -667,6 +867,7 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 		"done":    done,
 		"failed":  failed,
 		"running": running,
+		"tasks":   allTasks,
 	}
 
 	// 返回所有正在下载的任务（并发模式下可能有多个）
@@ -685,6 +886,12 @@ func (h *BatchHandler) HandleBatchCancel(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/batch_cancel" {
 		return false
+	}
+
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
 	}
 
 	// 授权校验
@@ -715,6 +922,12 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	path := Conn.Request.URL.Path
 	if path != "/__wx_channels_api/batch_failed" {
 		return false
+	}
+
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
 	}
 
 	// 授权校验
@@ -748,7 +961,12 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
+	// 获取下载目录
+	downloadsDir := "downloads"
+	if h.config != nil && h.config.DownloadsDir != "" {
+		downloadsDir = h.config.DownloadsDir
+	}
+	downloadsDir = filepath.Join(baseDir, downloadsDir)
 	timestamp := time.Now().Format("20060102_150405")
 	exportFile := filepath.Join(downloadsDir, fmt.Sprintf("failed_videos_%s.json", timestamp))
 
@@ -786,20 +1004,14 @@ func (h *BatchHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn, data map[str
 	headers.Set("Content-Type", "application/json")
 	headers.Set("X-Content-Type-Options", "nosniff")
 
-	// CORS
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-		origin := Conn.Request.Header.Get("Origin")
-		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
-				if o == origin {
-					headers.Set("Access-Control-Allow-Origin", origin)
-					headers.Set("Vary", "Origin")
-					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-					headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-					break
-				}
-			}
-		}
+	// CORS - 允许所有来源（因为是本地服务）
+	origin := Conn.Request.Header.Get("Origin")
+	if origin != "" {
+		headers.Set("Access-Control-Allow-Origin", origin)
+		headers.Set("Vary", "Origin")
+		headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+		headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		headers.Set("Access-Control-Max-Age", "86400") // 24小时
 	}
 
 	Conn.StopRequest(200, string(responseBytes), headers)
@@ -811,20 +1023,14 @@ func (h *BatchHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers.Set("Content-Type", "application/json")
 	headers.Set("X-Content-Type-Options", "nosniff")
 
-	// CORS
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-		origin := Conn.Request.Header.Get("Origin")
-		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
-				if o == origin {
-					headers.Set("Access-Control-Allow-Origin", origin)
-					headers.Set("Vary", "Origin")
-					headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
-					headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-					break
-				}
-			}
-		}
+	// CORS - 允许所有来源（因为是本地服务）
+	origin := Conn.Request.Header.Get("Origin")
+	if origin != "" {
+		headers.Set("Access-Control-Allow-Origin", origin)
+		headers.Set("Vary", "Origin")
+		headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Local-Auth")
+		headers.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		headers.Set("Access-Control-Max-Age", "86400") // 24小时
 	}
 
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, strings.ReplaceAll(err.Error(), `"`, `\"`))

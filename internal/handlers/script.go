@@ -241,10 +241,93 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 		});
 	};
 	
+	// 暂停视频的辅助函数（只暂停，不阻止自动切换）
+	window.__wx_channels_pause_video__ = function() {
+		console.log('[视频助手] 暂停视频（下载期间）...');
+		try {
+			let pausedCount = 0;
+			const pausedVideos = [];
+			
+			// 方法1: 使用 Video.js API
+			if (typeof videojs !== 'undefined') {
+				const players = videojs.getAllPlayers?.() || [];
+				players.forEach((player, index) => {
+					if (player && typeof player.pause === 'function' && !player.paused()) {
+						player.pause();
+						pausedVideos.push({ type: 'videojs', player, index });
+						pausedCount++;
+						console.log('[视频助手] Video.js 播放器', index, '已暂停');
+					}
+				});
+			}
+			
+			// 方法2: 查找所有 video 元素
+			const videos = document.querySelectorAll('video');
+			videos.forEach((video, index) => {
+				// 尝试通过 Video.js 获取播放器实例
+				let player = null;
+				if (typeof videojs !== 'undefined') {
+					try {
+						player = videojs(video);
+					} catch (e) {
+						// 不是 Video.js 播放器
+					}
+				}
+				
+				if (player && typeof player.pause === 'function') {
+					if (!player.paused()) {
+						player.pause();
+						pausedVideos.push({ type: 'videojs', player, index });
+						pausedCount++;
+						console.log('[视频助手] Video.js 播放器', index, '已暂停');
+					}
+				} else {
+					if (!video.paused) {
+						video.pause();
+						pausedVideos.push({ type: 'native', video, index });
+						pausedCount++;
+						console.log('[视频助手] 原生视频', index, '已暂停');
+					}
+				}
+			});
+			
+			console.log('[视频助手] 共暂停', pausedCount, '个视频');
+			
+			// 返回暂停的视频列表，用于后续恢复
+			return pausedVideos;
+		} catch (e) {
+			console.error('[视频助手] 暂停视频失败:', e);
+			return [];
+		}
+	};
+	
+	// 恢复视频播放的辅助函数
+	window.__wx_channels_resume_video__ = function(pausedVideos) {
+		if (!pausedVideos || pausedVideos.length === 0) return;
+		
+		console.log('[视频助手] 恢复视频播放...');
+		try {
+			pausedVideos.forEach(item => {
+				if (item.type === 'videojs' && item.player) {
+					item.player.play();
+					console.log('[视频助手] Video.js 播放器', item.index, '已恢复');
+				} else if (item.type === 'native' && item.video) {
+					item.video.play();
+					console.log('[视频助手] 原生视频', item.index, '已恢复');
+				}
+			});
+		} catch (e) {
+			console.error('[视频助手] 恢复视频失败:', e);
+		}
+	};
+	
 	// 覆盖原有的下载处理函数
 	const originalHandleClick = window.__wx_channels_handle_click_download__;
 	if (originalHandleClick) {
 		window.__wx_channels_handle_click_download__ = function(sp) {
+			// 暂停视频
+			const pausedVideos = window.__wx_channels_pause_video__();
+			
 			// 调用原始函数进行下载
 			originalHandleClick(sp);
 			
@@ -253,6 +336,11 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 				const profile = {...window.__wx_channels_store__.profile};
 				window.__wx_channels_record_download(profile);
 			}
+			
+			// 3秒后恢复播放（给下载一些时间开始）
+			setTimeout(() => {
+				window.__wx_channels_resume_video__(pausedVideos);
+			}, 5000);
 		};
 	}
 	
@@ -260,6 +348,9 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 	const originalDownloadCur = window.__wx_channels_download_cur__;
 	if (originalDownloadCur) {
 		window.__wx_channels_download_cur__ = function() {
+			// 暂停视频
+			const pausedVideos = window.__wx_channels_pause_video__();
+			
 			// 调用原始函数进行下载
 			originalDownloadCur();
 			
@@ -268,6 +359,11 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 				const profile = {...window.__wx_channels_store__.profile};
 				window.__wx_channels_record_download(profile);
 			}
+			
+			// 3秒后恢复播放（给下载一些时间开始）
+			setTimeout(() => {
+				window.__wx_channels_resume_video__(pausedVideos);
+			}, 3000);
 		};
 	}
 	
@@ -2434,8 +2530,8 @@ if(f.cmd===re.MAIN_THREAD_CMD.AUTO_CUT`
 	// 策略2：拦截 goToPrevFlowFeed (上一个视频)
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
 
-	// 数据采集代码（通用，包含互动数据）
-	captureCode := `setTimeout(function(){try{console.log("[Home] 开始采集视频数据...");var __tab=Ue.value;console.log("[Home] Ue.value:",__tab);if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home] currentFeed:",__feed);if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功");console.log("[Home页面] 标题:",__profile.title);console.log("[Home页面] 时长:",__duration+"ms");console.log("[Home页面] 作者:",__profile.nickname);console.log("[Home页面] 点赞:",__profile.likeCount);fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}else{console.warn("[Home] 没有objectDesc");}}else{console.warn("[Home] 没有currentFeed");}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	// 数据采集代码（通用，包含互动数据）- 精简日志版本
+	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",media:__media,duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {
@@ -2862,8 +2958,8 @@ func (h *ScriptHandler) handleVuexStores(Conn *SunnyNet.HttpConn, path string, c
 	// 策略2：拦截 goToPrevFlowFeed (上一个视频)
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
 
-	// 数据采集代码（通用，包含互动数据）
-	captureCode := `setTimeout(function(){try{console.log("[Home] 开始采集视频数据...");var __tab=Ue.value;console.log("[Home] Ue.value:",__tab);if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home] currentFeed:",__feed);if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功");console.log("[Home页面] 标题:",__profile.title);console.log("[Home页面] 时长:",__duration+"ms");console.log("[Home页面] 作者:",__profile.nickname);console.log("[Home页面] 点赞:",__profile.likeCount);fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}else{console.warn("[Home] 没有objectDesc");}}else{console.warn("[Home] 没有currentFeed");}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	// 数据采集代码（通用，包含互动数据）- 精简日志版本
+	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",media:__media,duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {
@@ -2905,8 +3001,8 @@ func (h *ScriptHandler) handleGlobalPublish(Conn *SunnyNet.HttpConn, path string
 	// 策略2：拦截 goToPrevFlowFeed (上一个视频)
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
 
-	// 数据采集代码（通用，包含互动数据）
-	captureCode := `setTimeout(function(){try{console.log("[Home] 开始采集视频数据...");var __tab=Ue.value;console.log("[Home] Ue.value:",__tab);if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home] currentFeed:",__feed);if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功");console.log("[Home页面] 标题:",__profile.title);console.log("[Home页面] 时长:",__duration+"ms");console.log("[Home页面] 作者:",__profile.nickname);console.log("[Home页面] 点赞:",__profile.likeCount);fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}else{console.warn("[Home] 没有objectDesc");}}else{console.warn("[Home] 没有currentFeed");}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	// 数据采集代码（通用，包含互动数据）- 精简日志版本
+	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",media:__media,duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {
@@ -2949,8 +3045,8 @@ func (h *ScriptHandler) handleConnectPublish(Conn *SunnyNet.HttpConn, path strin
 	// 策略2：拦截 goToPrevFlowFeed (上一个视频)
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{[^}]*eleInfo:\{[^}]+\}[^}]*\}\)`)
 
-	// 数据采集代码（智能查找变量名：yt, Dt, ae, Ue）
-	captureCode := `setTimeout(function(){try{console.log("[Home] 开始采集视频数据...");var __tab=null;if(typeof yt!=="undefined"&&yt&&yt.value){__tab=yt.value;console.log("[Home] 使用 yt.value");}else if(typeof Dt!=="undefined"&&Dt&&Dt.value){__tab=Dt.value;console.log("[Home] 使用 Dt.value");}else if(typeof ae!=="undefined"&&ae&&ae.value){__tab=ae.value;console.log("[Home] 使用 ae.value");}else if(typeof Ue!=="undefined"&&Ue&&Ue.value){__tab=Ue.value;console.log("[Home] 使用 Ue.value");}else{console.warn("[Home] 未找到任何可用的 tab 变量");return;}console.log("[Home] tab:",__tab);if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home] currentFeed:",__feed);if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功");console.log("[Home页面] 标题:",__profile.title);console.log("[Home页面] 时长:",__duration+"ms");console.log("[Home页面] 作者:",__profile.nickname);console.log("[Home页面] 点赞:",__profile.likeCount);fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}else{console.warn("[Home] 没有objectDesc");}}else{console.warn("[Home] 没有currentFeed");}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	// 数据采集代码（智能查找变量名：yt, Dt, ae, Ue）- 带调试日志
+	captureCode := `setTimeout(function(){try{console.log("[Home采集] 开始执行...");var __tab=null;if(typeof yt!=="undefined"&&yt&&yt.value){__tab=yt.value;console.log("[Home采集] 使用yt.value");}else if(typeof Dt!=="undefined"&&Dt&&Dt.value){__tab=Dt.value;console.log("[Home采集] 使用Dt.value");}else if(typeof ae!=="undefined"&&ae&&ae.value){__tab=ae.value;console.log("[Home采集] 使用ae.value");}else if(typeof Ue!=="undefined"&&Ue&&Ue.value){__tab=Ue.value;console.log("[Home采集] 使用Ue.value");}else{console.log("[Home采集] 未找到tab变量");return;}if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home采集] 找到currentFeed");if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];console.log("[Home采集] media高度:",__media.height);var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",media:__media,duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};console.log("[Home采集] 发送profile请求...");fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)}).then(function(){console.log("[Home采集] profile请求成功");}).catch(function(e){console.error("[Home采集] profile请求失败:",e);});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}}}catch(__e){console.error("[Home采集] 失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {
@@ -2994,8 +3090,8 @@ func (h *ScriptHandler) handleFinderHomePublish(Conn *SunnyNet.HttpConn, path st
 	// 策略2：拦截 goToPrevFlowFeed (上一个视频)
 	callPrevRegex := regexp.MustCompile(`(\w)\.goToPrevFlowFeed\(\{eleInfo:\{[^}]+\}\}\)`)
 
-	// 数据采集代码（通用，包含互动数据）
-	captureCode := `setTimeout(function(){try{console.log("[Home] 开始采集视频数据...");var __tab=Ue.value;console.log("[Home] Ue.value:",__tab);if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;console.log("[Home] currentFeed:",__feed);if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;console.log("[Home页面] 视频数据采集成功");console.log("[Home页面] 标题:",__profile.title);console.log("[Home页面] 时长:",__duration+"ms");console.log("[Home页面] 作者:",__profile.nickname);console.log("[Home页面] 点赞:",__profile.likeCount);fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}else{console.warn("[Home] 没有objectDesc");}}else{console.warn("[Home] 没有currentFeed");}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
+	// 数据采集代码（通用，包含互动数据）- 精简日志版本
+	captureCode := `setTimeout(function(){try{var __tab=Ue.value;if(__tab&&__tab.currentFeed){var __feed=__tab.currentFeed;if(__feed.objectDesc){var __media=__feed.objectDesc.media[0];var __duration=0;if(__media&&__media.spec&&__media.spec[0]&&__media.spec[0].durationMs){__duration=__media.spec[0].durationMs;}var __profile={type:"media",media:__media,duration:__duration,spec:__media.spec.map(function(s){return{width:s.width||s.videoWidth,height:s.height||s.videoHeight,bitrate:s.bitrate,fileFormat:s.fileFormat}}),title:__feed.objectDesc.description,coverUrl:__media.thumbUrl,url:__media.url+__media.urlToken,size:__media.fileSize,key:__media.decodeKey,id:__feed.id,nonce_id:__feed.objectNonceId,nickname:(__feed.contact&&__feed.contact.nickname)?__feed.contact.nickname:"",createtime:__feed.createtime,fileFormat:__media.spec.map(function(o){return o.fileFormat}),contact:__feed.contact,readCount:__feed.readCount,likeCount:__feed.likeCount,commentCount:__feed.commentCount,favCount:__feed.favCount,forwardCount:__feed.forwardCount,ipRegionInfo:__feed.ipRegionInfo};fetch("/__wx_channels_api/profile",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(__profile)});window.__wx_channels_store__=window.__wx_channels_store__||{profile:null,buffers:[],keys:{}};window.__wx_channels_store__.profile=__profile;fetch("/__wx_channels_api/tip",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({msg:"📹 [Home] "+(__profile.nickname||"未知作者")+" - "+(__profile.title||"").substring(0,30)+"..."})}).catch(function(){});}}}catch(__e){console.error("[Home] 采集失败:",__e)}},500)`
 
 	// 替换 goToNextFlowFeed
 	if callNextRegex.MatchString(content) {

@@ -62,7 +62,7 @@ func Load() *Config {
 		globalConfig = &Config{
 			Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 			DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-			Version:                "5.1.0.0",              // 版本号（用于前端缓存破坏等）
+			Version:                "5.2.0",              // 版本号（用于前端缓存破坏等）
 			DownloadsDir:           "downloads",            // 下载根目录
 			RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 			CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）
@@ -82,9 +82,9 @@ func Load() *Config {
 			DownloadTimeout:        30 * time.Minute,       // 单个文件下载超时
 			LogFile:                "logs/wx_channel.log",  // 日志文件路径（默认开启）
 			MaxLogSizeMB:           5,                      // 单个日志文件最大大小（MB），达到后滚动
-			SavePageSnapshot:       true,                   // 默认开启页面快照保存
+			SavePageSnapshot:       false,                   // 默认开启页面快照保存
 			SaveSearchData:         false,                  // 默认开启搜索数据保存
-			SavePageJS:             true,                   // 默认开启JS文件保存（用于页面分析）
+			SavePageJS:             false,                   // 默认开启JS文件保存（用于页面分析）
 			ShowLogButton:          false,                  // 默认隐藏日志按钮
 		}
 		// 从环境变量加载可选令牌

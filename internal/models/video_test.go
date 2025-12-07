@@ -77,29 +77,31 @@ func TestVideoProfile_ToDownloadRecord(t *testing.T) {
 
 func TestVideoDownloadRecord_ToCSVRow(t *testing.T) {
 	record := &VideoDownloadRecord{
-		ID:           "123",
-		Title:        "测试视频",
-		Author:       "测试作者",
-		AuthorType:   "视频号",
-		OfficialName: "公众号名称",
-		URL:          "https://example.com/video.mp4",
-		PageURL:      "https://example.com/page",
-		FileSize:     "10.5 MB",
-		Duration:     "01:30",
-		PlayCount:    "1000",
-		LikeCount:    "100",
-		CommentCount: "50",
-		FavCount:     "25",
-		ForwardCount: "10",
-		CreateTime:   "2025-01-01 12:00:00",
-		IPRegion:     "北京",
-		DownloadAt:   time.Now(),
+		ID:            "123",
+		Title:         "测试视频",
+		Author:        "测试作者",
+		AuthorType:    "视频号",
+		OfficialName:  "公众号名称",
+		URL:           "https://example.com/video.mp4",
+		PageURL:       "https://example.com/page",
+		FileSize:      "10.5 MB",
+		Duration:      "01:30",
+		PlayCount:     "1000",
+		LikeCount:     "100",
+		CommentCount:  "50",
+		FavCount:      "25",
+		ForwardCount:  "10",
+		CreateTime:    "2025-01-01 12:00:00",
+		IPRegion:      "北京",
+		DownloadAt:    time.Now(),
+		PageSource:    "feed",
+		SearchKeyword: "",
 	}
 	
 	row := record.ToCSVRow()
 	
-	// 检查行数（应该有17个字段）
-	expectedFields := 17
+	// 检查行数（应该有19个字段，包括PageSource和SearchKeyword）
+	expectedFields := 19
 	if len(row) != expectedFields {
 		t.Errorf("ToCSVRow() 返回 %d 个字段, 期望 %d", len(row), expectedFields)
 	}
@@ -114,9 +116,19 @@ func TestVideoDownloadRecord_ToCSVRow(t *testing.T) {
 		t.Errorf("ToCSVRow() Title = %v, 期望 %v", row[1], "测试视频")
 	}
 	
-	// 检查最后一个字段（下载时间）应该有内容
+	// 检查下载时间字段（索引16）应该有内容
 	if row[16] == "" {
 		t.Error("ToCSVRow() 下载时间不应该为空")
+	}
+	
+	// 检查PageSource字段（索引17）
+	if row[17] != "feed" {
+		t.Errorf("ToCSVRow() PageSource = %v, 期望 %v", row[17], "feed")
+	}
+	
+	// 检查SearchKeyword字段（索引18）
+	if row[18] != "" {
+		t.Errorf("ToCSVRow() SearchKeyword = %v, 期望空字符串", row[18])
 	}
 }
 

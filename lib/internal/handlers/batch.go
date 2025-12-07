@@ -38,7 +38,8 @@ type BatchTask struct {
 	ID              string  `json:"id"`
 	URL             string  `json:"url"`
 	Title           string  `json:"title"`
-	AuthorName      string  `json:"authorName"`
+	AuthorName      string  `json:"authorName,omitempty"` // 兼容旧格式
+	Author          string  `json:"author,omitempty"`     // 新格式
 	DecryptorPrefix string  `json:"decryptorPrefix,omitempty"`
 	PrefixLen       int     `json:"prefixLen,omitempty"`
 	Status          string  `json:"status"` // pending, downloading, done, failed
@@ -46,6 +47,14 @@ type BatchTask struct {
 	Progress        float64 `json:"progress,omitempty"`        // 下载进度 (0-100)
 	DownloadedMB    float64 `json:"downloadedMB,omitempty"`    // 已下载大小(MB)
 	TotalMB         float64 `json:"totalMB,omitempty"`         // 总大小(MB)
+}
+
+// GetAuthor 获取作者名称，兼容两种字段
+func (t *BatchTask) GetAuthor() string {
+	if t.Author != "" {
+		return t.Author
+	}
+	return t.AuthorName
 }
 
 // NewBatchHandler 创建批量下载处理器
@@ -104,7 +113,8 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			ID:              v.ID,
 			URL:             v.URL,
 			Title:           v.Title,
-			AuthorName:      v.AuthorName,
+			AuthorName:      v.GetAuthor(), // 兼容 author 和 authorName
+			Author:          v.Author,
 			DecryptorPrefix: v.DecryptorPrefix,
 			PrefixLen:       v.PrefixLen,
 			Status:          "pending",
@@ -195,7 +205,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 // downloadVideo 下载单个视频
 func (h *BatchHandler) downloadVideo(task *BatchTask, downloadsDir string, forceRedownload bool, taskIdx int) error {
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(task.AuthorName)
+	authorFolder := utils.CleanFolderName(task.GetAuthor())
 	savePath := filepath.Join(downloadsDir, authorFolder)
 	if err := utils.EnsureDir(savePath); err != nil {
 		return fmt.Errorf("创建作者目录失败: %v", err)
@@ -514,8 +524,21 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 	failed := 0
 	running := 0
 	var currentTask *BatchTask
+	var allTasks []map[string]interface{}
 
 	for i, t := range h.tasks {
+		taskInfo := map[string]interface{}{
+			"id":           t.ID,
+			"title":        t.Title,
+			"authorName":   t.GetAuthor(),
+			"status":       t.Status,
+			"progress":     t.Progress,
+			"downloadedMB": t.DownloadedMB,
+			"totalMB":      t.TotalMB,
+			"error":        t.Error,
+		}
+		allTasks = append(allTasks, taskInfo)
+
 		switch t.Status {
 		case "done":
 			done++
@@ -535,12 +558,15 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 		"done":    done,
 		"failed":  failed,
 		"running": running,
+		"tasks":   allTasks,
 	}
 
 	// 添加当前任务信息
 	if currentTask != nil {
 		response["currentTask"] = map[string]interface{}{
+			"id":           currentTask.ID,
 			"title":        currentTask.Title,
+			"authorName":   currentTask.GetAuthor(),
 			"progress":     currentTask.Progress,
 			"downloadedMB": currentTask.DownloadedMB,
 			"totalMB":      currentTask.TotalMB,

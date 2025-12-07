@@ -169,6 +169,7 @@ func (d *Downloader) downloadOne(client *http.Client, task DownloadTask) Downloa
 			return DownloadResult{Task: task, Path: path, SizeMB: size, Err: nil}
 		}
 		lastErr = err
+		utils.LogDownloadRetry(task.ID, task.Filename, attempt, retries, err)
 		utils.Warn("[批量下载] 下载失败(%d/%d): ID=%s, 标题=%s, 错误=%v", attempt, retries, task.ID, task.Filename, err)
 		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 	}

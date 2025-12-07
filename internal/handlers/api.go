@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/database"
 	"wx_channel/internal/utils"
 	"wx_channel/pkg/util"
 
@@ -46,6 +48,7 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	if path != "/__wx_channels_api/profile" {
 		return false
 	}
+	utils.LogInfo("[Profile API] 收到视频信息请求")
 
     // 授权与来源校验（可选）
     if h.config != nil && h.config.SecretToken != "" {
@@ -123,17 +126,91 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	if n, ok := data["nickname"].(string); ok {
 		author = n
 	}
+	authorID := ""
+	if aid, ok := data["authorId"].(string); ok {
+		authorID = aid
+	}
 	sizeMB := 0.0
-	if size, ok := data["size"].(float64); ok {
-		sizeMB = size / (1024 * 1024)
+	var size int64 = 0
+	if s, ok := data["size"].(float64); ok {
+		sizeMB = s / (1024 * 1024)
+		size = int64(s)
 	}
 	url := ""
 	if u, ok := data["url"].(string); ok {
 		url = u
 	}
 	
-	utils.LogInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s",
-		videoID, title, author, sizeMB, url)
+	// 提取其他字段用于数据库保存
+	var duration int64 = 0
+	if d, ok := data["duration"].(float64); ok {
+		duration = int64(d)
+	}
+	coverUrl := ""
+	if c, ok := data["coverUrl"].(string); ok {
+		coverUrl = c
+	}
+	var likeCount int64 = 0
+	if l, ok := data["likeCount"].(float64); ok {
+		likeCount = int64(l)
+	}
+	var commentCount int64 = 0
+	if c, ok := data["commentCount"].(float64); ok {
+		commentCount = int64(c)
+	}
+	var favCount int64 = 0
+	if f, ok := data["favCount"].(float64); ok {
+		favCount = int64(f)
+	}
+	var forwardCount int64 = 0
+	if fw, ok := data["forwardCount"].(float64); ok {
+		forwardCount = int64(fw)
+	}
+	// 提取解密密钥（用于加密视频下载）
+	// decodeKey 可能是字符串或数字类型
+	decryptKey := ""
+	if k, ok := data["key"].(string); ok {
+		decryptKey = k
+	} else if k, ok := data["key"].(float64); ok {
+		// 数字类型的key，转换为字符串
+		decryptKey = fmt.Sprintf("%.0f", k)
+	}
+	
+	// 提取分辨率信息：优先从media直接获取宽x高格式
+	resolution := ""
+	// 前端发送的media是单个对象，不是数组
+	if mediaItem, ok := data["media"].(map[string]interface{}); ok {
+		// 从media直接获取width和height
+		var width, height int64
+		if w, ok := mediaItem["width"].(float64); ok {
+			width = int64(w)
+		}
+		if h, ok := mediaItem["height"].(float64); ok {
+			height = int64(h)
+		}
+		if width > 0 && height > 0 {
+			resolution = fmt.Sprintf("%dx%d", width, height)
+			utils.LogInfo("[分辨率] 从media获取: %s", resolution)
+		}
+		// 如果media中没有，从spec中获取xWT111格式的分辨率
+		if resolution == "" {
+			if spec, ok := mediaItem["spec"].([]interface{}); ok && len(spec) > 0 {
+				resolution = extractResolutionFromSpec(spec)
+				utils.LogInfo("[分辨率] 从spec获取: %s", resolution)
+			}
+		}
+	}
+	if resolution == "" {
+		utils.LogInfo("[分辨率] 未能获取分辨率信息")
+	}
+	
+	pageUrl := h.currentURL
+	
+	utils.LogInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s | Key=%s | 分辨率=%s",
+		videoID, title, author, sizeMB, url, decryptKey, resolution)
+	
+	// 保存浏览记录到数据库
+	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, likeCount, commentCount, favCount, forwardCount, pageUrl)
 	
 	color.Yellow("\n")
 
@@ -216,6 +293,77 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	}
 	utils.PrintSeparator()
 	color.Yellow("\n\n")
+}
+
+// saveBrowseRecord 保存浏览记录到数据库
+func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, duration, size int64, coverUrl, videoUrl, decryptKey, resolution string, likeCount, commentCount, favCount, forwardCount int64, pageUrl string) {
+	// 检查数据库是否已初始化
+	db := database.GetDB()
+	if db == nil {
+		utils.Warn("数据库未初始化，无法保存浏览记录")
+		return
+	}
+	
+	// 如果没有视频ID，生成一个
+	if videoID == "" {
+		videoID = fmt.Sprintf("browse_%d", time.Now().UnixNano())
+	}
+	
+	// 创建浏览记录
+	record := &database.BrowseRecord{
+		ID:           videoID,
+		Title:        title,
+		Author:       author,
+		AuthorID:     authorID,
+		Duration:     duration,
+		Size:         size,
+		Resolution:   resolution,
+		CoverURL:     coverUrl,
+		VideoURL:     videoUrl,
+		DecryptKey:   decryptKey,
+		BrowseTime:   time.Now(),
+		LikeCount:    likeCount,
+		CommentCount: commentCount,
+		FavCount:     favCount,
+		ForwardCount: forwardCount,
+		PageURL:      pageUrl,
+	}
+	
+	// 保存到数据库
+	repo := database.NewBrowseHistoryRepository()
+	
+	// 先检查是否已存在该记录
+	existing, err := repo.GetByID(videoID)
+	if err != nil {
+		utils.Warn("检查浏览记录失败: %v", err)
+		return
+	}
+	
+	if existing != nil {
+		// 更新现有记录
+		record.CreatedAt = existing.CreatedAt
+		// 如果现有记录没有解密密钥但新数据有，则更新
+		if existing.DecryptKey == "" && decryptKey != "" {
+			record.DecryptKey = decryptKey
+		} else if existing.DecryptKey != "" {
+			// 保留现有的解密密钥
+			record.DecryptKey = existing.DecryptKey
+		}
+		err = repo.Update(record)
+		if err != nil {
+			utils.Warn("更新浏览记录失败: %v", err)
+		} else {
+			utils.Info("✓ 浏览记录已更新: %s", title)
+		}
+	} else {
+		// 创建新记录
+		err = repo.Create(record)
+		if err != nil {
+			utils.Warn("保存浏览记录失败: %v", err)
+		} else {
+			utils.Info("✓ 浏览记录已保存: %s", title)
+		}
+	}
 }
 
 // HandleTip 处理前端提示请求
@@ -546,4 +694,103 @@ func (h *APIHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
     }
 	errorMsg := fmt.Sprintf(`{"success":false,"error":"%s"}`, err.Error())
 	Conn.StopRequest(500, errorMsg, headers)
+}
+
+// extractResolutionFromSpec 从media.spec数组中提取分辨率
+// spec 是一个包含不同视频格式信息的数组
+// 优先查找 xWT111 格式（最高质量），然后提取其分辨率
+func extractResolutionFromSpec(spec []interface{}) string {
+	var bestResolution string
+	var bestWidth int64
+
+	for _, format := range spec {
+		formatMap, ok := format.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// 获取格式标识 - spec中使用 "fileFormat" 字段
+		formatType := ""
+		if ft, ok := formatMap["fileFormat"].(string); ok {
+			formatType = ft
+		}
+
+		// 获取分辨率信息
+		var width, height int64
+		if w, ok := formatMap["width"].(float64); ok {
+			width = int64(w)
+		}
+		if h, ok := formatMap["height"].(float64); ok {
+			height = int64(h)
+		}
+
+		// 如果是 xWT111 格式（最高质量），直接使用宽x高格式
+		if formatType == "xWT111" && width > 0 && height > 0 {
+			return fmt.Sprintf("%dx%d", width, height)
+		}
+
+		// 记录最高分辨率（按宽度判断）
+		if width > bestWidth {
+			bestWidth = width
+			if height > 0 {
+				bestResolution = fmt.Sprintf("%dx%d", width, height)
+			}
+		}
+	}
+
+	return bestResolution
+}
+
+// parseResolutionFromFormatString 从格式字符串中解析分辨率
+// 例如: "xWT111_1280x720" -> "720p"
+func parseResolutionFromFormatString(formatStr string) string {
+	// 查找分辨率模式 如 1280x720 或 1920x1080
+	parts := strings.Split(formatStr, "_")
+	for _, part := range parts {
+		if strings.Contains(part, "x") {
+			dims := strings.Split(part, "x")
+			if len(dims) == 2 {
+				if height, err := strconv.ParseInt(dims[1], 10, 64); err == nil && height > 0 {
+					return formatHeightToResolution(height)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseResolutionFromURL 从视频URL中解析分辨率
+func parseResolutionFromURL(url string) string {
+	// 尝试从URL中匹配分辨率模式
+	// 常见模式: 1280x720, 1920x1080 等
+	patterns := []string{"1920x1080", "1280x720", "854x480", "640x360", "3840x2160", "2560x1440"}
+	heights := []int64{1080, 720, 480, 360, 2160, 1440}
+	
+	for i, pattern := range patterns {
+		if strings.Contains(url, pattern) {
+			return formatHeightToResolution(heights[i])
+		}
+	}
+	
+	return ""
+}
+
+// formatHeightToResolution 将视频高度转换为分辨率字符串
+func formatHeightToResolution(height int64) string {
+	switch {
+	case height >= 2160:
+		return "4K"
+	case height >= 1440:
+		return "2K"
+	case height >= 1080:
+		return "1080p"
+	case height >= 720:
+		return "720p"
+	case height >= 480:
+		return "480p"
+	case height >= 360:
+		return "360p"
+	default:
+		return fmt.Sprintf("%dp", height)
+	}
 }
