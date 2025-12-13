@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -62,7 +63,7 @@ func Load() *Config {
 		globalConfig = &Config{
 			Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 			DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-			Version:                "5.2.0",              // 版本号（用于前端缓存破坏等）
+			Version:                "5.2.6",                // 版本号（用于前端缓存破坏等）
 			DownloadsDir:           "downloads",            // 下载根目录
 			RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 			CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）
@@ -85,7 +86,7 @@ func Load() *Config {
 			SavePageSnapshot:       false,                   // 默认开启页面快照保存
 			SaveSearchData:         false,                  // 默认开启搜索数据保存
 			SavePageJS:             false,                   // 默认开启JS文件保存（用于页面分析）
-			ShowLogButton:          false,                  // 默认隐藏日志按钮
+			ShowLogButton:          false,                   // 默认隐藏日志按钮
 		}
 		// 从环境变量加载可选令牌
 		if token := os.Getenv("WX_CHANNEL_TOKEN"); token != "" {
@@ -154,6 +155,23 @@ func Load() *Config {
 		// UI 功能开关环境变量
 		if showLogBtn := os.Getenv("WX_CHANNEL_SHOW_LOG_BUTTON"); showLogBtn != "" {
 			globalConfig.ShowLogButton = showLogBtn == "true" || showLogBtn == "1" || showLogBtn == "yes"
+		}
+
+		// 并发配置环境变量
+		if uploadChunk := os.Getenv("WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY"); uploadChunk != "" {
+			if val, err := strconv.Atoi(uploadChunk); err == nil && val > 0 {
+				globalConfig.UploadChunkConcurrency = val
+			}
+		}
+		if uploadMerge := os.Getenv("WX_CHANNEL_UPLOAD_MERGE_CONCURRENCY"); uploadMerge != "" {
+			if val, err := strconv.Atoi(uploadMerge); err == nil && val > 0 {
+				globalConfig.UploadMergeConcurrency = val
+			}
+		}
+		if downloadConcurrency := os.Getenv("WX_CHANNEL_DOWNLOAD_CONCURRENCY"); downloadConcurrency != "" {
+			if val, err := strconv.Atoi(downloadConcurrency); err == nil && val > 0 {
+				globalConfig.DownloadConcurrency = val
+			}
 		}
 	}
 	return globalConfig

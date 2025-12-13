@@ -367,7 +367,7 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 		};
 	}
 	
-	// 修复封面下载函数
+	// 优化封面下载函数：使用后端API保存到服务器
 	window.__wx_channels_handle_download_cover = function() {
 		if (window.__wx_channels_store__ && window.__wx_channels_store__.profile) {
 			const profile = window.__wx_channels_store__.profile;
@@ -379,44 +379,66 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 				return;
 			}
 			
-			// 注意：下载封面不记录到CSV，只记录视频下载
-			
 			// 记录日志
 			if (window.__wx_log) {
 				window.__wx_log({
-					msg: '下载封面\n' + coverUrl
+					msg: '正在保存封面到服务器...\n' + coverUrl
 				});
 			}
 			
-			// 创建一个隐藏的a标签来下载图片，避免使用saveAs可能导致的确认框问题
-			const downloadLink = document.createElement('a');
-			downloadLink.href = coverUrl;
-			downloadLink.download = "cover_" + profile.id + ".jpg";
-			downloadLink.target = "_blank";
+			// 构建请求数据
+			const requestData = {
+				coverUrl: coverUrl,
+				videoId: profile.id || '',
+				title: profile.title || '',
+				author: profile.nickname || (profile.contact && profile.contact.nickname) || '未知作者',
+				forceSave: false
+			};
 			
-			// 添加到文档中并模拟点击
-			document.body.appendChild(downloadLink);
-			downloadLink.click();
+			// 添加授权头
+			const headers = {
+				'Content-Type': 'application/json'
+			};
+			if (window.__WX_LOCAL_TOKEN__) {
+				headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+			}
 			
-			// 清理DOM
-			setTimeout(() => {
-				document.body.removeChild(downloadLink);
-			}, 100);
-			
-			// 备用方法：如果直接下载失败，尝试使用fetch和saveAs
-			setTimeout(() => {
-				if (typeof saveAs !== 'undefined') {
-					fetch(coverUrl)
-						.then(response => response.blob())
-						.then(blob => {
-							saveAs(blob, "cover_" + profile.id + ".jpg");
-						})
-						.catch(error => {
-							console.error("下载封面失败:", error);
-							alert("下载封面失败，请重试");
+			// 发送到后端API保存封面
+			fetch('/__wx_channels_api/save_cover', {
+				method: 'POST',
+				headers: headers,
+				body: JSON.stringify(requestData)
+			})
+			.then(response => response.json())
+			.then(data => {
+				if (data.success) {
+					const msg = data.message || '封面已保存';
+					const path = data.relativePath || data.path || '';
+					if (window.__wx_log) {
+						window.__wx_log({
+							msg: '✓ ' + msg + (path ? '\n路径: ' + path : '')
 						});
+					}
+					console.log('✓ [封面下载] 封面已保存:', path);
+				} else {
+					const errorMsg = data.error || '保存封面失败';
+					if (window.__wx_log) {
+						window.__wx_log({
+							msg: '❌ ' + errorMsg
+						});
+					}
+					alert('保存封面失败: ' + errorMsg);
 				}
-			}, 1000); // 延迟1秒执行备用方法
+			})
+			.catch(error => {
+				console.error("保存封面失败:", error);
+				if (window.__wx_log) {
+					window.__wx_log({
+						msg: '❌ 保存封面失败: ' + error.message
+					});
+				}
+				alert("保存封面失败: " + error.message);
+			});
 		} else {
 			alert("未找到视频信息");
 		}
@@ -2598,19 +2620,20 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 			return cleaned.trim();
 		};
 		
-		// Profile页面视频列表数据采集
-		if (profileResult && profileResult.data && profileResult.data.object) {
-			var videoCount = profileResult.data.object.length;
-			console.log('[API拦截] 获取到视频列表，数量:', videoCount);
+			// Profile页面视频列表数据采集
+			if (profileResult && profileResult.data && profileResult.data.object) {
+				var videoCount = profileResult.data.object.length;
+				
+				// 发送日志到后端终端
+				fetch('/__wx_channels_api/tip', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({msg: '📊 [API拦截] 获取到当前页数据列表，数量: ' + videoCount})
+				}).catch(() => {});
 			
-			// 发送日志到后端终端
-			fetch('/__wx_channels_api/tip', {
-				method: 'POST',
-				headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({msg: '📊 [API拦截] 获取到当前页视频列表，数量: ' + videoCount})
-			}).catch(() => {});
-			
-			// 处理视频列表中的每个视频
+			// 处理视频列表中的每个视频（finderUserPage只处理普通视频和图片，不处理直播回放）
+			var videoCount = 0;
+			var pictureCount = 0;
 			profileResult.data.object.forEach((item, index) => {
 				try {
 					var data_object = item;
@@ -2621,56 +2644,66 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 					var media = data_object.objectDesc.media[0];
 					if (!media) return;
 					
-					var profile = media.mediaType !== 4 ? {
-						type: "picture",
-						id: data_object.id,
-						title: cleanHtmlTags(data_object.objectDesc.description),
-						files: data_object.objectDesc.media,
-						spec: [],
-						contact: data_object.contact
-					} : {
-						type: "media",
-						duration: media.spec[0].durationMs,
-						spec: media.spec.map(s => ({
-							...s,
-							width: s.width || s.videoWidth,
-							height: s.height || s.videoHeight
-						})),
-						title: cleanHtmlTags(data_object.objectDesc.description),
-						coverUrl: media.thumbUrl || media.coverUrl,
-						thumbUrl: media.thumbUrl,
-						fullThumbUrl: media.fullThumbUrl,
-						url: media.url+media.urlToken,
-						size: media.fileSize,
-						key: media.decodeKey,
-						id: data_object.id,
-						nonce_id: data_object.objectNonceId,
-						nickname: data_object.nickname,
-						username: data_object.contact?.username || '',
-						createtime: data_object.createtime,
-						fileFormat: media.spec.map(o => o.fileFormat),
-						contact: data_object.contact,
-						readCount: data_object.readCount || 0,
-						likeCount: data_object.likeCount || 0,
-						commentCount: data_object.commentCount || 0,
-						favCount: data_object.favCount || 0,
-						forwardCount: data_object.forwardCount || 0,
-						ipRegionInfo: data_object.ipRegionInfo || {},
-						// 新增字段
-						mediaType: media.mediaType,
-						videoWidth: media.spec[0]?.width || media.spec[0]?.videoWidth || 0,
-						videoHeight: media.spec[0]?.height || media.spec[0]?.videoHeight || 0,
-						videoBitrate: media.spec[0]?.bitrate || 0,
-						videoCodec: media.spec[0]?.codec || '',
-						audioCodec: media.spec[0]?.audioCodec || '',
-						frameRate: media.spec[0]?.fps || 0,
-						location: data_object.location || '',
-						latitude: data_object.latitude || 0,
-						longitude: data_object.longitude || 0,
-						poi: data_object.poi || '',
-						extInfo: data_object.extInfo || {},
-						timestamp: Date.now()
-					};
+					var profile;
+					// finderUserPage只处理普通视频和图片，直播回放由finderLiveUserPage专门处理
+					if (media.mediaType !== 4) {
+						// 图片类型
+						pictureCount++;
+						profile = {
+							type: "picture",
+							id: data_object.id,
+							title: cleanHtmlTags(data_object.objectDesc.description),
+							files: data_object.objectDesc.media,
+							spec: [],
+							contact: data_object.contact
+						};
+					} else {
+						// 普通视频（mediaType === 4）
+						videoCount++;
+						profile = {
+							type: "media",
+							duration: (media.spec && media.spec[0]) ? media.spec[0].durationMs : 0,
+							spec: (media.spec && media.spec.length > 0) ? media.spec.map(s => ({
+								...s,
+								width: s.width || s.videoWidth,
+								height: s.height || s.videoHeight
+							})) : [],
+							title: cleanHtmlTags(data_object.objectDesc.description),
+							coverUrl: media.thumbUrl || media.coverUrl,
+							thumbUrl: media.thumbUrl,
+							fullThumbUrl: media.fullThumbUrl,
+							url: media.url + (media.urlToken || ''),
+							size: media.fileSize,
+							key: media.decodeKey,
+							id: data_object.id,
+							nonce_id: data_object.objectNonceId,
+							nickname: data_object.nickname,
+							username: data_object.contact?.username || '',
+							createtime: data_object.createtime,
+							fileFormat: (media.spec && media.spec.length > 0) ? media.spec.map(o => o.fileFormat) : [],
+							contact: data_object.contact,
+							readCount: data_object.readCount || 0,
+							likeCount: data_object.likeCount || 0,
+							commentCount: data_object.commentCount || 0,
+							favCount: data_object.favCount || 0,
+							forwardCount: data_object.forwardCount || 0,
+							ipRegionInfo: data_object.ipRegionInfo || {},
+							// 新增字段
+							mediaType: media.mediaType,
+							videoWidth: (media.spec && media.spec[0]) ? (media.spec[0].width || media.spec[0].videoWidth || 0) : 0,
+							videoHeight: (media.spec && media.spec[0]) ? (media.spec[0].height || media.spec[0].videoHeight || 0) : 0,
+							videoBitrate: (media.spec && media.spec[0]) ? (media.spec[0].bitrate || 0) : 0,
+							videoCodec: (media.spec && media.spec[0]) ? (media.spec[0].codec || '') : '',
+							audioCodec: (media.spec && media.spec[0]) ? (media.spec[0].audioCodec || '') : '',
+							frameRate: (media.spec && media.spec[0]) ? (media.spec[0].fps || 0) : 0,
+							location: data_object.location || '',
+							latitude: data_object.latitude || 0,
+							longitude: data_object.longitude || 0,
+							poi: data_object.poi || '',
+							extInfo: data_object.extInfo || {},
+							timestamp: Date.now()
+						};
+					}
 					
 				// 添加到profile采集器（使用等待机制）
 				(function(profileData) {
@@ -2704,23 +2737,17 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 					window.__wx_channels_store__.profiles.push(profile);
 				}
 					
-					// 输出前3个视频的日志到控制台和后端
-					if (index < 3) {
-						var logMsg = '[API拦截] 视频' + (index+1) + ': ' + profile.title.substring(0, 30) + '...';
-						console.log(logMsg);
-						fetch('/__wx_channels_api/tip', {
-							method: 'POST',
-							headers: {'Content-Type': 'application/json'},
-							body: JSON.stringify({msg: '📹 ' + logMsg})
-						}).catch(() => {});
-					}
-					
 					// 采集完成后发送总结日志
 					if (index === profileResult.data.object.length - 1) {
+						var summaryMsg = '✅ [API拦截] 视频列表采集完成，共 ' + profileResult.data.object.length + ' 个项目';
+						if (videoCount > 0) summaryMsg += ' (视频: ' + videoCount;
+						if (pictureCount > 0) summaryMsg += (videoCount > 0 ? ', 图片: ' : ' (图片: ') + pictureCount;
+						if (videoCount > 0 || pictureCount > 0) summaryMsg += ')';
+						
 						fetch('/__wx_channels_api/tip', {
 							method: 'POST',
 							headers: {'Content-Type': 'application/json'},
-							body: JSON.stringify({msg: '✅ [API拦截] 当前页采集完成，共 ' + profileResult.data.object.length + ' 个视频'})
+							body: JSON.stringify({msg: summaryMsg})
 						}).catch(() => {});
 					}
 				} catch (error) {
@@ -2737,6 +2764,173 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 		color.Green("✅ [主页页面] 视频列表API拦截器已注入")
 		utils.PrintSeparator()
 		content = profileListRegex.ReplaceAllString(content, profileListReplace)
+	}
+
+	// 拦截 Profile 页面的直播回放列表数据
+	liveListRegex := regexp.MustCompile(`async finderLiveUserPage\((\w+)\)\{return(.*?)\}async`)
+	liveListReplace := `async finderLiveUserPage($1) {
+		var liveResult = await$2;
+		
+		// 检查当前页面类型
+		var isProfilePage = window.location.pathname.includes('/pages/profile') && 
+		                    !window.location.pathname.includes('/pages/home') && 
+		                    !window.location.pathname.includes('/pages/feed');
+		
+		// 如果不是Profile页面，静默返回
+		if (!isProfilePage) {
+			return liveResult;
+		}
+		
+		// HTML标签清理函数
+		var cleanHtmlTags = function(text) {
+			if (!text || typeof text !== 'string') return text || '';
+			var tempDiv = document.createElement('div');
+			tempDiv.innerHTML = text;
+			var cleaned = tempDiv.textContent || tempDiv.innerText || '';
+			var htmlEntities = {
+				'&nbsp;': ' ',
+				'&amp;': '&',
+				'&lt;': '<',
+				'&gt;': '>',
+				'&quot;': '"',
+				'&apos;': "'",
+				'&#39;': "'",
+				'&#34': '"'
+			};
+			for (var entity in htmlEntities) {
+				cleaned = cleaned.replace(new RegExp(entity, 'g'), htmlEntities[entity]);
+			}
+			cleaned = cleaned.replace(/&[a-zA-Z0-9#]+;/g, '');
+			return cleaned.trim();
+		};
+		
+		// 直播回放列表数据采集
+		if (liveResult && liveResult.data && liveResult.data.object) {
+			var liveCount = liveResult.data.object.length;
+			
+			// 发送日志到后端终端
+			fetch('/__wx_channels_api/tip', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({msg: '📺 [API拦截] 获取到直播回放列表，数量: ' + liveCount})
+			}).catch(() => {});
+			
+			// 处理直播回放列表中的每个项目
+			liveResult.data.object.forEach((item, index) => {
+				try {
+					var data_object = item;
+					if (!data_object || !data_object.objectDesc) {
+						return;
+					}
+					
+					var media = data_object.objectDesc.media && data_object.objectDesc.media.length > 0 ? data_object.objectDesc.media[0] : null;
+					var liveInfo = data_object.liveInfo || {};
+					
+					// 检查是否有其他直播相关字段
+					var replayUrl = '';
+					if (liveInfo && liveInfo.replayUrl) {
+						replayUrl = liveInfo.replayUrl;
+					} else if (media) {
+						replayUrl = media.liveReplayUrl || media.replayUrl || media.liveStreamUrl || '';
+					}
+					
+					// 构建直播回放数据（与普通视频结构保持一致，但type为live_replay）
+					var profile = {
+						type: "live_replay",
+						id: data_object.id,
+						nonce_id: data_object.objectNonceId,
+						title: cleanHtmlTags(data_object.objectDesc.description || ''),
+						coverUrl: media ? (media.thumbUrl || media.coverUrl || '') : '',
+						thumbUrl: media ? (media.thumbUrl || '') : '',
+						fullThumbUrl: media ? (media.fullThumbUrl || '') : '',
+						url: media ? (media.url + (media.urlToken || '')) : '',
+						replayUrl: replayUrl,
+						size: media ? (media.fileSize || 0) : 0,
+						key: media ? (media.decodeKey || '') : '',
+						duration: (media && media.spec && media.spec[0]) ? media.spec[0].durationMs : (liveInfo.duration || 0),
+						spec: (media && media.spec && media.spec.length > 0) ? media.spec.map(s => ({
+							...s,
+							width: s.width || s.videoWidth || 0,
+							height: s.height || s.videoHeight || 0
+						})) : [],
+						nickname: data_object.nickname || '',
+						username: data_object.contact?.username || '',
+						createtime: data_object.createtime || 0,
+						fileFormat: (media && media.spec && media.spec.length > 0) ? media.spec.map(o => o.fileFormat) : [],
+						contact: data_object.contact || {},
+						readCount: data_object.readCount || 0,
+						likeCount: data_object.likeCount || 0,
+						commentCount: data_object.commentCount || 0,
+						favCount: data_object.favCount || 0,
+						forwardCount: data_object.forwardCount || 0,
+						ipRegionInfo: data_object.ipRegionInfo || {},
+						mediaType: media ? media.mediaType : null,
+						objectType: data_object.objectType,
+						liveInfo: liveInfo,
+						videoWidth: (media && media.spec && media.spec[0]) ? (media.spec[0].width || media.spec[0].videoWidth || 0) : 0,
+						videoHeight: (media && media.spec && media.spec[0]) ? (media.spec[0].height || media.spec[0].videoHeight || 0) : 0,
+						videoBitrate: (media && media.spec && media.spec[0]) ? (media.spec[0].bitrate || 0) : 0,
+						videoCodec: (media && media.spec && media.spec[0]) ? (media.spec[0].codec || '') : '',
+						audioCodec: (media && media.spec && media.spec[0]) ? (media.spec[0].audioCodec || '') : '',
+						frameRate: (media && media.spec && media.spec[0]) ? (media.spec[0].fps || 0) : 0,
+						location: data_object.location || '',
+						latitude: data_object.latitude || 0,
+						longitude: data_object.longitude || 0,
+						poi: data_object.poi || '',
+						extInfo: data_object.extInfo || {},
+						timestamp: Date.now()
+					};
+					
+					// 添加到profile采集器（使用等待机制）
+					(function(profileData) {
+						if (window.__wx_channels_profile_collector) {
+							window.__wx_channels_profile_collector.addVideoFromAPI(profileData);
+						} else {
+							var waitCount = 0;
+							var waitInterval = setInterval(function() {
+								waitCount++;
+								if (window.__wx_channels_profile_collector) {
+									clearInterval(waitInterval);
+									window.__wx_channels_profile_collector.addVideoFromAPI(profileData);
+									console.log('✓ 延迟添加直播回放到采集器:', profileData.title?.substring(0, 30));
+								} else if (waitCount > 50) {
+									clearInterval(waitInterval);
+									window.__wx_channels_temp_profiles = window.__wx_channels_temp_profiles || [];
+									window.__wx_channels_temp_profiles.push(profileData);
+								}
+							}, 100);
+						}
+					})(profile);
+					
+					// 同时添加到全局存储
+					if (window.__wx_channels_store__) {
+						window.__wx_channels_store__.profiles = window.__wx_channels_store__.profiles || [];
+						window.__wx_channels_store__.profiles.push(profile);
+					}
+					
+					// 采集完成后发送总结日志
+					if (index === liveResult.data.object.length - 1) {
+						var summaryMsg = '✅ [API拦截] 直播回放列表采集完成，共 ' + liveResult.data.object.length + ' 个直播回放';
+						fetch('/__wx_channels_api/tip', {
+							method: 'POST',
+							headers: {'Content-Type': 'application/json'},
+							body: JSON.stringify({msg: summaryMsg})
+						}).catch(() => {});
+					}
+				} catch (error) {
+					console.error('[直播回放采集] 处理失败:', error);
+				}
+			});
+		}
+		
+		return liveResult;
+	}async`
+
+	if liveListRegex.MatchString(content) {
+		utils.PrintSeparator()
+		color.Green("✅ [主页页面] 直播回放列表API拦截器已注入")
+		utils.PrintSeparator()
+		content = liveListRegex.ReplaceAllString(content, liveListReplace)
 	}
 
 	regexp1 := regexp.MustCompile(`async finderGetCommentDetail\((\w+)\)\{return(.*?)\}async`)
@@ -2840,7 +3034,7 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 	}async`
 	if regexp1.MatchString(content) {
 		utils.Info("视频详情数据已获取成功！")
-	utils.LogInfo("[视频详情] 视频详情API已拦截 | Path=%s", path)
+		utils.LogInfo("[视频详情] 视频详情API已拦截 | Path=%s", path)
 	}
 	content = regexp1.ReplaceAllString(content, replaceStr1)
 	regex2 := regexp.MustCompile(`i.default={dialog`)
@@ -5209,7 +5403,7 @@ func (h *ScriptHandler) getLogPanelScript() string {
 	if h.config.ShowLogButton {
 		showLogButton = "true"
 	}
-	
+
 	return `<script>
 // 日志按钮显示配置
 window.__wx_channels_show_log_button__ = ` + showLogButton + `;
@@ -5806,7 +6000,6 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 </script>`
 }
 
-
 // saveJavaScriptFile 保存页面加载的 JavaScript 文件到本地以便分析
 func (h *ScriptHandler) saveJavaScriptFile(path string, content []byte) {
 	// 检查是否启用JS文件保存
@@ -5852,7 +6045,7 @@ func (h *ScriptHandler) saveJavaScriptFile(path string, content []byte) {
 		fileName = strings.ReplaceAll(path, "/", "_")
 		fileName = strings.ReplaceAll(fileName, "\\", "_")
 	}
-	
+
 	// 移除版本号后缀（如 .js?v=xxx）
 	fileName = strings.Split(fileName, "?")[0]
 

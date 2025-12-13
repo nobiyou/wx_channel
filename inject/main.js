@@ -444,23 +444,186 @@ async function __wx_channels_handle_click_download__(spec) {
     __wx_channels_download3(_profile, filename);
     return;
   }
-  if (!_profile.key) {
-    __wx_channels_download2(_profile, filename);
+  
+  // 使用后端API下载视频
+  if (!_profile.url) {
+    alert("视频URL为空，无法下载");
     return;
   }
-  _profile.data = __wx_channels_store__.buffers;
-  try {
-    const r = await __wx_channels_decrypt(_profile.key);
-    // console.log("[]after __wx_channels_decrypt", r);
-    _profile.decryptor_array = r;
-  } catch (err) {
+  
+  // 获取作者名称
+  const authorName = _profile.nickname || (_profile.contact && _profile.contact.nickname) || '未知作者';
+  const hasKey = !!(_profile.key && _profile.key.length > 0);
+  
+  // 显示下载进度提示
+  const progressBarId = `video-download-progress-${Date.now()}`;
+  const shortTitle = (filename || '视频').substring(0, 30);
+  const progressBarHTML = `
+    <div id="${progressBarId}" style="position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; background: rgba(0,0,0,0.85); border-radius: 8px; padding: 15px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: white; font-size: 14px; min-width: 320px; text-align: center;">
+      <div style="margin-bottom: 12px; font-weight: bold; color: #07c160;">📥 视频下载中</div>
+      <div style="margin-bottom: 8px; font-size: 13px; opacity: 0.9;">${shortTitle}${shortTitle.length >= 30 ? '...' : ''}</div>
+      <div class="progress-container" style="background: rgba(255,255,255,0.2); height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; position: relative;">
+        <div class="progress-bar" style="height: 100%; width: 0%; background: #07c160; transition: width 0.3s ease; position: relative; overflow: hidden;">
+          <div class="progress-bar-animation" style="position: absolute; height: 100%; width: 30%; background: rgba(255,255,255,0.3); left: -30%; animation: progress-animation-${progressBarId} 1.5s infinite linear;"></div>
+        </div>
+      </div>
+      <div class="progress-status" style="font-size: 12px; opacity: 0.8;">准备下载...</div>
+      <style>
+        @keyframes progress-animation-${progressBarId} {
+          0% { left: -30%; }
+          100% { left: 100%; }
+        }
+      </style>
+    </div>
+  `;
+  
+  const progressBarContainer = document.createElement('div');
+  progressBarContainer.innerHTML = progressBarHTML;
+  document.body.appendChild(progressBarContainer.firstElementChild);
+  const progressBarEl = document.getElementById(progressBarId);
+  const progressBar = progressBarEl.querySelector('.progress-bar');
+  const progressStatus = progressBarEl.querySelector('.progress-status');
+  
+  // 更新进度显示
+  const updateProgress = (percent, status) => {
+    if (progressBar) {
+      progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+    }
+    if (progressStatus) {
+      progressStatus.textContent = status || '下载中...';
+    }
+  };
+  
+  // 隐藏进度条
+  const hideProgress = () => {
+    if (progressBarEl) {
+      setTimeout(() => {
+        if (progressBarEl && progressBarEl.parentNode) {
+          progressBarEl.parentNode.removeChild(progressBarEl);
+        }
+      }, 2000);
+    }
+  };
+  
+  // 获取分辨率信息（从 spec 参数或 profile 中）
+  let resolution = '';
+  let width = 0;
+  let height = 0;
+  let fileFormat = '';
+  
+  if (spec) {
+    // 从 spec 参数获取
+    if (spec.width && spec.height) {
+      width = spec.width;
+      height = spec.height;
+      resolution = `${spec.width}x${spec.height}`;
+    }
+    if (spec.fileFormat) {
+      fileFormat = spec.fileFormat;
+    }
+  } else if (_profile.spec && Array.isArray(_profile.spec) && _profile.spec.length > 0) {
+    // 从 profile.spec 数组获取
+    const firstSpec = _profile.spec[0];
+    if (firstSpec.width && firstSpec.height) {
+      width = firstSpec.width;
+      height = firstSpec.height;
+      resolution = `${firstSpec.width}x${firstSpec.height}`;
+    }
+    if (firstSpec.fileFormat) {
+      fileFormat = firstSpec.fileFormat;
+    }
+  }
+  
+  // 如果没有从 spec 获取，尝试从其他字段获取
+  if (!width && !height && (_profile.videoWidth || _profile.videoHeight)) {
+    width = _profile.videoWidth || 0;
+    height = _profile.videoHeight || 0;
+    if (!resolution && width && height) {
+      resolution = `${width}x${height}`;
+    }
+  }
+  
+  // 构建请求数据
+  const requestData = {
+    videoUrl: _profile.url,
+    videoId: _profile.id || '',
+    title: filename,
+    author: authorName,
+    key: _profile.key || '',
+    forceSave: false,
+    resolution: resolution,
+    width: width,
+    height: height,
+    fileFormat: fileFormat
+  };
+  
+  // 添加授权头
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (window.__WX_LOCAL_TOKEN__) {
+    headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+  }
+  
+  // 模拟进度更新
+  updateProgress(10, '正在连接服务器...');
+  setTimeout(() => updateProgress(30, '开始下载视频...'), 300);
+  setTimeout(() => updateProgress(50, hasKey ? '下载并解密中...' : '下载中...'), 600);
+  setTimeout(() => updateProgress(70, '保存文件...'), 1200);
+  setTimeout(() => updateProgress(90, '完成中...'), 1800);
+  
+  // 发送到后端API下载视频
+  fetch('/__wx_channels_api/download_video', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(requestData)
+  })
+  .then(response => response.json())
+  .then(data => {
+    updateProgress(100, '下载完成！');
+    
+    if (data.success) {
+      const msg = data.skipped ? 
+        '⏭️ 文件已存在，跳过下载' : 
+        (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载');
+      const path = data.relativePath || data.path || '';
+      
+      __wx_log({
+        msg: msg + (path ? '\n路径: ' + path : '') + 
+             (data.size ? '\n大小: ' + data.size.toFixed(2) + ' MB' : '')
+      });
+      
+      hideProgress();
+    } else {
+      const errorMsg = data.error || '下载视频失败';
+      updateProgress(0, '下载失败');
+      if (progressStatus) {
+        progressStatus.style.color = '#ff4444';
+      }
+      
+      __wx_log({
+        msg: '❌ ' + errorMsg
+      });
+      
+      alert('下载失败: ' + errorMsg);
+      hideProgress();
+    }
+  })
+  .catch(error => {
+    const errorMsg = error.message || '下载视频失败';
+    updateProgress(0, '下载失败');
+    if (progressStatus) {
+      progressStatus.style.color = '#ff4444';
+      progressStatus.textContent = '下载失败: ' + errorMsg;
+    }
+    
     __wx_log({
-      msg: `解密失败，停止下载`,
+      msg: '❌ 下载视频失败: ' + errorMsg
     });
-    alert("解密失败，停止下载");
-    return;
-  }
-  __wx_channels_download4(_profile, filename);
+    
+    alert('下载失败: ' + errorMsg);
+    hideProgress();
+  });
 }
 async function __wx_channels_download_cur__() {
   var profile = __wx_channels_store__.profile;
@@ -512,22 +675,176 @@ async function __wx_channels_download_cur__() {
     __wx_channels_download3(_profile, filename);
     return;
   }
-  if (!_profile.key) {
-    __wx_channels_download2(_profile, filename);
+  
+  // 使用后端API下载视频
+  if (!_profile.url) {
+    alert("视频URL为空，无法下载");
     return;
   }
-  _profile.data = __wx_channels_store__.buffers;
-  try {
-    const r = await __wx_channels_decrypt(_profile.key);
-    _profile.decryptor_array = r;
-  } catch (err) {
+  
+  // 获取作者名称
+  const authorName = _profile.nickname || (_profile.contact && _profile.contact.nickname) || '未知作者';
+  const hasKey = !!(_profile.key && _profile.key.length > 0);
+  
+  // 显示下载进度提示
+  const progressBarId = `video-download-progress-${Date.now()}`;
+  const shortTitle = (filename || '视频').substring(0, 30);
+  const progressBarHTML = `
+    <div id="${progressBarId}" style="position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; background: rgba(0,0,0,0.85); border-radius: 8px; padding: 15px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: white; font-size: 14px; min-width: 320px; text-align: center;">
+      <div style="margin-bottom: 12px; font-weight: bold; color: #07c160;">📥 视频下载中</div>
+      <div style="margin-bottom: 8px; font-size: 13px; opacity: 0.9;">${shortTitle}${shortTitle.length >= 30 ? '...' : ''}</div>
+      <div class="progress-container" style="background: rgba(255,255,255,0.2); height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; position: relative;">
+        <div class="progress-bar" style="height: 100%; width: 0%; background: #07c160; transition: width 0.3s ease; position: relative; overflow: hidden;">
+          <div class="progress-bar-animation" style="position: absolute; height: 100%; width: 30%; background: rgba(255,255,255,0.3); left: -30%; animation: progress-animation-${progressBarId} 1.5s infinite linear;"></div>
+        </div>
+      </div>
+      <div class="progress-status" style="font-size: 12px; opacity: 0.8;">准备下载...</div>
+      <style>
+        @keyframes progress-animation-${progressBarId} {
+          0% { left: -30%; }
+          100% { left: 100%; }
+        }
+      </style>
+    </div>
+  `;
+  
+  const progressBarContainer = document.createElement('div');
+  progressBarContainer.innerHTML = progressBarHTML;
+  document.body.appendChild(progressBarContainer.firstElementChild);
+  const progressBarEl = document.getElementById(progressBarId);
+  const progressBar = progressBarEl.querySelector('.progress-bar');
+  const progressStatus = progressBarEl.querySelector('.progress-status');
+  
+  // 更新进度显示
+  const updateProgress = (percent, status) => {
+    if (progressBar) {
+      progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+    }
+    if (progressStatus) {
+      progressStatus.textContent = status || '下载中...';
+    }
+  };
+  
+  // 隐藏进度条
+  const hideProgress = () => {
+    if (progressBarEl) {
+      setTimeout(() => {
+        if (progressBarEl && progressBarEl.parentNode) {
+          progressBarEl.parentNode.removeChild(progressBarEl);
+        }
+      }, 2000);
+    }
+  };
+  
+  // 获取分辨率信息（从 profile.spec 中）
+  let resolution = '';
+  let width = 0;
+  let height = 0;
+  let fileFormat = '';
+  
+  if (_profile.spec && Array.isArray(_profile.spec) && _profile.spec.length > 0) {
+    // 从 profile.spec 数组获取（使用第一个规格）
+    const firstSpec = _profile.spec[0];
+    if (firstSpec.width && firstSpec.height) {
+      width = firstSpec.width;
+      height = firstSpec.height;
+      resolution = `${firstSpec.width}x${firstSpec.height}`;
+    }
+    if (firstSpec.fileFormat) {
+      fileFormat = firstSpec.fileFormat;
+    }
+  }
+  
+  // 如果没有从 spec 获取，尝试从其他字段获取
+  if (!width && !height && (_profile.videoWidth || _profile.videoHeight)) {
+    width = _profile.videoWidth || 0;
+    height = _profile.videoHeight || 0;
+    if (!resolution && width && height) {
+      resolution = `${width}x${height}`;
+    }
+  }
+  
+  // 构建请求数据
+  const requestData = {
+    videoUrl: _profile.url,
+    videoId: _profile.id || '',
+    title: filename,
+    author: authorName,
+    key: _profile.key || '',
+    forceSave: false,
+    resolution: resolution,
+    width: width,
+    height: height,
+    fileFormat: fileFormat
+  };
+  
+  // 添加授权头
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (window.__WX_LOCAL_TOKEN__) {
+    headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+  }
+  
+  // 模拟进度更新
+  updateProgress(10, '正在连接服务器...');
+  setTimeout(() => updateProgress(30, '开始下载视频...'), 300);
+  setTimeout(() => updateProgress(50, hasKey ? '下载并解密中...' : '下载中...'), 600);
+  setTimeout(() => updateProgress(70, '保存文件...'), 1200);
+  setTimeout(() => updateProgress(90, '完成中...'), 1800);
+  
+  // 发送到后端API下载视频
+  fetch('/__wx_channels_api/download_video', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(requestData)
+  })
+  .then(response => response.json())
+  .then(data => {
+    updateProgress(100, '下载完成！');
+    
+    if (data.success) {
+      const msg = data.skipped ? 
+        '⏭️ 文件已存在，跳过下载' : 
+        (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载');
+      const path = data.relativePath || data.path || '';
+      
+      __wx_log({
+        msg: msg + (path ? '\n路径: ' + path : '') + 
+             (data.size ? '\n大小: ' + data.size.toFixed(2) + ' MB' : '')
+      });
+      
+      hideProgress();
+    } else {
+      const errorMsg = data.error || '下载视频失败';
+      updateProgress(0, '下载失败');
+      if (progressStatus) {
+        progressStatus.style.color = '#ff4444';
+      }
+      
+      __wx_log({
+        msg: '❌ ' + errorMsg
+      });
+      
+      alert('下载失败: ' + errorMsg);
+      hideProgress();
+    }
+  })
+  .catch(error => {
+    const errorMsg = error.message || '下载视频失败';
+    updateProgress(0, '下载失败');
+    if (progressStatus) {
+      progressStatus.style.color = '#ff4444';
+      progressStatus.textContent = '下载失败: ' + errorMsg;
+    }
+    
     __wx_log({
-      msg: `解密失败，停止下载`,
+      msg: '❌ 下载视频失败: ' + errorMsg
     });
-    alert("解密失败，停止下载");
-    return;
-  }
-  __wx_channels_download4(_profile, filename);
+    
+    alert('下载失败: ' + errorMsg);
+    hideProgress();
+  });
 }
 async function __wx_channels_handle_download_cover() {
   var profile = __wx_channels_store__.profile;
@@ -1424,6 +1741,12 @@ window.__wx_channels_profile_collector = {
   _serverProgressInterval: null, // 后端下载进度轮询定时器
   _forceRedownload: false, // 是否强制重新下载（取消后自动启用）
   _statusMessageTimeout: null, // 状态信息自动隐藏定时器
+  _lastLogMessage: '', // 上次发送的日志内容，用于去重
+  _lastTipFeedCount: 0, // 上次发送提醒时的动态数量（搜索页）
+  _lastTipProfileCount: 0, // 上次发送提醒时的账户数量（搜索页）
+  _lastTipLiveCount: 0, // 上次发送提醒时的直播数量（搜索页）
+  _lastTipVideoCount: 0, // 上次发送提醒时的视频数量（主页）
+  _lastTipLiveReplayCount: 0, // 上次发送提醒时的直播回放数量（主页）
   
   // 初始化profile页面功能
   init: function() {
@@ -1751,13 +2074,72 @@ window.__wx_channels_profile_collector = {
       this.videos.push(videoData);
       console.log(`✅ [Profile API] 新增视频: ${videoData.title?.substring(0, 30)}...`);
       
-      // 每10个视频发送一次日志到后端
-      if (this.videos.length % 10 === 0) {
-        const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
+      // 每10个视频发送一次日志到后端（避免重复发送相同内容）
+      let shouldSendLog = false;
+      let msg = '';
+      
+      if (this.pageType === 'search') {
+        // 搜索页：基于 window.__wx_channels_search_data 的数据变化
+        const searchData = window.__wx_channels_search_data || {};
+        const feedCount = (searchData.feedResults || []).length;
+        const profileCount = (searchData.profiles || []).length;
+        const liveCount = (searchData.liveResults || []).length;
+        
+        // 检查数据是否发生变化
+        const feedChanged = feedCount !== this._lastTipFeedCount;
+        const profileChanged = profileCount !== this._lastTipProfileCount;
+        const liveChanged = liveCount !== this._lastTipLiveCount;
+        
+        // 只有当数据发生变化且达到10的倍数时才发送日志
+        // 注意：必须同时满足"变化"和"是10的倍数"两个条件
+        const shouldSendFeedTip = feedChanged && feedCount > 0 && feedCount % 10 === 0;
+        const shouldSendProfileTip = profileChanged && profileCount > 0 && profileCount % 10 === 0;
+        const shouldSendLiveTip = liveChanged && liveCount > 0 && liveCount % 10 === 0;
+        
+        if (shouldSendFeedTip || shouldSendProfileTip || shouldSendLiveTip) {
+          const pageTypeName = '搜索页采集器';
+          msg = `📊 [${pageTypeName}] 当前已采集 ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+          // 只有当消息内容与上次不同时才发送（双重保险）
+          if (msg !== this._lastLogMessage) {
+            shouldSendLog = true;
+            this._lastLogMessage = msg;
+            this._lastTipFeedCount = feedCount;
+            this._lastTipProfileCount = profileCount;
+            this._lastTipLiveCount = liveCount;
+          }
+        }
+      } else {
+        // 主页：基于 this.videos.length
+        const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
+        const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
+        
+        // 检查数据是否发生变化
+        const videoChanged = videoCount !== this._lastTipVideoCount;
+        const liveReplayChanged = liveReplayCount !== this._lastTipLiveReplayCount;
+        
+        // 只有当数据发生变化且达到10的倍数时才发送日志
+        // 注意：必须同时满足"变化"和"是10的倍数"两个条件
+        const shouldSendVideoTip = videoChanged && videoCount > 0 && videoCount % 10 === 0;
+        const shouldSendLiveReplayTip = liveReplayChanged && liveReplayCount > 0 && liveReplayCount % 10 === 0;
+        
+        if (shouldSendVideoTip || shouldSendLiveReplayTip) {
+          const pageTypeName = '主页采集器';
+          msg = `📊 [${pageTypeName}] 当前已采集 ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+          // 只有当消息内容与上次不同时才发送（双重保险）
+          if (msg !== this._lastLogMessage) {
+            shouldSendLog = true;
+            this._lastLogMessage = msg;
+            this._lastTipVideoCount = videoCount;
+            this._lastTipLiveReplayCount = liveReplayCount;
+          }
+        }
+      }
+      
+      if (shouldSendLog && msg) {
         fetch('/__wx_channels_api/tip', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({msg: `📊 [${pageTypeName}] 当前已采集 ${this.videos.length} 个视频`})
+          body: JSON.stringify({msg: msg})
         }).catch(() => {});
       }
       
@@ -1768,16 +2150,66 @@ window.__wx_channels_profile_collector = {
       this.updateBatchDownloadUI();
       
       // 如果是第一个视频，启动周期性UI刷新（确保UI能及时显示）
-      if (this.videos.length === 1 && !this._uiRefreshInterval) {
+      // 搜索页也需要启动刷新，因为数据存储在 window.__wx_channels_search_data 中
+      const shouldStartRefresh = this.pageType === 'search' 
+        ? (window.__wx_channels_search_data && (
+            (window.__wx_channels_search_data.feedResults && window.__wx_channels_search_data.feedResults.length > 0) ||
+            (window.__wx_channels_search_data.profiles && window.__wx_channels_search_data.profiles.length > 0) ||
+            (window.__wx_channels_search_data.liveResults && window.__wx_channels_search_data.liveResults.length > 0)
+          ))
+        : (this.videos.length === 1);
+      
+      if (shouldStartRefresh && !this._uiRefreshInterval) {
         console.log('🔄 启动周期性UI刷新');
         this._uiRefreshInterval = setInterval(() => {
           const countElement = document.getElementById('video-count');
-          if (countElement && this.videos.length > 0) {
-            const currentText = countElement.textContent;
-            const expectedText = `已采集: ${this.videos.length} 个视频`;
-            if (currentText !== expectedText) {
-              countElement.textContent = expectedText;
-              console.log('🔄 周期性刷新UI:', expectedText);
+          if (countElement) {
+            // 搜索页检查 searchData，主页检查 videos
+            const hasData = this.pageType === 'search'
+              ? (window.__wx_channels_search_data && (
+                  (window.__wx_channels_search_data.feedResults && window.__wx_channels_search_data.feedResults.length > 0) ||
+                  (window.__wx_channels_search_data.profiles && window.__wx_channels_search_data.profiles.length > 0) ||
+                  (window.__wx_channels_search_data.liveResults && window.__wx_channels_search_data.liveResults.length > 0)
+                ))
+              : (this.videos.length > 0);
+            
+            if (hasData) {
+              const currentText = countElement.textContent;
+              let expectedText = '';
+              let logMsg = '';
+              
+              if (this.pageType === 'search') {
+                // 搜索页：分别统计动态、账户、直播
+                const searchData = window.__wx_channels_search_data || {};
+                const feedCount = (searchData.feedResults || []).length;
+                const profileCount = (searchData.profiles || []).length;
+                const liveCount = (searchData.liveResults || []).length;
+                const totalCount = feedCount + profileCount + liveCount;
+                expectedText = `已采集: ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+                
+                // 只有当总数是10的倍数时才发送日志（避免重复）
+                if (totalCount > 0 && totalCount % 10 === 0) {
+                  logMsg = `📊 [搜索页采集器] 当前已采集 ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+                  // 只有当消息内容与上次不同时才发送（避免重复）
+                  if (logMsg !== this._lastLogMessage) {
+                    this._lastLogMessage = logMsg;
+                    fetch('/__wx_channels_api/tip', {
+                      method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({msg: logMsg})
+                    }).catch(() => {});
+                  }
+                }
+              } else {
+                const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
+                const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
+                expectedText = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+              }
+              
+              if (currentText !== expectedText) {
+                countElement.textContent = expectedText;
+                console.log('🔄 周期性刷新UI:', expectedText);
+              }
             }
           }
           
@@ -1788,13 +2220,31 @@ window.__wx_channels_profile_collector = {
             console.log('✓ 停止周期性UI刷新');
             
             // 发送最终的采集完成日志
-            if (this.videos.length > 0 && !this._finalLogSent) {
+            const hasData = this.pageType === 'search'
+              ? (window.__wx_channels_search_data && (
+                  (window.__wx_channels_search_data.feedResults && window.__wx_channels_search_data.feedResults.length > 0) ||
+                  (window.__wx_channels_search_data.profiles && window.__wx_channels_search_data.profiles.length > 0) ||
+                  (window.__wx_channels_search_data.liveResults && window.__wx_channels_search_data.liveResults.length > 0)
+                ))
+              : (this.videos.length > 0);
+            
+            if (hasData && !this._finalLogSent) {
               this._finalLogSent = true;
               const pageTypeName = this.pageType === 'search' ? '搜索页采集器' : '主页采集器';
+              let finalMsg = '';
+              if (this.pageType === 'search') {
+                const searchData = window.__wx_channels_search_data || {};
+                const feedCount = (searchData.feedResults || []).length;
+                const profileCount = (searchData.profiles || []).length;
+                const liveCount = (searchData.liveResults || []).length;
+                finalMsg = `📊 [${pageTypeName}] 采集完成，共 ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+              } else {
+                finalMsg = `📊 [${pageTypeName}] 采集完成，共 ${this.videos.length} 个视频`;
+              }
               fetch('/__wx_channels_api/tip', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({msg: `📊 [${pageTypeName}] 采集完成，共 ${this.videos.length} 个视频`})
+                body: JSON.stringify({msg: finalMsg})
               }).then(() => {
                 console.log(`✅ ${pageTypeName}采集完成日志已发送`);
               }).catch((err) => {
@@ -1910,7 +2360,7 @@ window.__wx_channels_profile_collector = {
     
     ui.innerHTML = `
       <div style="margin-bottom: 10px; font-weight: bold;">${uiTitle}</div>
-      <div id="video-count">已采集: 0 个视频</div>
+      <div id="video-count">${isSearchPage ? '已采集: 0 个动态, 0 个账户, 0 个直播' : '已采集: 0 个视频, 0 个直播回放'}</div>
       <div id="status-message" style="
         display: none;
         margin-top: 8px;
@@ -1965,6 +2415,7 @@ window.__wx_channels_profile_collector = {
           background:#531dab;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">仅选中-后端下载</button>
       </div>
       <div style="margin-top:8px;">
+        ${isSearchPage ? `
         <button id="export-links-btn" style="
           background: #1890ff;
           color: white;
@@ -1987,6 +2438,19 @@ window.__wx_channels_profile_collector = {
           background:#52c41a;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">导出账户</button>
         <button id="export-lives-btn" style="
           background:#fa8c16;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">导出直播</button>
+        ` : `
+        <button id="export-videos-btn" style="
+          background: #1890ff;
+          color: white;
+          border: none;
+          padding: 6px 10px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin-right: 6px;
+        ">导出视频</button>
+        <button id="export-live-replays-btn" style="
+          background:#fa8c16;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">导出直播回放</button>
+        `}
       </div>
       <div id="select-list" style="display:none;max-height:240px;overflow:auto;margin-top:8px;border:1px solid rgba(255,255,255,0.15);padding:6px;border-radius:4px;"></div>
       <div id="download-progress" style="display: none; margin-top: 10px;">
@@ -2035,21 +2499,44 @@ window.__wx_channels_profile_collector = {
       exportMenu.querySelectorAll('button').forEach(btn => {
         btn.onclick = () => {
           const fmt = btn.getAttribute('data-fmt');
-          this.exportVideoLinks(fmt);
+          if (isSearchPage) {
+            // 搜索页：导出所有动态（包括视频和图片）
+            this.exportVideoLinks(fmt);
+          } else {
+            // 主页：只导出视频（type === "media"）
+            this.exportVideos(fmt);
+          }
           exportMenu.style.display = 'none';
         };
       });
       document.addEventListener('click', (e)=>{
         const target = e.target;
-        const within = target && (target.id === 'export-links-btn' || target.closest('#wx-export-menu'));
+        const exportBtnId = isSearchPage ? 'export-links-btn' : 'export-videos-btn';
+        const within = target && (target.id === exportBtnId || target.closest('#wx-export-menu'));
         if (!within) exportMenu.style.display = 'none';
       });
     }
 
-    document.getElementById('export-links-btn').onclick = (ev) => {
-      ev.stopPropagation();
-      exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
-    };
+    // 根据页面类型绑定不同的导出按钮
+    if (isSearchPage) {
+      // 搜索页：导出动态按钮（带菜单）
+      const exportLinksBtn = document.getElementById('export-links-btn');
+      if (exportLinksBtn) {
+        exportLinksBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+        };
+      }
+    } else {
+      // 主页：导出视频按钮（带菜单）
+      const exportVideosBtn = document.getElementById('export-videos-btn');
+      if (exportVideosBtn) {
+        exportVideosBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+        };
+      }
+    }
 
     // 后端批量按钮
     const addAuthHeader = (headers) => {
@@ -2063,13 +2550,56 @@ window.__wx_channels_profile_collector = {
       const items = (list || this.videos || []).filter(v => v && v.url);
       const out = [];
       
+      // 格式化时长为字符串
+      const fmtDur = (ms) => {
+        if (!ms || ms <= 0) return '';
+        let s = Math.floor((Number(ms)||0)/1000);
+        const m = Math.floor(s/60);
+        s = s%60;
+        const h = Math.floor(m/60);
+        const mm = m%60;
+        if (h > 0) {
+          return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+        return `${String(mm).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      };
+      
+      // 格式化文件大小为字符串
+      const fmtMB = (b) => {
+        const x = Number(b)||0;
+        if (x<=0) return '';
+        return (x/1024/1024).toFixed(2)+'MB';
+      };
+      
+      // 格式化时间戳为字符串
+      const fmtTs = (ts) => {
+        let n = Number(ts);
+        if (!Number.isFinite(n) || n <= 0) return '';
+        if (n < 1e12) n = n * 1000;
+        const d = new Date(n);
+        const p = (x)=>String(x).padStart(2,'0');
+        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      };
+      
       for (const v of items) {
         const rec = {
           id: String(v.id || ''),
           url: String(v.url || ''),
           title: String(v.title || ''),
           filename: String(v.title || ''),
-          authorName: String(v.nickname || (v.contact && v.contact.nickname) || '')
+          authorName: String(v.nickname || (v.contact && v.contact.nickname) || ''),
+          // 添加统计数据字段
+          duration: fmtDur(v.duration),
+          sizeMB: fmtMB(v.size),
+          cover: String(v.coverUrl || (v.cover && v.cover.url) || ''),
+          resolution: String(v.resolution || ''),
+          playCount: String(v.playCount || v.play_count || ''),
+          likeCount: String(v.likeCount || v.like_count || ''),
+          commentCount: String(v.commentCount || v.comment_count || ''),
+          favCount: String(v.favCount || v.fav_count || ''),
+          forwardCount: String(v.forwardCount || v.forward_count || ''),
+          createTime: fmtTs(v.createtime || v.createTime),
+          ipRegion: String(v.ipRegion || v.ip_region || '')
         };
         // 只传 key，让后端自己处理解密
         if (v.key && v.key.length > 0) {
@@ -2093,8 +2623,8 @@ window.__wx_channels_profile_collector = {
         btnToggleSelect: document.getElementById('toggle-select-list'),
         btnSelFrontend: document.getElementById('selected-frontend'),
         btnSelBackend: document.getElementById('selected-backend'),
-        btnExportProfiles: document.getElementById('export-profiles-btn'),
-        btnExportLives: document.getElementById('export-lives-btn'),
+        btnExportProfiles: isSearchPage ? document.getElementById('export-profiles-btn') : null,
+        btnExportLives: isSearchPage ? document.getElementById('export-lives-btn') : null,
         selList: document.getElementById('select-list'),
         forceRedownloadCheckbox: document.getElementById('force-redownload-checkbox')
       };
@@ -2388,20 +2918,31 @@ window.__wx_channels_profile_collector = {
         console.error('[仅选中-后端] 按钮未找到: selected-backend');
       }
       
-      // 导出账户数据按钮
-      const btnExportProfiles = buttons.btnExportProfiles;
-      if (btnExportProfiles) {
-        btnExportProfiles.onclick = () => {
-          this.exportProfiles();
-        };
-      }
-      
-      // 导出直播数据按钮
-      const btnExportLives = buttons.btnExportLives;
-      if (btnExportLives) {
-        btnExportLives.onclick = () => {
-          this.exportLives();
-        };
+      // 根据页面类型绑定不同的导出按钮
+      if (isSearchPage) {
+        // 搜索页：导出账户数据按钮
+        const btnExportProfiles = buttons.btnExportProfiles;
+        if (btnExportProfiles) {
+          btnExportProfiles.onclick = () => {
+            this.exportProfiles();
+          };
+        }
+        
+        // 搜索页：导出直播数据按钮
+        const btnExportLives = buttons.btnExportLives;
+        if (btnExportLives) {
+          btnExportLives.onclick = () => {
+            this.exportLives();
+          };
+        }
+      } else {
+        // 主页：导出直播回放按钮
+        const btnExportLiveReplays = document.getElementById('export-live-replays-btn');
+        if (btnExportLiveReplays) {
+          btnExportLiveReplays.onclick = () => {
+            this.exportLiveReplays();
+          };
+        }
       }
     }, 100); // 延迟100ms确保DOM完全渲染
   },
@@ -2562,16 +3103,44 @@ window.__wx_channels_profile_collector = {
   updateBatchDownloadUI: function() {
     const countElement = document.getElementById('video-count');
     if (countElement) {
-      countElement.textContent = `已采集: ${this.videos.length} 个视频`;
-      console.log('✓ UI已更新，当前视频数:', this.videos.length);
+      // 根据页面类型显示不同的计数格式
+      const isSearchPage = this.pageType === 'search';
+      if (isSearchPage) {
+        // 搜索页：分别统计动态、账户、直播
+        const searchData = window.__wx_channels_search_data || {};
+        const feedCount = (searchData.feedResults || []).length;
+        const profileCount = (searchData.profiles || []).length;
+        const liveCount = (searchData.liveResults || []).length;
+        countElement.textContent = `已采集: ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+        console.log('✓ UI已更新，当前动态数:', feedCount, '账户数:', profileCount, '直播数:', liveCount);
+      } else {
+        // 主页：分别统计视频和直播回放
+        const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
+        const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
+        countElement.textContent = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+        console.log('✓ UI已更新，当前视频数:', videoCount, '直播回放数:', liveReplayCount);
+      }
     } else {
       console.log('⚠️ UI元素未找到，将在下次尝试更新');
       // UI还未创建，等待一下再更新
       setTimeout(() => {
         const el = document.getElementById('video-count');
         if (el) {
-          el.textContent = `已采集: ${this.videos.length} 个视频`;
-          console.log('✓ 延迟更新UI成功，当前视频数:', this.videos.length);
+          const isSearchPage = this.pageType === 'search';
+          if (isSearchPage) {
+            // 搜索页：分别统计动态、账户、直播
+            const searchData = window.__wx_channels_search_data || {};
+            const feedCount = (searchData.feedResults || []).length;
+            const profileCount = (searchData.profiles || []).length;
+            const liveCount = (searchData.liveResults || []).length;
+            el.textContent = `已采集: ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
+            console.log('✓ 延迟更新UI成功，当前动态数:', feedCount, '账户数:', profileCount, '直播数:', liveCount);
+          } else {
+            const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
+            const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
+            el.textContent = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+            console.log('✓ 延迟更新UI成功，当前视频数:', videoCount, '直播回放数:', liveReplayCount);
+          }
         }
       }, 500);
     }
@@ -3050,7 +3619,7 @@ window.__wx_channels_profile_collector = {
             resolve();
           }
         } else if (video.type === 'media') {
-          // 视频下载
+          // 视频下载 - 使用后端API
           console.log('准备下载视频，URL:', video.url ? '有' : '无');
           
           if (!video.url) {
@@ -3065,107 +3634,219 @@ window.__wx_channels_profile_collector = {
             return;
           }
           
-          // 先将视频设置为当前profile（这样下载函数可以访问到完整数据）
-          if (window.__wx_channels_store__) {
-            window.__wx_channels_store__.profile = video;
-          }
-          
-          // 判断使用哪个下载函数
-          // 注意：微信视频号的视频通常都是加密的，即使没有明确的key也可能需要特殊处理
+          // 获取作者名称
+          const authorName = video.nickname || video.contact?.nickname || '未知作者';
           const hasKey = !!(video.key && video.key.length > 0);
-          const download4Available = typeof __wx_channels_download4 === 'function';
-          const download2Available = typeof __wx_channels_download2 === 'function';
           
-          console.log('下载方法选择:', {
+          console.log('使用后端API下载视频:', {
             hasKey: hasKey,
-            keyValue: video.key ? (video.key.substring(0, 20) + '...') : 'null',
-            download4Available: download4Available,
-            download2Available: download2Available
+            keyValue: video.key ? (video.key.substring(0, 20) + '...') : 'null'
           });
           
-          // 优先使用加密下载（如果有key）
-          if (hasKey && download4Available) {
-            // 加密视频下载
-            console.log('✓ 检测到解密key，使用方法4下载（加密视频）');
-            fetch('/__wx_channels_api/tip', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({msg: `🔐 [下载] 使用加密下载方法（含解密）: ${video.title?.substring(0, 30)}...`})
-            }).catch(() => {});
-            
-            __wx_channels_download4(video, video.title || 'video')
-              .then(() => {
-                console.log('✓ 加密视频下载并解密成功');
-                if (window.__wx_channels_record_download) {
-                  window.__wx_channels_record_download(video);
+          // 发送下载日志
+          const downloadMsg = hasKey ? 
+            `🔐 [下载] 使用后端API下载（含解密）: ${video.title?.substring(0, 30)}...` :
+            `📹 [下载] 使用后端API下载: ${video.title?.substring(0, 30)}...`;
+          fetch('/__wx_channels_api/tip', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({msg: downloadMsg})
+          }).catch(() => {});
+          
+          // 显示下载进度提示
+          const progressBarId = `video-download-progress-${Date.now()}`;
+          const shortTitle = (video.title || '视频').substring(0, 30);
+          const progressBarHTML = `
+            <div id="${progressBarId}" style="position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; background: rgba(0,0,0,0.85); border-radius: 8px; padding: 15px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: white; font-size: 14px; min-width: 320px; text-align: center;">
+              <div style="margin-bottom: 12px; font-weight: bold; color: #07c160;">📥 视频下载中</div>
+              <div style="margin-bottom: 8px; font-size: 13px; opacity: 0.9;">${shortTitle}${shortTitle.length >= 30 ? '...' : ''}</div>
+              <div class="progress-container" style="background: rgba(255,255,255,0.2); height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; position: relative;">
+                <div class="progress-bar" style="height: 100%; width: 0%; background: #07c160; transition: width 0.3s ease; position: relative; overflow: hidden;">
+                  <div class="progress-bar-animation" style="position: absolute; height: 100%; width: 30%; background: rgba(255,255,255,0.3); left: -30%; animation: progress-animation-${progressBarId} 1.5s infinite linear;"></div>
+                </div>
+              </div>
+              <div class="progress-status" style="font-size: 12px; opacity: 0.8;">准备下载...</div>
+              <style>
+                @keyframes progress-animation-${progressBarId} {
+                  0% { left: -30%; }
+                  100% { left: 100%; }
                 }
-                resolve();
-              })
-              .catch(err => {
-                console.error('✗ 加密视频下载失败:', err);
-                fetch('/__wx_channels_api/tip', {
-                  method: 'POST',
-                  headers: {'Content-Type': 'application/json'},
-                  body: JSON.stringify({msg: `❌ [下载] 加密下载失败: ${err.message}`})
-                }).catch(() => {});
-                
-                // 尝试降级到普通下载
-                if (download2Available) {
-                  console.log('⚠️ 尝试降级到普通下载方法');
-                  __wx_channels_download2(video, video.title || 'video')
-                    .then(() => {
-                      console.warn('⚠️ 使用普通方法下载成功，但视频可能无法播放（需要解密）');
-                      resolve();
-                    })
-                    .catch(err2 => {
-                      console.error('✗ 降级下载也失败:', err2);
-                      reject(err2);
-                    });
-                } else {
-                  reject(err);
+              </style>
+            </div>
+          `;
+          
+          const progressBarContainer = document.createElement('div');
+          progressBarContainer.innerHTML = progressBarHTML;
+          document.body.appendChild(progressBarContainer.firstElementChild);
+          const progressBarEl = document.getElementById(progressBarId);
+          const progressBar = progressBarEl.querySelector('.progress-bar');
+          const progressStatus = progressBarEl.querySelector('.progress-status');
+          
+          // 更新进度显示
+          const updateProgress = (percent, status) => {
+            if (progressBar) {
+              progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+            }
+            if (progressStatus) {
+              progressStatus.textContent = status || '下载中...';
+            }
+          };
+          
+          // 隐藏进度条
+          const hideProgress = () => {
+            if (progressBarEl) {
+              setTimeout(() => {
+                if (progressBarEl && progressBarEl.parentNode) {
+                  progressBarEl.parentNode.removeChild(progressBarEl);
                 }
-              });
-          } else if (download2Available) {
-            // 普通视频下载（无key或无加密下载函数）
-            const warningMsg = hasKey ? '⚠️ 视频有解密key但加密下载函数不可用，使用普通下载（可能无法播放）' : '使用普通下载方法';
-            console.log(warningMsg);
-            
-            fetch('/__wx_channels_api/tip', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({msg: `📹 [下载] ${warningMsg}: ${video.title?.substring(0, 30)}...`})
-            }).catch(() => {});
-            
-            __wx_channels_download2(video, video.title || 'video')
-              .then(() => {
-                console.log('✓ 普通视频下载成功');
-                if (hasKey) {
-                  console.warn('⚠️ 警告：该视频需要解密才能播放！');
-                }
-                if (window.__wx_channels_record_download) {
-                  window.__wx_channels_record_download(video);
-                }
-                resolve();
-              })
-              .catch(err => {
-                console.error('✗ 普通视频下载失败:', err);
-                fetch('/__wx_channels_api/tip', {
-                  method: 'POST',
-                  headers: {'Content-Type': 'application/json'},
-                  body: JSON.stringify({msg: `❌ [下载] 普通下载失败: ${err.message}`})
-                }).catch(() => {});
-                reject(err);
-              });
-          } else {
-            const msg = '没有可用的视频下载函数';
-            console.warn(msg);
-            fetch('/__wx_channels_api/tip', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({msg: `⚠️ [下载] ${msg}: ${video.title?.substring(0, 30)}...`})
-            }).catch(() => {});
-            resolve(); // 跳过
+              }, 2000);
+            }
+          };
+          
+          // 获取分辨率信息
+          let resolution = '';
+          let width = 0;
+          let height = 0;
+          let fileFormat = '';
+          
+          // 优先从 resolution 字段获取
+          if (video.resolution) {
+            resolution = String(video.resolution);
           }
+          
+          // 从 spec 数组获取分辨率信息（如果有）
+          if (video.spec && Array.isArray(video.spec) && video.spec.length > 0) {
+            const spec = video.spec[0]; // 使用第一个规格
+            if (spec.width && spec.height) {
+              width = spec.width;
+              height = spec.height;
+              if (!resolution) {
+                resolution = `${spec.width}x${spec.height}`;
+              }
+            }
+            if (spec.fileFormat) {
+              fileFormat = spec.fileFormat;
+            }
+          }
+          
+          // 如果没有从 spec 获取，尝试从其他字段获取
+          if (!width && !height && (video.videoWidth || video.videoHeight)) {
+            width = video.videoWidth || 0;
+            height = video.videoHeight || 0;
+            if (!resolution && width && height) {
+              resolution = `${width}x${height}`;
+            }
+          }
+          
+          // 构建请求数据
+          const requestData = {
+            videoUrl: video.url,
+            videoId: video.id || '',
+            title: video.title || '',
+            author: authorName,
+            key: video.key || '',
+            forceSave: false,
+            resolution: resolution,
+            width: width,
+            height: height,
+            fileFormat: fileFormat
+          };
+          
+          // 添加授权头
+          const headers = {
+            'Content-Type': 'application/json'
+          };
+          if (window.__WX_LOCAL_TOKEN__) {
+            headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+          }
+          
+          // 模拟进度更新（因为后端下载是同步的，我们只能模拟）
+          updateProgress(10, '正在连接服务器...');
+          setTimeout(() => updateProgress(30, '开始下载视频...'), 300);
+          setTimeout(() => updateProgress(50, hasKey ? '下载并解密中...' : '下载中...'), 600);
+          setTimeout(() => updateProgress(70, '保存文件...'), 1200);
+          setTimeout(() => updateProgress(90, '完成中...'), 1800);
+          
+          // 发送到后端API下载视频
+          fetch('/__wx_channels_api/download_video', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(requestData)
+          })
+          .then(response => response.json())
+          .then(data => {
+            updateProgress(100, '下载完成！');
+            
+            if (data.success) {
+              const msg = data.skipped ? 
+                '⏭️ 文件已存在，跳过下载' : 
+                (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载');
+              const path = data.relativePath || data.path || '';
+              
+              console.log('✓ [视频下载]', msg, path);
+              
+              if (window.__wx_log) {
+                window.__wx_log({
+                  msg: msg + (path ? '\n路径: ' + path : '') + 
+                       (data.size ? '\n大小: ' + data.size.toFixed(2) + ' MB' : '')
+                });
+              }
+              
+              // 记录下载
+              if (window.__wx_channels_record_download) {
+                window.__wx_channels_record_download(video);
+              }
+              
+              hideProgress();
+              resolve();
+            } else {
+              const errorMsg = data.error || '下载视频失败';
+              console.error('✗ [视频下载]', errorMsg);
+              
+              updateProgress(0, '下载失败');
+              progressStatus.style.color = '#ff4444';
+              
+              if (window.__wx_log) {
+                window.__wx_log({
+                  msg: '❌ ' + errorMsg
+                });
+              }
+              
+              fetch('/__wx_channels_api/tip', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({msg: `❌ [下载] ${errorMsg}`})
+              }).catch(() => {});
+              
+              hideProgress();
+              reject(new Error(errorMsg));
+            }
+          })
+          .catch(error => {
+            console.error("下载视频失败:", error);
+            const errorMsg = error.message || '下载视频失败';
+            
+            updateProgress(0, '下载失败');
+            if (progressStatus) {
+              progressStatus.style.color = '#ff4444';
+              progressStatus.textContent = '下载失败: ' + errorMsg;
+            }
+            
+            if (window.__wx_log) {
+              window.__wx_log({
+                msg: '❌ 下载视频失败: ' + errorMsg
+              });
+            }
+            
+            fetch('/__wx_channels_api/tip', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({msg: `❌ [下载] ${errorMsg}`})
+            }).catch(() => {});
+            
+            hideProgress();
+            reject(error);
+          });
         } else {
           console.warn('未知的视频类型:', video.type);
           resolve();
@@ -3368,6 +4049,162 @@ window.__wx_channels_profile_collector = {
     download(filename, 'application/json', JSON.stringify(jsonData, null, 2));
     this.showStatusMessage(`已导出 ${lives.length} 个直播数据`, 'success');
     console.log(`📄 已导出 ${lives.length} 个直播数据`);
+  },
+  
+  // 导出视频（主页专用，只导出 type === "media" 的视频）
+  exportVideos: function(format) {
+    // 过滤出普通视频（type === "media"）
+    const videos = (this.videos || []).filter(v => v && v.type === 'media');
+    
+    if (videos.length === 0) {
+      this.showStatusMessage('没有找到可导出的视频', 'warning');
+      return;
+    }
+    
+    const nowStr = new Date().toLocaleString();
+    const fmtTs = (ts) => {
+      let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+      if (n < 1e12) n = n * 1000; const d = new Date(n);
+      const p = (x)=>String(x).padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const fmtDur = (ms) => {
+      let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    };
+    const fmtMB = (b) => { const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB'; };
+    const rows = videos.map((video, index) => {
+      const key = (video && video.key) ? String(video.key) : 'N/A';
+      const url = (video && video.url) ? String(video.url) : 'N/A';
+      const title = String(video.title || '');
+      const id = String(video.id || '');
+      const author = String(video.nickname || (video.contact && video.contact.nickname) || '');
+      const like = Number(video.likeCount||0);
+      const comment = Number(video.commentCount||0);
+      const fav = Number(video.favCount||0);
+      const forward = Number(video.forwardCount||0);
+      const sizeMB = fmtMB(video.size);
+      const duration = fmtDur(video.duration);
+      const created = fmtTs(video.createtime);
+      const cover = String(video.coverUrl || (video.cover && video.cover.url) || '');
+      return { index: index+1, title, id, url, key, author, duration, sizeMB, like, comment, fav, forward, created, cover };
+    });
+
+    const download = (filename, mime, content) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    };
+
+    const fmt = (format||'txt').toLowerCase();
+    const pageTitle = '主页页面视频导出';
+    const fileNamePrefix = 'profile_videos';
+    
+    if (fmt === 'json') {
+      const payload = { generated_at: nowStr, count: rows.length, videos: rows };
+      download(`${fileNamePrefix}_${Date.now()}.json`, 'application/json', JSON.stringify(payload, null, 2));
+    } else if (fmt === 'md') {
+      const md = [
+        `# ${pageTitle}`,
+        `生成时间: ${nowStr}`,
+        `总计: ${rows.length} 个视频`,
+        ''
+      ].concat(rows.map(r => `${r.index}. [${r.title || '(无标题)'}](${r.url})  \n   作者: ${r.author}  ·  ID: ${r.id}  ·  KEY: ${r.key}  ·  时长: ${r.duration}  ·  大小: ${r.sizeMB}  \n   👍 ${r.like}  ·  💬 ${r.comment}  ·  🔖 ${r.fav}  ·  🔄 ${r.forward}  \n   创建时间: ${r.created}  \n   封面: ${r.cover}`)).join('\n');
+      download(`${fileNamePrefix}_${Date.now()}.md`, 'text/markdown;charset=utf-8', md);
+    } else {
+      const txt = [
+        `${pageTitle}`,
+        `生成时间: ${nowStr}`,
+        `总计: ${rows.length} 个视频`,
+        ''
+      ].concat(rows.map(r => `${r.index}. ${r.title}\n   作者: ${r.author}\n   ID: ${r.id}\n   URL: ${r.url}\n   KEY: ${r.key}\n   时长: ${r.duration}\n   大小: ${r.sizeMB}\n   点赞: ${r.like}  评论: ${r.comment}  收藏: ${r.fav}  转发: ${r.forward}\n   创建时间: ${r.created}\n   封面: ${r.cover}`)).join('\n');
+      download(`${fileNamePrefix}_${Date.now()}.txt`, 'text/plain;charset=utf-8', txt);
+    }
+    console.log(`📄 已导出 ${videos.length} 个视频（格式: ${fmt}）`);
+    
+    // 发送日志到后端
+    const formatName = fmt === 'json' ? 'JSON' : (fmt === 'md' ? 'Markdown' : 'TXT');
+    fetch('/__wx_channels_api/tip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({msg: `导出视频: 格式=${formatName}, 视频数=${videos.length}`})
+    }).catch(() => {});
+  },
+  
+  // 导出直播回放（主页专用，只导出 type === "live_replay" 的直播回放）
+  exportLiveReplays: function() {
+    // 过滤出直播回放（type === "live_replay"）
+    const liveReplays = (this.videos || []).filter(v => v && v.type === 'live_replay');
+    
+    if (liveReplays.length === 0) {
+      this.showStatusMessage('没有找到可导出的直播回放', 'warning');
+      return;
+    }
+    
+    const nowStr = new Date().toLocaleString();
+    const fmtTs = (ts) => {
+      let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+      if (n < 1e12) n = n * 1000; const d = new Date(n);
+      const p = (x)=>String(x).padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    const fmtDur = (ms) => {
+      let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+      const h = Math.floor(m/60); const mm = m%60;
+      if (h > 0) {
+        return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      }
+      return `${String(mm).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    };
+    const fmtMB = (b) => { const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB'; };
+    
+    const rows = liveReplays.map((replay, index) => {
+      const key = (replay && replay.key) ? String(replay.key) : 'N/A';
+      const url = (replay && replay.url) ? String(replay.url) : 'N/A';
+      const replayUrl = (replay && replay.replayUrl) ? String(replay.replayUrl) : '';
+      const title = String(replay.title || '');
+      const id = String(replay.id || '');
+      const author = String(replay.nickname || (replay.contact && replay.contact.nickname) || '');
+      const like = Number(replay.likeCount||0);
+      const comment = Number(replay.commentCount||0);
+      const fav = Number(replay.favCount||0);
+      const forward = Number(replay.forwardCount||0);
+      const sizeMB = fmtMB(replay.size);
+      const duration = fmtDur(replay.duration);
+      const created = fmtTs(replay.createtime);
+      const cover = String(replay.coverUrl || (replay.cover && replay.cover.url) || '');
+      return { index: index+1, title, id, url, replayUrl, key, author, duration, sizeMB, like, comment, fav, forward, created, cover };
+    });
+
+    const download = (filename, mime, content) => {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+    
+    const jsonData = {
+      generated_at: nowStr,
+      count: rows.length,
+      liveReplays: rows
+    };
+    
+    const filename = `profile_live_replays_${Date.now()}.json`;
+    download(filename, 'application/json', JSON.stringify(jsonData, null, 2));
+    this.showStatusMessage(`已导出 ${liveReplays.length} 个直播回放`, 'success');
+    console.log(`📄 已导出 ${liveReplays.length} 个直播回放`);
+    
+    // 发送日志到后端
+    fetch('/__wx_channels_api/tip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({msg: `导出直播回放: 数量=${liveReplays.length}`})
+    }).catch(() => {});
   }
 };
 

@@ -17,6 +17,7 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
+	"wx_channel/internal/models"
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
 	"wx_channel/pkg/util"
@@ -49,9 +50,9 @@ type BatchTask struct {
 	ID              string  `json:"id"`
 	URL             string  `json:"url"`
 	Title           string  `json:"title"`
-	AuthorName      string  `json:"authorName,omitempty"` // 兼容旧格式
-	Author          string  `json:"author,omitempty"`     // 新格式
-	Key             string  `json:"key,omitempty"`        // 加密密钥（新方式，后端生成解密数组）
+	AuthorName      string  `json:"authorName,omitempty"`      // 兼容旧格式
+	Author          string  `json:"author,omitempty"`          // 新格式
+	Key             string  `json:"key,omitempty"`             // 加密密钥（新方式，后端生成解密数组）
 	DecryptorPrefix string  `json:"decryptorPrefix,omitempty"` // 解密前缀（旧方式，前端传递）
 	PrefixLen       int     `json:"prefixLen,omitempty"`
 	Status          string  `json:"status"` // pending, downloading, done, failed
@@ -64,6 +65,15 @@ type BatchTask struct {
 	SizeMB     string `json:"sizeMB,omitempty"`     // 大小字符串，如 "28.77MB"
 	Cover      string `json:"cover,omitempty"`      // 封面URL（批量下载格式）
 	Resolution string `json:"resolution,omitempty"` // 分辨率
+	PageSource string `json:"pageSource,omitempty"` // 页面来源（batch_console/batch_feed/batch_home等）
+	// 统计数据字段
+	PlayCount    string `json:"playCount,omitempty"`    // 播放量（字符串格式）
+	LikeCount    string `json:"likeCount,omitempty"`    // 点赞数（字符串格式）
+	CommentCount string `json:"commentCount,omitempty"` // 评论数（字符串格式）
+	FavCount     string `json:"favCount,omitempty"`     // 收藏数（字符串格式）
+	ForwardCount string `json:"forwardCount,omitempty"` // 转发数（字符串格式）
+	CreateTime   string `json:"createTime,omitempty"`   // 创建时间
+	IPRegion     string `json:"ipRegion,omitempty"`     // IP所在地
 	// 兼容数据库导出格式
 	VideoURL   string `json:"videoUrl,omitempty"`   // 视频URL（数据库格式）
 	CoverURL   string `json:"coverUrl,omitempty"`   // 封面URL（数据库格式）
@@ -166,6 +176,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	var req struct {
 		Videos          []BatchTask `json:"videos"`
 		ForceRedownload bool        `json:"forceRedownload"`
+		PageSource      string      `json:"pageSource,omitempty"` // 页面来源
 	}
 
 	utils.Info("📥 [批量下载] 开始解析 JSON...")
@@ -175,6 +186,33 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 	utils.Info("📥 [批量下载] JSON 解析完成，视频数: %d", len(req.Videos))
+
+	// 判断批量下载来源
+	pageSource := req.PageSource
+	if pageSource == "" {
+		// 如果请求体中没有指定，则通过请求头判断
+		origin := Conn.Request.Header.Get("Origin")
+		referer := Conn.Request.Header.Get("Referer")
+
+		if strings.Contains(origin, "channels.weixin.qq.com") || strings.Contains(referer, "channels.weixin.qq.com") {
+			// 从视频号页面发起的请求，尝试从Referer中提取页面类型
+			if strings.Contains(referer, "/web/pages/feed") {
+				pageSource = "batch_feed"
+			} else if strings.Contains(referer, "/web/pages/home") {
+				pageSource = "batch_home"
+			} else if strings.Contains(referer, "/web/pages/profile") {
+				pageSource = "batch_profile"
+			} else if strings.Contains(referer, "/web/pages/s") {
+				pageSource = "batch_search" // 搜索页面批量下载
+			} else {
+				pageSource = "batch_channels" // 默认标记为视频号批量下载
+			}
+		} else {
+			// 从Web控制台发起的请求
+			pageSource = "batch_console"
+		}
+	}
+	utils.Info("📥 [批量下载] 来源: %s", pageSource)
 
 	if len(req.Videos) == 0 {
 		h.sendErrorResponse(Conn, fmt.Errorf("视频列表为空"))
@@ -196,18 +234,26 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			PrefixLen:       v.PrefixLen,
 			Status:          "pending",
 			// 保留额外字段
-			Duration:   v.Duration,
-			SizeMB:     v.SizeMB,
-			Cover:      v.Cover,
-			Resolution: v.Resolution,
+			Duration:     v.Duration,
+			SizeMB:       v.SizeMB,
+			Cover:        v.Cover,
+			Resolution:   v.Resolution,
+			PageSource:   pageSource, // 保存页面来源
+			PlayCount:    v.PlayCount,
+			LikeCount:    v.LikeCount,
+			CommentCount: v.CommentCount,
+			FavCount:     v.FavCount,
+			ForwardCount: v.ForwardCount,
+			CreateTime:   v.CreateTime,
+			IPRegion:     v.IPRegion,
 		}
 	}
 	h.running = true
 	h.mu.Unlock()
 
 	// 获取并发数配置
-	concurrency := 3 // 默认值
-	if h.config != nil {
+	concurrency := 5 // 默认值（与配置默认值一致）
+	if h.config != nil && h.config.DownloadConcurrency > 0 {
 		concurrency = h.config.DownloadConcurrency
 	}
 
@@ -252,8 +298,8 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 	downloadsDir = filepath.Join(baseDir, downloadsDir)
 
 	// 获取并发数
-	concurrency := 3
-	if h.config != nil {
+	concurrency := 5 // 默认值（与配置默认值一致）
+	if h.config != nil && h.config.DownloadConcurrency > 0 {
 		concurrency = h.config.DownloadConcurrency
 	}
 	if concurrency < 1 {
@@ -333,7 +379,6 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 
 	utils.Info("✅ [批量下载] 全部完成！成功: %d, 失败: %d", done, failed)
 }
-
 
 // downloadVideo 下载单个视频（带重试和断点续传）
 func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downloadsDir string, forceRedownload bool, taskIdx int) error {
@@ -562,7 +607,6 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 	return nil
 }
 
-
 // downloadWithProgress 带进度的下载（支持断点续传）
 func (h *BatchHandler) downloadWithProgress(ctx context.Context, reader io.Reader, writer io.Writer, taskIdx int, totalSize int64, resumeOffset int64) error {
 	buf := make([]byte, 32*1024)
@@ -782,6 +826,62 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 		}
 	} else {
 		utils.Info("📝 [下载记录] 已保存: %s - %s", task.Title, task.GetAuthor())
+	}
+
+	// 保存到CSV文件
+	if h.csvManager != nil {
+		// 格式化文件大小为字符串
+		fileSizeStr := fmt.Sprintf("%.2f MB", float64(fileSize)/(1024*1024))
+
+		// 格式化时长为字符串（从毫秒转换为 HH:MM:SS 或 MM:SS）
+		durationStr := ""
+		if duration > 0 {
+			totalSeconds := duration / 1000
+			hours := totalSeconds / 3600
+			minutes := (totalSeconds % 3600) / 60
+			secs := totalSeconds % 60
+			if hours > 0 {
+				durationStr = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, secs)
+			} else {
+				durationStr = fmt.Sprintf("%02d:%02d", minutes, secs)
+			}
+		}
+
+		// 创建CSV记录
+		// 使用任务中的PageSource，如果没有则默认为"batch"
+		pageSource := task.PageSource
+		if pageSource == "" {
+			pageSource = "batch" // 默认标记为批量下载
+		}
+
+		csvRecord := &models.VideoDownloadRecord{
+			ID:            task.ID,
+			Title:         task.Title,
+			Author:        task.GetAuthor(),
+			AuthorType:    "",
+			OfficialName:  "",
+			URL:           task.URL,
+			PageURL:       "",
+			FileSize:      fileSizeStr,
+			Duration:      durationStr,
+			PlayCount:     task.PlayCount,    // 使用任务中的播放量
+			LikeCount:     task.LikeCount,    // 使用任务中的点赞数
+			CommentCount:  task.CommentCount, // 使用任务中的评论数
+			FavCount:      task.FavCount,     // 使用任务中的收藏数
+			ForwardCount:  task.ForwardCount, // 使用任务中的转发数
+			CreateTime:    task.CreateTime,   // 使用任务中的创建时间
+			IPRegion:      task.IPRegion,     // 使用任务中的IP所在地
+			DownloadAt:    time.Now(),
+			PageSource:    pageSource, // 使用实际的页面来源
+			SearchKeyword: "",
+		}
+
+		// 保存到CSV
+		if err := h.csvManager.AddRecord(csvRecord); err != nil {
+			utils.Warn("保存CSV记录失败: %v", err)
+		} else {
+			utils.Info("📄 [CSV记录] 已保存: %s - %s", task.Title, task.GetAuthor())
+		}
 	}
 }
 

@@ -52,16 +52,16 @@ var logInitMsg string
 
 // 全局管理器
 var (
-	csvManager         *storage.CSVManager
-	fileManager        *storage.FileManager
-	apiHandler         *handlers.APIHandler
-	uploadHandler      *handlers.UploadHandler
-	recordHandler      *handlers.RecordHandler
-	scriptHandler      *handlers.ScriptHandler
-	batchHandler       *handlers.BatchHandler
-	commentHandler     *handlers.CommentHandler
-	consoleAPIHandler  *handlers.ConsoleAPIHandler
-	webSocketHandler   *handlers.WebSocketHandler
+	csvManager        *storage.CSVManager
+	fileManager       *storage.FileManager
+	apiHandler        *handlers.APIHandler
+	uploadHandler     *handlers.UploadHandler
+	recordHandler     *handlers.RecordHandler
+	scriptHandler     *handlers.ScriptHandler
+	batchHandler      *handlers.BatchHandler
+	commentHandler    *handlers.CommentHandler
+	consoleAPIHandler *handlers.ConsoleAPIHandler
+	webSocketHandler  *handlers.WebSocketHandler
 )
 
 // downloadRecordsHeader CSV 文件的表头
@@ -178,7 +178,7 @@ func saveDynamicHTML(htmlContent string, parsedURL *url.URL, fullURL string, tim
 
 	baseName := strings.Join(filenameParts, "_")
 	// CleanFilename 已经处理了长度限制，这里不需要再次限制
-	
+
 	fileName := fmt.Sprintf("%s_%s.html", saveTime.Format("150405"), baseName)
 	targetPath := utils.GenerateUniqueFilename(dateDir, fileName, 100)
 
@@ -335,6 +335,60 @@ func printDownloadRecordInfo() {
 	utils.PrintSeparator()
 }
 
+// printEnvConfig 打印环境变量配置信息（只要设置了任何环境变量就显示所有相关配置）
+func printEnvConfig() {
+	// 检查是否有任何环境变量被设置
+	hasAnyConfig := os.Getenv("WX_CHANNEL_TOKEN") != "" ||
+		os.Getenv("WX_CHANNEL_ALLOWED_ORIGINS") != "" ||
+		os.Getenv("WX_CHANNEL_LOG_FILE") != "" ||
+		os.Getenv("WX_CHANNEL_LOG_MAX_MB") != "" ||
+		os.Getenv("WX_CHANNEL_SAVE_PAGE_SNAPSHOT") != "" ||
+		os.Getenv("WX_CHANNEL_SAVE_SEARCH_DATA") != "" ||
+		os.Getenv("WX_CHANNEL_SAVE_PAGE_JS") != "" ||
+		os.Getenv("WX_CHANNEL_SHOW_LOG_BUTTON") != "" ||
+		os.Getenv("WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY") != "" ||
+		os.Getenv("WX_CHANNEL_UPLOAD_MERGE_CONCURRENCY") != "" ||
+		os.Getenv("WX_CHANNEL_DOWNLOAD_CONCURRENCY") != ""
+
+	// 只有设置了任何环境变量时才显示
+	if hasAnyConfig {
+		utils.PrintSeparator()
+		color.Blue("⚙️  环境变量配置信息")
+		utils.PrintSeparator()
+
+		// 安全配置
+		if cfg.SecretToken != "" {
+			utils.PrintLabelValue("🔐", "安全令牌", "已设置")
+		}
+		if len(cfg.AllowedOrigins) > 0 {
+			utils.PrintLabelValue("🌐", "允许的Origin", strings.Join(cfg.AllowedOrigins, ", "))
+		}
+
+		// 日志配置
+		if cfg.LogFile != "" {
+			utils.PrintLabelValue("📝", "日志文件", cfg.LogFile)
+		}
+		if cfg.MaxLogSizeMB > 0 {
+			utils.PrintLabelValue("📊", "日志最大大小", fmt.Sprintf("%d MB", cfg.MaxLogSizeMB))
+		}
+
+		// 保存功能开关
+		utils.PrintLabelValue("💾", "保存页面快照", fmt.Sprintf("%v", cfg.SavePageSnapshot))
+		utils.PrintLabelValue("🔍", "保存搜索数据", fmt.Sprintf("%v", cfg.SaveSearchData))
+		utils.PrintLabelValue("📄", "保存JS文件", fmt.Sprintf("%v", cfg.SavePageJS))
+
+		// UI功能开关
+		utils.PrintLabelValue("🖼️", "显示日志按钮", fmt.Sprintf("%v", cfg.ShowLogButton))
+
+		// 并发配置
+		utils.PrintLabelValue("📤", "分片上传并发", cfg.UploadChunkConcurrency)
+		utils.PrintLabelValue("🔀", "分片合并并发", cfg.UploadMergeConcurrency)
+		utils.PrintLabelValue("📥", "批量下载并发", cfg.DownloadConcurrency)
+
+		utils.PrintSeparator()
+	}
+}
+
 // 打印帮助信息
 func print_usage() {
 	fmt.Printf("Usage: wx_video_download [OPTION...]\n")
@@ -391,13 +445,13 @@ func printTitle() {
 
 	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    v5.2.0 更新要点：")
-	color.Green("    • Web控制台全面升级：浏览记录、下载记录、下载队列管理")
-	color.Green("    • 支持数据导出（JSON/CSV格式）和批量操作")
-	color.Green("    • 新增搜索筛选、时间范围筛选功能")
-	color.Green("    • 支持超长视频分片下载和断点续传")
-	color.Green("    • 新增深色模式和响应式设计")
-	color.Green("    • 完善文档和使用指南")
+	color.Green("    v5.2.6 更新要点：")
+	color.Green("    • 修复批量下载不记录下载记录的问题")
+	color.Green("    • 修改下载视频为后端api下载，下载封面图也改为后端api下载")
+	color.Green("    • 新增导出直播回放及下载功能")
+	color.Green("    • 优化主页及搜索页数据请求")
+	color.Green("    • 修复修改变量值异常及优化提醒")
+	color.Green("    • 兰州有资源的朋推荐个工作-混个饭吃")
 	fmt.Println()
 }
 
@@ -408,7 +462,7 @@ func main() {
 	cfg = config.Load()
 	// 记录配置加载
 	utils.LogConfigLoad("config.yaml", true)
-	
+
 	// 初始化日志（可选滚动）
 	if cfg.LogFile != "" {
 		_ = utils.InitLoggerWithRotation(utils.INFO, cfg.LogFile, cfg.MaxLogSizeMB)
@@ -481,6 +535,9 @@ func main() {
 			logInitMsg = ""
 		}
 	}
+
+	// 打印并发配置信息
+	printEnvConfig()
 
 	// 初始化API处理器
 	apiHandler = handlers.NewAPIHandler(cfg)
@@ -603,12 +660,12 @@ func main() {
 			proxyMode = "系统代理"
 		}
 		utils.LogSystemStart(port, proxyMode)
-		
+
 		// 启动WebSocket服务器（使用代理端口+1）
 		// Requirements: 14.5 - WebSocket endpoint for real-time updates
 		wsPort := port + 1
 		go startWebSocketServer(wsPort)
-		
+
 		utils.Info("🔍 请打开需要下载的视频号页面进行下载")
 	} else {
 		utils.PrintSeparator()
@@ -671,7 +728,7 @@ func handleConsoleAPI(Conn *SunnyNet.HttpConn) {
 // Requirements: 14.5 - WebSocket endpoint for real-time updates
 func startWebSocketServer(wsPort int) {
 	mux := http.NewServeMux()
-	
+
 	// WebSocket endpoint
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		// Set CORS headers for WebSocket upgrade
@@ -682,7 +739,7 @@ func startWebSocketServer(wsPort int) {
 		}
 		handlers.ServeWs(w, r)
 	})
-	
+
 	// Health check for WebSocket server
 	mux.HandleFunc("/ws/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -693,15 +750,15 @@ func startWebSocketServer(wsPort int) {
 			"clients": hub.ClientCount(),
 		})
 	})
-	
+
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", wsPort),
 		Handler: mux,
 	}
-	
+
 	utils.Info("🔌 WebSocket服务已启动，端口: %d", wsPort)
 	utils.Info("   WebSocket地址: ws://127.0.0.1:%d/ws", wsPort)
-	
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		utils.Warn("WebSocket服务启动失败: %v", err)
 	}
@@ -760,6 +817,14 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 			}
 			// 处理直接保存视频
 			if uploadHandler.HandleSaveVideo(Conn) {
+				return
+			}
+			// 处理保存封面图片
+			if uploadHandler.HandleSaveCover(Conn) {
+				return
+			}
+			// 处理从URL下载视频
+			if uploadHandler.HandleDownloadVideo(Conn) {
 				return
 			}
 		}
@@ -826,22 +891,30 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 		}
 
 		// 提供 Web 控制台静态资源 (js/, css/, docs/, 图片等)
-		if strings.HasPrefix(path, "/js/") || strings.HasPrefix(path, "/css/") || strings.HasPrefix(path, "/docs/") ||
-		   strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") || 
-		   strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".gif") || 
-		   strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".ico") ||
-		   strings.HasSuffix(path, ".md") {
+		// 先检查是否是微信资源路径，如果是则跳过（让请求转发到微信服务器）
+		isWeixinResource := strings.Contains(path, "pic_blank.gif") ||
+			strings.Contains(path, "we-emoji") ||
+			strings.Contains(path, "Expression") ||
+			strings.Contains(path, "auth_icon") ||
+			strings.Contains(path, "weixin/checkresupdate") ||
+			strings.Contains(path, "fed_upload") ||
+			strings.HasPrefix(path, "/a/") ||
+			strings.HasPrefix(path, "/weixin/")
+
+		// 只有Web控制台的资源才从本地读取，微信资源直接跳过
+		// 注意：如果路径匹配静态文件模式但不是微信资源，且文件不存在，也不输出警告
+		// 因为这些可能是微信服务器的资源，应该让请求继续转发
+		if !isWeixinResource && (strings.HasPrefix(path, "/js/") || strings.HasPrefix(path, "/css/") || strings.HasPrefix(path, "/docs/") ||
+			strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") ||
+			strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".gif") ||
+			strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".ico") ||
+			strings.HasSuffix(path, ".md")) {
 			filePath := "web" + path
 			content, err := os.ReadFile(filePath)
 			if err != nil {
-				// 忽略微信页面的资源文件警告（这些文件会从微信服务器加载）
-				if !strings.Contains(path, "pic_blank.gif") && 
-				   !strings.Contains(path, "we-emoji") && 
-				   !strings.Contains(path, "Expression") &&
-				   !strings.Contains(path, "auth_icon") {
-					utils.Warn("无法读取静态文件 %s: %v", filePath, err)
-				}
-				Conn.StopRequest(404, "File not found", http.Header{})
+				// 文件不存在时，直接跳过（不拦截），让请求继续转发到微信服务器
+				// 不输出警告，不返回404，这样可以避免对微信服务器资源的误报警告
+				// 同时让微信服务器的资源能够正常加载
 				return
 			}
 			headers := http.Header{}
