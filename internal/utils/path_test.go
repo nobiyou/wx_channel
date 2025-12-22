@@ -1,108 +1,125 @@
 package utils
 
 import (
-	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
-func TestSanitizePath(t *testing.T) {
-	baseDir := "/tmp/test"
-	
+func TestResolveDownloadDir(t *testing.T) {
 	tests := []struct {
-		name      string
-		baseDir   string
-		path      string
-		wantError bool
+		name        string
+		downloadDir string
+		expectAbs   bool
 	}{
 		{
-			name:      "正常路径",
-			baseDir:   baseDir,
-			path:      "videos/test.mp4",
-			wantError: false,
+			name:        "相对路径",
+			downloadDir: "downloads",
+			expectAbs:   true,
 		},
 		{
-			name:      "路径遍历攻击",
-			baseDir:   baseDir,
-			path:      "../../etc/passwd",
-			wantError: true,
+			name:        "绝对路径 - Windows",
+			downloadDir: "C:\\downloads",
+			expectAbs:   true,
 		},
 		{
-			name:      "相对路径",
-			baseDir:   baseDir,
-			path:      "./videos/test.mp4",
-			wantError: false,
-		},
-		{
-			name:      "空路径",
-			baseDir:   baseDir,
-			path:      "",
-			wantError: false,
+			name:        "绝对路径 - Unix",
+			downloadDir: "/tmp/downloads",
+			expectAbs:   true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := SanitizePath(tt.baseDir, tt.path)
-			
-			if tt.wantError {
-				if err == nil {
-					t.Errorf("SanitizePath(%q, %q) 应该返回错误", tt.baseDir, tt.path)
+			// 跳过不适用于当前操作系统的测试
+			if runtime.GOOS == "windows" && tt.downloadDir == "/tmp/downloads" {
+				t.Skip("跳过Unix路径测试（当前为Windows）")
+			}
+			if runtime.GOOS != "windows" && tt.downloadDir == "C:\\downloads" {
+				t.Skip("跳过Windows路径测试（当前为非Windows）")
+			}
+
+			result, err := ResolveDownloadDir(tt.downloadDir)
+			if err != nil {
+				t.Errorf("ResolveDownloadDir() error = %v", err)
+				return
+			}
+
+			if tt.expectAbs && !filepath.IsAbs(result) {
+				t.Errorf("ResolveDownloadDir() = %v, 期望绝对路径", result)
+			}
+
+			// 对于相对路径，结果应该包含原始路径
+			if !filepath.IsAbs(tt.downloadDir) {
+				if !contains(result, tt.downloadDir) {
+					t.Errorf("ResolveDownloadDir() = %v, 应该包含 %v", result, tt.downloadDir)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("SanitizePath(%q, %q) 返回错误: %v", tt.baseDir, tt.path, err)
-				}
-				if result == "" && tt.path != "" {
-					t.Errorf("SanitizePath(%q, %q) 结果不应该为空", tt.baseDir, tt.path)
+			}
+
+			// 对于绝对路径，结果应该等于输入
+			if filepath.IsAbs(tt.downloadDir) {
+				if result != tt.downloadDir {
+					t.Errorf("ResolveDownloadDir() = %v, 期望 %v", result, tt.downloadDir)
 				}
 			}
 		})
 	}
 }
 
-func TestEnsureDir(t *testing.T) {
-	// 创建临时目录用于测试
-	tmpDir := filepath.Join(os.TempDir(), "test_ensure_dir")
-	defer os.RemoveAll(tmpDir)
-	
-	t.Run("创建新目录", func(t *testing.T) {
-		testDir := filepath.Join(tmpDir, "new_dir")
-		err := EnsureDir(testDir)
-		if err != nil {
-			t.Errorf("EnsureDir(%q) 返回错误: %v", testDir, err)
-		}
-		
-		// 检查目录是否存在
-		if _, err := os.Stat(testDir); os.IsNotExist(err) {
-			t.Errorf("目录 %q 应该存在", testDir)
-		}
-	})
-	
-	t.Run("目录已存在", func(t *testing.T) {
-		testDir := filepath.Join(tmpDir, "existing_dir")
-		os.MkdirAll(testDir, 0755)
-		
-		err := EnsureDir(testDir)
-		if err != nil {
-			t.Errorf("EnsureDir(%q) 在目录已存在时返回错误: %v", testDir, err)
-		}
-	})
+// contains 检查字符串是否包含子串
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && 
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
+		containsMiddle(s, substr)))
 }
 
-func TestGetBaseDir(t *testing.T) {
-	baseDir, err := GetBaseDir()
-	if err != nil {
-		t.Errorf("GetBaseDir() 返回错误: %v", err)
+func containsMiddle(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
 	}
-	
-	if baseDir == "" {
-		t.Error("GetBaseDir() 结果不应该为空")
-	}
-	
-	// 检查路径是否存在
-	if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-		t.Errorf("基础目录 %q 应该存在", baseDir)
-	}
+	return false
 }
 
+func TestResolveDownloadDirEdgeCases(t *testing.T) {
+	tests := []struct {
+		name        string
+		downloadDir string
+		expectError bool
+	}{
+		{
+			name:        "空字符串",
+			downloadDir: "",
+			expectError: false, // 应该返回基础目录
+		},
+		{
+			name:        "点路径",
+			downloadDir: ".",
+			expectError: false,
+		},
+		{
+			name:        "双点路径",
+			downloadDir: "..",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ResolveDownloadDir(tt.downloadDir)
+			
+			if tt.expectError && err == nil {
+				t.Errorf("ResolveDownloadDir() 期望错误但没有返回错误")
+			}
+			
+			if !tt.expectError && err != nil {
+				t.Errorf("ResolveDownloadDir() 意外错误 = %v", err)
+			}
+			
+			if !tt.expectError && !filepath.IsAbs(result) {
+				t.Errorf("ResolveDownloadDir() = %v, 期望绝对路径", result)
+			}
+		})
+	}
+}

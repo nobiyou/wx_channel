@@ -96,3 +96,102 @@ func containsMiddle(s, substr string) bool {
 	return false
 }
 
+// MockDatabaseLoader 模拟数据库配置加载器
+type MockDatabaseLoader struct {
+	data map[string]string
+}
+
+func NewMockDatabaseLoader() *MockDatabaseLoader {
+	return &MockDatabaseLoader{
+		data: make(map[string]string),
+	}
+}
+
+func (m *MockDatabaseLoader) Get(key string) (string, error) {
+	value, exists := m.data[key]
+	if !exists {
+		return "", nil
+	}
+	return value, nil
+}
+
+func (m *MockDatabaseLoader) GetInt(key string, defaultValue int) (int, error) {
+	value, err := m.Get(key)
+	if err != nil || value == "" {
+		return defaultValue, err
+	}
+	// 简单的字符串转整数
+	result := 0
+	for _, c := range value {
+		if c >= '0' && c <= '9' {
+			result = result*10 + int(c-'0')
+		} else {
+			return defaultValue, nil
+		}
+	}
+	return result, nil
+}
+
+func (m *MockDatabaseLoader) GetInt64(key string, defaultValue int64) (int64, error) {
+	intVal, err := m.GetInt(key, int(defaultValue))
+	return int64(intVal), err
+}
+
+func (m *MockDatabaseLoader) GetBool(key string, defaultValue bool) (bool, error) {
+	value, err := m.Get(key)
+	if err != nil || value == "" {
+		return defaultValue, err
+	}
+	return value == "true" || value == "1", nil
+}
+
+func (m *MockDatabaseLoader) Set(key, value string) {
+	m.data[key] = value
+}
+
+func TestConfigPriority(t *testing.T) {
+	// 重置全局配置
+	globalConfig = nil
+	dbLoader = nil
+	
+	// 1. 测试默认配置
+	cfg := Load()
+	_ = cfg.DownloadsDir  // 记录默认值但不使用
+	_ = cfg.ChunkSize     // 记录默认值但不使用
+	_ = cfg.MaxRetries    // 记录默认值但不使用
+	
+	// 2. 测试数据库配置优先级最高
+	globalConfig = nil // 重置
+	mockDB := NewMockDatabaseLoader()
+	mockDB.Set("download_dir", "db_downloads")
+	mockDB.Set("chunk_size", "5242880") // 5MB
+	mockDB.Set("max_retries", "5")
+	
+	SetDatabaseLoader(mockDB)
+	cfg = Load()
+	
+	if cfg.DownloadsDir != "db_downloads" {
+		t.Errorf("数据库配置应该优先，期望下载目录为 'db_downloads'，实际为 '%s'", cfg.DownloadsDir)
+	}
+	
+	if cfg.ChunkSize != 5242880 {
+		t.Errorf("数据库配置应该优先，期望分片大小为 5242880，实际为 %d", cfg.ChunkSize)
+	}
+	
+	if cfg.MaxRetries != 5 {
+		t.Errorf("数据库配置应该优先，期望最大重试次数为 5，实际为 %d", cfg.MaxRetries)
+	}
+	
+	// 3. 测试重新加载配置
+	mockDB.Set("max_retries", "10")
+	cfg = Reload()
+	
+	if cfg.MaxRetries != 10 {
+		t.Errorf("重新加载后，期望最大重试次数为 10，实际为 %d", cfg.MaxRetries)
+	}
+	
+	// 清理
+	globalConfig = nil
+	dbLoader = nil
+}
+

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"wx_channel/internal/config"
-	"wx_channel/internal/database"
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
 	"wx_channel/pkg/util"
@@ -27,7 +26,6 @@ import (
 
 // UploadHandler 文件上传处理器
 type UploadHandler struct {
-	config     *config.Config
 	csvManager *storage.CSVManager
 	chunkSem   chan struct{}
 	mergeSem   chan struct{}
@@ -44,11 +42,21 @@ func NewUploadHandler(cfg *config.Config, csvManager *storage.CSVManager) *Uploa
 		mg = 1
 	}
 	return &UploadHandler{
-		config:     cfg,
 		csvManager: csvManager,
 		chunkSem:   make(chan struct{}, ch),
 		mergeSem:   make(chan struct{}, mg),
 	}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *UploadHandler) getConfig() *config.Config {
+	return config.Get()
+}
+
+// getDownloadsDir 获取解析后的下载目录
+func (h *UploadHandler) getDownloadsDir() (string, error) {
+	cfg := h.getConfig()
+	return cfg.GetResolvedDownloadsDir()
 }
 
 // HandleInitUpload 处理分片上传初始化请求
@@ -58,8 +66,8 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -67,11 +75,11 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -87,15 +95,15 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
-	// 计算基路径
-	baseDir, err := utils.GetBaseDir()
+	// 获取下载目录
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
 
-	uploadsRoot := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads")
+	uploadsRoot := filepath.Join(downloadsDir, ".uploads")
 	if err := utils.EnsureDir(uploadsRoot); err != nil {
 		utils.HandleError(err, "创建上传目录")
 	}
@@ -151,8 +159,8 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -160,11 +168,11 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -181,7 +189,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 解析multipart表单
-	err := Conn.Request.ParseMultipartForm(h.config.MaxUploadSize)
+	err := Conn.Request.ParseMultipartForm(h.getConfig().MaxUploadSize)
 	if err != nil {
 		utils.HandleError(err, "解析multipart表单")
 		h.sendErrorResponse(Conn, err)
@@ -233,14 +241,14 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
 
-	uploadsRoot := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads")
+	uploadsRoot := filepath.Join(downloadsDir, ".uploads")
 	upDir := filepath.Join(uploadsRoot, uploadId)
 
 	if _, err := os.Stat(upDir); os.IsNotExist(err) {
@@ -318,10 +326,10 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		h.sendErrorResponse(Conn, fmt.Errorf("size_mismatch"))
 		return true
 	}
-	if h.config != nil && h.config.ChunkSize > 0 && written > h.config.ChunkSize*2 { // 容忍放宽至2倍
+	if h.getConfig() != nil && h.getConfig().ChunkSize > 0 && written > h.getConfig().ChunkSize*2 { // 容忍放宽至2倍
 		_ = out.Close()
 		_ = os.Remove(partPath)
-		utils.Error("[分片上传] 分片过大: uploadId=%s, 分片索引=%d, 大小=%d, 限制=%d", uploadId, index, written, h.config.ChunkSize*2)
+		utils.Error("[分片上传] 分片过大: uploadId=%s, 分片索引=%d, 大小=%d, 限制=%d", uploadId, index, written, h.getConfig().ChunkSize*2)
 		h.sendErrorResponse(Conn, fmt.Errorf("chunk_too_large"))
 		return true
 	}
@@ -353,8 +361,8 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -362,11 +370,11 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -413,19 +421,18 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	}
 	utils.Info("[分片合并] 开始合并: uploadId=%s, 文件名=%s, 作者=%s, 分片数=%d", req.UploadId, req.Filename, req.AuthorName, req.Total)
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
 
-	uploadsRoot := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads")
+	uploadsRoot := filepath.Join(downloadsDir, ".uploads")
 	upDir := filepath.Join(uploadsRoot, req.UploadId)
 
 	// 目标作者目录
 	authorFolder := utils.CleanFolderName(req.AuthorName)
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
 	if err := utils.EnsureDir(savePath); err != nil {
@@ -527,8 +534,8 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -536,11 +543,11 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -559,7 +566,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	utils.Info("🔄 save_video: 开始处理请求")
 
 	// 解析multipart表单
-	err := Conn.Request.ParseMultipartForm(h.config.MaxUploadSize)
+	err := Conn.Request.ParseMultipartForm(h.getConfig().MaxUploadSize)
 	if err != nil {
 		utils.HandleError(err, "解析表单数据")
 		h.sendErrorResponse(Conn, err)
@@ -585,14 +592,12 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	// 创建作者文件夹路径
 	authorFolder := utils.CleanFolderName(authorName)
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
 	utils.Info("保存目录: %s", savePath)
@@ -676,8 +681,8 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -685,11 +690,11 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -744,14 +749,12 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 		authorFolder = "未知作者"
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
 	if err := utils.EnsureDir(savePath); err != nil {
@@ -853,8 +856,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -862,11 +865,11 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -926,14 +929,12 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		authorFolder = "未知作者"
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
 	if err := utils.EnsureDir(savePath); err != nil {
@@ -1002,8 +1003,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			relativePath, _ := filepath.Rel(downloadsDir, videoPath)
 			utils.Info("⏭️ [视频下载] 文件已存在，跳过: %s", relativePath)
 
-			// 保存下载记录到数据库（即使文件已存在）
-			h.saveDownloadRecord(req.VideoID, req.Title, req.Author, req.Resolution, req.Width, req.Height, videoPath, stat.Size())
+			// 注意：不再手动保存下载记录，因为队列系统已经处理了记录保存
+			// 移除重复的记录调用以避免数据库中出现重复记录
 
 			responseData := map[string]interface{}{
 				"success":      true,
@@ -1025,7 +1026,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 
 	// 断点续传：检查已下载的部分
 	var resumeOffset int64 = 0
-	resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+	resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
 	tmpPath := videoPath + ".tmp"
 
 	if resumeEnabled {
@@ -1052,8 +1053,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 
 	// 使用配置的重试次数
 	maxRetries := 3
-	if h.config != nil && h.config.DownloadRetryCount > 0 {
-		maxRetries = h.config.DownloadRetryCount
+	if h.getConfig() != nil && h.getConfig().DownloadRetryCount > 0 {
+		maxRetries = h.getConfig().DownloadRetryCount
 	}
 	if maxRetries < 1 {
 		maxRetries = 3
@@ -1229,8 +1230,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 	utils.Info("✓ [视频下载] 视频已保存: %s (%.2f MB)%s", relativePath, fileSize, statusMsg)
 
-	// 保存下载记录到数据库
-	h.saveDownloadRecord(req.VideoID, req.Title, req.Author, req.Resolution, req.Width, req.Height, videoPath, stat.Size())
+	// 注意：不再手动保存下载记录，因为队列系统已经处理了记录保存
+	// 移除重复的记录调用以避免数据库中出现重复记录
 
 	responseData := map[string]interface{}{
 		"success":      true,
@@ -1470,8 +1471,8 @@ func (h *UploadHandler) HandleUploadStatus(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			headers := http.Header{}
 			headers.Set("Content-Type", "application/json")
 			headers.Set("X-Content-Type-Options", "nosniff")
@@ -1479,11 +1480,11 @@ func (h *UploadHandler) HandleUploadStatus(Conn *SunnyNet.HttpConn) bool {
 			return true
 		}
 	}
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -1518,12 +1519,12 @@ func (h *UploadHandler) HandleUploadStatus(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-	upDir := filepath.Join(baseDir, h.config.DownloadsDir, ".uploads", req.UploadId)
+	upDir := filepath.Join(downloadsDir, ".uploads", req.UploadId)
 	entries, err := os.ReadDir(upDir)
 	if err != nil {
 		h.sendErrorResponse(Conn, err)
@@ -1557,10 +1558,10 @@ func (h *UploadHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn) {
 	headers.Set("Pragma", "no-cache")
 	headers.Set("Expires", "0")
 	headers.Set("X-Content-Type-Options", "nosniff")
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					headers.Set("Access-Control-Allow-Origin", origin)
 					headers.Set("Vary", "Origin")
@@ -1582,10 +1583,10 @@ func (h *UploadHandler) sendJSONResponse(Conn *SunnyNet.HttpConn, statusCode int
 	headers.Set("Pragma", "no-cache")
 	headers.Set("Expires", "0")
 	headers.Set("X-Content-Type-Options", "nosniff")
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					headers.Set("Access-Control-Allow-Origin", origin)
 					headers.Set("Vary", "Origin")
@@ -1604,10 +1605,10 @@ func (h *UploadHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
 	headers.Set("X-Content-Type-Options", "nosniff")
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					headers.Set("Access-Control-Allow-Origin", origin)
 					headers.Set("Vary", "Origin")
@@ -1622,71 +1623,9 @@ func (h *UploadHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	Conn.StopRequest(500, errorMsg, headers)
 }
 
-// saveDownloadRecord 保存下载记录到数据库
-func (h *UploadHandler) saveDownloadRecord(videoID, title, author, resolution string, width, height int, filePath string, fileSize int64) {
-	// 检查数据库是否已初始化
-	db := database.GetDB()
-	if db == nil {
-		utils.Warn("数据库未初始化，无法保存下载记录")
-		return
-	}
+// 注意：saveDownloadRecord 方法已被移除
+// 原因：该方法创建的下载记录使用未格式化的文件名（包含 ？ 字符），
+// 而队列系统的 CompleteDownload() 方法使用格式化的文件名（？ 替换为 _），
+// 导致出现重复记录且文件名格式不一致。
+// 现在统一使用队列系统的 CompleteDownload() 方法来创建下载记录。
 
-	// 如果没有视频ID，生成一个
-	if videoID == "" {
-		videoID = fmt.Sprintf("download_%d", time.Now().UnixNano())
-	}
-
-	// 构建分辨率字符串
-	if resolution == "" && width > 0 && height > 0 {
-		resolution = fmt.Sprintf("%dx%d", width, height)
-	}
-
-	// 尝试从浏览记录获取更多信息（时长、封面等）
-	var duration int64 = 0
-	coverURL := ""
-	browseRepo := database.NewBrowseHistoryRepository()
-	if browseRecord, err := browseRepo.GetByID(videoID); err == nil && browseRecord != nil {
-		if duration == 0 {
-			duration = browseRecord.Duration
-		}
-		if coverURL == "" {
-			coverURL = browseRecord.CoverURL
-		}
-		if resolution == "" {
-			resolution = browseRecord.Resolution
-		}
-	}
-
-	// 创建下载记录
-	record := &database.DownloadRecord{
-		ID:           videoID,
-		VideoID:      videoID,
-		Title:        title,
-		Author:       author,
-		CoverURL:     coverURL,
-		Duration:     duration,
-		FileSize:     fileSize,
-		FilePath:     filePath,
-		Format:       "mp4",
-		Resolution:   resolution,
-		Status:       "completed",
-		DownloadTime: time.Now(),
-	}
-
-	// 保存到数据库
-	repo := database.NewDownloadRecordRepository()
-	if err := repo.Create(record); err != nil {
-		// 如果是重复记录，尝试更新
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			if updateErr := repo.Update(record); updateErr != nil {
-				utils.Warn("更新下载记录失败: %v", updateErr)
-			} else {
-				utils.Info("📝 [下载记录] 已更新: %s - %s", title, author)
-			}
-		} else {
-			utils.Warn("保存下载记录失败: %v", err)
-		}
-	} else {
-		utils.Info("📝 [下载记录] 已保存: %s - %s", title, author)
-	}
-}

@@ -37,7 +37,6 @@ func parseKey(key string) (uint64, error) {
 
 // BatchHandler 批量下载处理器
 type BatchHandler struct {
-	config     *config.Config
 	csvManager *storage.CSVManager
 	mu         sync.RWMutex
 	tasks      []BatchTask
@@ -117,10 +116,20 @@ func (t *BatchTask) GetCover() string {
 // NewBatchHandler 创建批量下载处理器
 func NewBatchHandler(cfg *config.Config, csvManager *storage.CSVManager) *BatchHandler {
 	return &BatchHandler{
-		config:     cfg,
 		csvManager: csvManager,
 		tasks:      make([]BatchTask, 0),
 	}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *BatchHandler) getConfig() *config.Config {
+	return config.Get()
+}
+
+// getDownloadsDir 获取解析后的下载目录
+func (h *BatchHandler) getDownloadsDir() (string, error) {
+	cfg := h.getConfig()
+	return cfg.GetResolvedDownloadsDir()
 }
 
 // HandleBatchStart 处理批量下载开始请求
@@ -145,8 +154,8 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
 			return true
 		}
@@ -253,8 +262,8 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 
 	// 获取并发数配置
 	concurrency := 5 // 默认值（与配置默认值一致）
-	if h.config != nil && h.config.DownloadConcurrency > 0 {
-		concurrency = h.config.DownloadConcurrency
+	if h.getConfig() != nil && h.getConfig().DownloadConcurrency > 0 {
+		concurrency = h.getConfig().DownloadConcurrency
 	}
 
 	utils.Info("🚀 [批量下载] 开始下载 %d 个视频，并发数: %d", len(req.Videos), concurrency)
@@ -285,22 +294,17 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 		cancel() // 确保释放资源
 	}()
 
-	baseDir, err := utils.GetBaseDir()
+	// 获取下载目录
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "获取下载目录")
 		return
 	}
-	// 获取下载目录
-	downloadsDir := "downloads"
-	if h.config != nil && h.config.DownloadsDir != "" {
-		downloadsDir = h.config.DownloadsDir
-	}
-	downloadsDir = filepath.Join(baseDir, downloadsDir)
 
 	// 获取并发数
 	concurrency := 5 // 默认值（与配置默认值一致）
-	if h.config != nil && h.config.DownloadConcurrency > 0 {
-		concurrency = h.config.DownloadConcurrency
+	if h.getConfig() != nil && h.getConfig().DownloadConcurrency > 0 {
+		concurrency = h.getConfig().DownloadConcurrency
 	}
 	if concurrency < 1 {
 		concurrency = 1
@@ -406,8 +410,8 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 
 	// 使用配置的重试次数
 	maxRetries := 3
-	if h.config != nil {
-		maxRetries = h.config.DownloadRetryCount
+	if h.getConfig() != nil {
+		maxRetries = h.getConfig().DownloadRetryCount
 	}
 	if maxRetries < 1 {
 		maxRetries = 3
@@ -438,8 +442,8 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 
 		// 使用配置的超时时间
 		timeout := 10 * time.Minute
-		if h.config != nil && h.config.DownloadTimeout > 0 {
-			timeout = h.config.DownloadTimeout
+		if h.getConfig() != nil && h.getConfig().DownloadTimeout > 0 {
+			timeout = h.getConfig().DownloadTimeout
 		}
 		downloadCtx, cancel := context.WithTimeout(ctx, timeout)
 		err := h.downloadVideoOnce(downloadCtx, task, filePath, taskIdx)
@@ -456,7 +460,7 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		utils.Warn("⚠️ [批量下载] 下载失败 (尝试 %d/%d): %v", retry+1, maxRetries, err)
 
 		// 如果不支持断点续传或是加密视频，清理临时文件
-		resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+		resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
 		if task.DecryptorPrefix != "" || !resumeEnabled {
 			os.Remove(filePath + ".tmp")
 		}
@@ -476,7 +480,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 
 	// 断点续传：检查已下载的部分（仅非加密视频支持）
 	var resumeOffset int64 = 0
-	resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+	resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
 	if !needDecrypt && resumeEnabled {
 		if stat, err := os.Stat(tmpPath); err == nil {
 			resumeOffset = stat.Size()
@@ -569,7 +573,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 
 	if writeErr != nil {
 		// 断点续传模式下不删除临时文件
-		resumeEnabled := h.config != nil && h.config.DownloadResumeEnabled
+		resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
 		if !resumeEnabled || needDecrypt {
 			os.Remove(tmpPath)
 		}
@@ -769,6 +773,14 @@ func (h *BatchHandler) downloadAndDecrypt(ctx context.Context, reader io.Reader,
 
 // saveDownloadRecord 保存下载记录到数据库
 func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, status string) {
+	// 检查CSV中是否已存在记录（避免重复记录）
+	if h.csvManager != nil {
+		if exists, err := h.csvManager.RecordExists(task.ID); err == nil && exists {
+			utils.Info("📝 [下载记录] 记录已存在，跳过保存: %s - %s", task.Title, task.GetAuthor())
+			return
+		}
+	}
+
 	// 获取文件大小
 	var fileSize int64 = 0
 	if stat, err := os.Stat(filePath); err == nil {
@@ -798,10 +810,12 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 	}
 
 	// 创建下载记录
+	// 使用格式化后的文件名作为标题，确保与实际文件名一致
+	cleanTitle := utils.CleanFilename(task.Title)
 	record := &database.DownloadRecord{
 		ID:           task.ID,
 		VideoID:      task.ID,
-		Title:        task.Title,
+		Title:        cleanTitle,
 		Author:       task.GetAuthor(),
 		CoverURL:     coverURL,
 		Duration:     duration,
@@ -924,8 +938,8 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
 			return true
 		}
@@ -995,8 +1009,8 @@ func (h *BatchHandler) HandleBatchCancel(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
 			return true
 		}
@@ -1031,8 +1045,8 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
 			return true
 		}
@@ -1055,18 +1069,12 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 导出失败清单
-	baseDir, err := utils.GetBaseDir()
+	// 获取下载目录
+	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-
-	// 获取下载目录
-	downloadsDir := "downloads"
-	if h.config != nil && h.config.DownloadsDir != "" {
-		downloadsDir = h.config.DownloadsDir
-	}
-	downloadsDir = filepath.Join(baseDir, downloadsDir)
 	timestamp := time.Now().Format("20060102_150405")
 	exportFile := filepath.Join(downloadsDir, fmt.Sprintf("failed_videos_%s.json", timestamp))
 

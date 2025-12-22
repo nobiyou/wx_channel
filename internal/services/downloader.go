@@ -33,7 +33,6 @@ type DownloadResult struct {
 }
 
 type Downloader struct {
-	cfg    *config.Config
 	csv    *storage.CSVManager
 	queue  chan DownloadTask
 	wg     sync.WaitGroup
@@ -54,10 +53,14 @@ type Downloader struct {
 	workerCount int
 }
 
+// getConfig 获取当前配置（动态获取最新配置）
+func (d *Downloader) getConfig() *config.Config {
+	return config.Get()
+}
+
 func NewDownloader(cfg *config.Config, csv *storage.CSVManager) *Downloader {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Downloader{
-		cfg:      cfg,
 		csv:      csv,
 		queue:    make(chan DownloadTask, 1024),
 		ctx:      ctx,
@@ -155,7 +158,7 @@ func (d *Downloader) downloadOne(client *http.Client, task DownloadTask) Downloa
 	}
 	utils.Info("[批量下载] 开始下载: ID=%s, 标题=%s, 作者=%s, URL=%s", task.ID, task.Filename, task.AuthorName, urlShort)
 	var lastErr error
-	retries := d.cfg.DownloadRetryCount
+	retries := d.getConfig().DownloadRetryCount
 	if retries <= 0 {
 		retries = 1
 	}
@@ -184,7 +187,7 @@ func (d *Downloader) tryDownload(client *http.Client, task DownloadTask) (string
 		return "", 0, err
 	}
 	authorFolder := utils.CleanFolderName(task.AuthorName)
-	downloadsDir := filepath.Join(baseDir, d.cfg.DownloadsDir)
+	downloadsDir := filepath.Join(baseDir, d.getConfig().DownloadsDir)
 	saveDir := filepath.Join(downloadsDir, authorFolder)
 	if err := utils.EnsureDir(saveDir); err != nil {
 		return "", 0, err
@@ -291,21 +294,26 @@ func (d *Downloader) tryDownload(client *http.Client, task DownloadTask) (string
 	sizeMB := float64(n) / (1024 * 1024)
 	utils.Info("[批量下载] 文件保存完成: ID=%s, 路径=%s, 大小=%.2fMB", task.ID, finalPath, sizeMB)
 
-	// 写入 CSV 记录
+	// 写入 CSV 记录（检查重复）
 	if d.csv != nil {
-		rec := &models.VideoDownloadRecord{
-			ID:         task.ID,
-			Title:      task.Filename,
-			Author:     task.AuthorName,
-			URL:        task.URL,
-			PageURL:    "",
-			FileSize:   fmt.Sprintf("%.2f MB", sizeMB),
-			DownloadAt: time.Now(),
-		}
-		if err := d.csv.AddRecord(rec); err != nil {
-			utils.Warn("[批量下载] CSV记录保存失败: ID=%s, 错误=%v", task.ID, err)
+		// 检查记录是否已存在（避免重复记录）
+		if exists, err := d.csv.RecordExists(task.ID); err == nil && exists {
+			utils.Info("[批量下载] CSV记录已存在，跳过保存: ID=%s", task.ID)
 		} else {
-			utils.Info("[批量下载] CSV记录已保存: ID=%s", task.ID)
+			rec := &models.VideoDownloadRecord{
+				ID:         task.ID,
+				Title:      task.Filename,
+				Author:     task.AuthorName,
+				URL:        task.URL,
+				PageURL:    "",
+				FileSize:   fmt.Sprintf("%.2f MB", sizeMB),
+				DownloadAt: time.Now(),
+			}
+			if err := d.csv.AddRecord(rec); err != nil {
+				utils.Warn("[批量下载] CSV记录保存失败: ID=%s, 错误=%v", task.ID, err)
+			} else {
+				utils.Info("[批量下载] CSV记录已保存: ID=%s", task.ID)
+			}
 		}
 	}
 
@@ -393,7 +401,7 @@ func (d *Downloader) Reset() {
 		
 		d.ctx, d.cancel = context.WithCancel(context.Background())
 		// 重新启动 worker
-		workers := d.cfg.DownloadConcurrency
+		workers := d.getConfig().DownloadConcurrency
 		if workers <= 0 {
 			workers = 2
 		}

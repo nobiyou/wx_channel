@@ -20,7 +20,6 @@ import (
 
 // RecordHandler 下载记录处理器
 type RecordHandler struct {
-	config     *config.Config
 	csvManager *storage.CSVManager
 	currentURL string
 }
@@ -28,9 +27,13 @@ type RecordHandler struct {
 // NewRecordHandler 创建记录处理器
 func NewRecordHandler(cfg *config.Config, csvManager *storage.CSVManager) *RecordHandler {
 	return &RecordHandler{
-		config:     cfg,
 		csvManager: csvManager,
 	}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *RecordHandler) getConfig() *config.Config {
+	return config.Get()
 }
 
 // SetCurrentURL 设置当前页面URL
@@ -50,8 +53,8 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -188,8 +191,15 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 		record.SearchKeyword = searchKeyword
 	}
 
-	// 保存记录
+	// 保存记录（检查重复）
 	if h.csvManager != nil {
+		// 检查记录是否已存在（避免重复记录）
+		if exists, err := h.csvManager.RecordExists(record.ID); err == nil && exists {
+			utils.Info("[下载记录] 记录已存在，跳过保存: ID=%s, 标题=%s, 作者=%s", record.ID, record.Title, record.Author)
+			h.sendEmptyResponse(Conn)
+			return true
+		}
+		
 		if err := h.csvManager.AddRecord(record); err != nil {
 			utils.Error("[下载记录] 保存失败: ID=%s, 标题=%s, 作者=%s, 错误=%v", record.ID, record.Title, record.Author, err)
 			utils.HandleError(err, "保存下载记录")
@@ -221,8 +231,8 @@ func (h *RecordHandler) HandleExportVideoList(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -271,7 +281,7 @@ func (h *RecordHandler) HandleExportVideoList(Conn *SunnyNet.HttpConn) bool {
 	// 保存到文件
 	baseDir, err := utils.GetBaseDir()
 	if err == nil {
-		exportDir := filepath.Join(baseDir, h.config.DownloadsDir)
+		exportDir := filepath.Join(baseDir, h.getConfig().DownloadsDir)
 		if err := utils.EnsureDir(exportDir); err == nil {
 			exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.txt",
 				time.Now().Format("20060102_150405")))
@@ -303,8 +313,8 @@ func (h *RecordHandler) HandleExportVideoListJSON(Conn *SunnyNet.HttpConn) bool 
         return false
     }
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -346,7 +356,7 @@ func (h *RecordHandler) HandleExportVideoListJSON(Conn *SunnyNet.HttpConn) bool 
 
     baseDir, err := utils.GetBaseDir()
     if err == nil {
-        exportDir := filepath.Join(baseDir, h.config.DownloadsDir)
+        exportDir := filepath.Join(baseDir, h.getConfig().DownloadsDir)
         if err := utils.EnsureDir(exportDir); err == nil {
             exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.json",
                 time.Now().Format("20060102_150405")))
@@ -377,8 +387,8 @@ func (h *RecordHandler) HandleExportVideoListMarkdown(Conn *SunnyNet.HttpConn) b
         return false
     }
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -420,7 +430,7 @@ func (h *RecordHandler) HandleExportVideoListMarkdown(Conn *SunnyNet.HttpConn) b
 
     baseDir, err := utils.GetBaseDir()
     if err == nil {
-        exportDir := filepath.Join(baseDir, h.config.DownloadsDir)
+        exportDir := filepath.Join(baseDir, h.getConfig().DownloadsDir)
         if err := utils.EnsureDir(exportDir); err == nil {
             exportFile := filepath.Join(exportDir, fmt.Sprintf("profile_videos_export_%s.md",
                 time.Now().Format("20060102_150405")))
@@ -449,8 +459,8 @@ func (h *RecordHandler) HandleBatchDownloadStatus(Conn *SunnyNet.HttpConn) bool 
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -517,10 +527,10 @@ func (h *RecordHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
     headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     headers.Set("Access-Control-Allow-Origin", origin)
                     headers.Set("Vary", "Origin")
@@ -540,10 +550,10 @@ func (h *RecordHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
     headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     headers.Set("Access-Control-Allow-Origin", origin)
                     headers.Set("Vary", "Origin")

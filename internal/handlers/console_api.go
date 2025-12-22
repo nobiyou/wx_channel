@@ -20,7 +20,6 @@ import (
 
 // ConsoleAPIHandler handles REST API requests for the web console
 type ConsoleAPIHandler struct {
-	config           *config.Config
 	browseService    *services.BrowseHistoryService
 	downloadService  *services.DownloadRecordService
 	queueService     *services.QueueService
@@ -33,7 +32,6 @@ type ConsoleAPIHandler struct {
 // NewConsoleAPIHandler creates a new ConsoleAPIHandler
 func NewConsoleAPIHandler(cfg *config.Config) *ConsoleAPIHandler {
 	return &ConsoleAPIHandler{
-		config:           cfg,
 		browseService:    services.NewBrowseHistoryService(),
 		downloadService:  services.NewDownloadRecordService(),
 		queueService:     services.NewQueueService(),
@@ -42,6 +40,11 @@ func NewConsoleAPIHandler(cfg *config.Config) *ConsoleAPIHandler {
 		exportService:    services.NewExportService(),
 		searchService:    services.NewSearchService(),
 	}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *ConsoleAPIHandler) getConfig() *config.Config {
+	return config.Get()
 }
 
 // APIResponse represents a standard API response
@@ -81,8 +84,8 @@ func (h *ConsoleAPIHandler) setCORSHeaders(w http.ResponseWriter, r *http.Reques
 	origin := r.Header.Get("Origin")
 	if origin != "" {
 		// Allow all origins for local development, or check against allowed origins
-		if h.config != nil && len(h.config.AllowedOrigins) > 0 {
-			for _, o := range h.config.AllowedOrigins {
+		if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin || o == "*" {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					break
@@ -1008,10 +1011,10 @@ func (h *ConsoleAPIHandler) HandleHealth(w http.ResponseWriter, r *http.Request)
 
 	version := "unknown"
 	wsPort := 0
-	if h.config != nil {
-		version = h.config.Version
+	if h.getConfig() != nil {
+		version = h.getConfig().Version
 		// WebSocket runs on proxy port + 1
-		wsPort = h.config.Port + 1
+		wsPort = h.getConfig().Port + 1
 	}
 
 	status := HealthStatus{

@@ -17,14 +17,16 @@ import (
 
 // CommentHandler 评论数据处理器
 type CommentHandler struct {
-	config *config.Config
 }
 
 // NewCommentHandler 创建评论处理器
 func NewCommentHandler(cfg *config.Config) *CommentHandler {
-	return &CommentHandler{
-		config: cfg,
-	}
+	return &CommentHandler{}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *CommentHandler) getConfig() *config.Config {
+	return config.Get()
 }
 
 // HandleSaveCommentData 处理保存评论数据请求
@@ -35,8 +37,8 @@ func (h *CommentHandler) HandleSaveCommentData(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 授权校验
-	if h.config != nil && h.config.SecretToken != "" {
-		if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
 			// 记录认证失败
 			clientIP := Conn.Request.RemoteAddr
 			utils.LogAuthFailed(path, clientIP)
@@ -49,11 +51,11 @@ func (h *CommentHandler) HandleSaveCommentData(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// CORS校验
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
 			allowed := false
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					allowed = true
 					break
@@ -127,7 +129,7 @@ func (h *CommentHandler) saveCommentData(comments []map[string]interface{}, vide
 	}
 
 	// 创建评论数据目录
-	downloadsDir := filepath.Join(baseDir, h.config.DownloadsDir)
+	downloadsDir := filepath.Join(baseDir, h.getConfig().DownloadsDir)
 	commentDataRoot := filepath.Join(downloadsDir, "comment_data")
 	if err := utils.EnsureDir(commentDataRoot); err != nil {
 		return fmt.Errorf("创建评论数据根目录失败: %v", err)
@@ -218,10 +220,10 @@ func (h *CommentHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 	headers.Set("X-Content-Type-Options", "nosniff")
 
 	// CORS
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					headers.Set("Access-Control-Allow-Origin", origin)
 					headers.Set("Vary", "Origin")
@@ -244,10 +246,10 @@ func (h *CommentHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers.Set("X-Content-Type-Options", "nosniff")
 
 	// CORS
-	if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+	if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
 		origin := Conn.Request.Header.Get("Origin")
 		if origin != "" {
-			for _, o := range h.config.AllowedOrigins {
+			for _, o := range h.getConfig().AllowedOrigins {
 				if o == origin {
 					headers.Set("Access-Control-Allow-Origin", origin)
 					headers.Set("Vary", "Origin")

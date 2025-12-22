@@ -69,14 +69,13 @@ var downloadRecordsHeader = []string{"ID", "标题", "视频号名称", "视频�
 
 // initDownloadRecords 初始化下载记录系统
 func initDownloadRecords() error {
-	// 获取基础目录
-	baseDir, err := utils.GetBaseDir()
+	// 解析下载目录路径
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 	if err != nil {
-		return fmt.Errorf("获取基础目录失败: %v", err)
+		return fmt.Errorf("解析下载目录失败: %v", err)
 	}
 
 	// 创建文件管理器
-	downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
 	fileManager, err = storage.NewFileManager(downloadsDir)
 	if err != nil {
 		return fmt.Errorf("创建文件管理器失败: %v", err)
@@ -126,13 +125,12 @@ func saveDynamicHTML(htmlContent string, parsedURL *url.URL, fullURL string, tim
 		saveTime = time.Unix(0, timestamp*int64(time.Millisecond))
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 	if err != nil {
-		utils.HandleError(err, "获取基础目录用于保存页面内容")
+		utils.HandleError(err, "解析下载目录用于保存页面内容")
 		return
 	}
 
-	downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
 	if err := utils.EnsureDir(downloadsDir); err != nil {
 		utils.HandleError(err, "创建下载目录用于保存页面内容")
 		return
@@ -242,13 +240,12 @@ func saveSearchData(fullURL string, parsedURL *url.URL, keyword string, profiles
 		saveTime = time.Unix(0, timestamp*int64(time.Millisecond))
 	}
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 	if err != nil {
-		utils.HandleError(err, "获取基础目录用于保存搜索数据")
+		utils.HandleError(err, "解析下载目录用于保存搜索数据")
 		return
 	}
 
-	downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
 	if err := utils.EnsureDir(downloadsDir); err != nil {
 		utils.HandleError(err, "创建下载目录用于保存搜索数据")
 		return
@@ -322,13 +319,13 @@ func printDownloadRecordInfo() {
 	color.Blue("📋 下载记录信息")
 	utils.PrintSeparator()
 
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 	if err != nil {
-		utils.HandleError(err, "获取基础目录")
+		utils.HandleError(err, "解析下载目录")
 		return
 	}
 
-	recordsPath := filepath.Join(baseDir, cfg.DownloadsDir, cfg.RecordsFile)
+	recordsPath := filepath.Join(downloadsDir, cfg.RecordsFile)
 	utils.PrintLabelValue("📁", "记录文件", recordsPath)
 	utils.PrintLabelValue("✏️", "记录格式", "CSV表格格式")
 	utils.PrintLabelValue("📊", "记录字段", strings.Join(downloadRecordsHeader, ", "))
@@ -445,13 +442,9 @@ func printTitle() {
 
 	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    v5.2.6 更新要点：")
-	color.Green("    • 修复批量下载不记录下载记录的问题")
-	color.Green("    • 修改下载视频为后端api下载，下载封面图也改为后端api下载")
-	color.Green("    • 新增导出直播回放及下载功能")
-	color.Green("    • 优化主页及搜索页数据请求")
-	color.Green("    • 修复修改变量值异常及优化提醒")
-	color.Green("    • 兰州有资源的朋推荐个工作-混个饭吃")
+	color.Green("    v5.2.8 更新要点：")
+	color.Green("    • 修复补充下载路径逻辑")
+	color.Green("    • 修复web控制台下载路径问题")
 	fmt.Println()
 }
 
@@ -561,16 +554,39 @@ func main() {
 	commentHandler = handlers.NewCommentHandler(cfg)
 
 	// 初始化数据库（用于Web控制台API）
-	baseDir, err := utils.GetBaseDir()
+	downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 	if err != nil {
-		utils.HandleError(err, "获取基础目录用于数据库初始化")
+		utils.HandleError(err, "解析下载目录用于数据库初始化")
 	} else {
-		dbPath := filepath.Join(baseDir, cfg.DownloadsDir, "console.db")
+		dbPath := filepath.Join(downloadsDir, "console.db")
 		if err := database.Initialize(&database.Config{DBPath: dbPath}); err != nil {
 			utils.HandleError(err, "初始化数据库")
 			utils.Warn("Web控制台功能可能受限")
 		} else {
 			utils.Info("✓ 数据库已初始化: %s", dbPath)
+			
+			// 设置数据库配置加载器
+			settingsRepo := database.NewSettingsRepository()
+			config.SetDatabaseLoader(settingsRepo)
+			
+			// 重新加载配置以应用数据库中的设置
+			cfg = config.Reload()
+			utils.Info("✓ 配置已从数据库重新加载")
+			
+			// 重新初始化下载记录系统（使用更新后的配置）
+			if err := initDownloadRecords(); err != nil {
+				utils.HandleError(err, "重新初始化下载记录系统")
+			} else {
+				utils.Info("✓ 下载记录系统已使用新配置重新初始化")
+				
+				// 重新初始化需要csvManager的处理器
+				if csvManager != nil {
+					uploadHandler = handlers.NewUploadHandler(cfg, csvManager)
+					recordHandler = handlers.NewRecordHandler(cfg, csvManager)
+					batchHandler = handlers.NewBatchHandler(cfg, csvManager)
+					utils.Info("✓ 处理器已使用新配置重新初始化")
+				}
+			}
 		}
 	}
 
@@ -596,9 +612,8 @@ func main() {
 
 			// 保存证书文件到 downloads 目录，方便用户手动安装
 			if fileManager != nil {
-				baseDir, err := utils.GetBaseDir()
+				downloadsDir, err := utils.ResolveDownloadDir(cfg.DownloadsDir)
 				if err == nil {
-					downloadsDir := filepath.Join(baseDir, cfg.DownloadsDir)
 					certPath := filepath.Join(downloadsDir, cfg.CertFile)
 					if err := utils.EnsureDir(downloadsDir); err == nil {
 						if err := os.WriteFile(certPath, cert_data, 0644); err == nil {

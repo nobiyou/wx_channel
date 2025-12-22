@@ -20,7 +20,6 @@ import (
 
 // ScriptHandler JavaScript注入处理器
 type ScriptHandler struct {
-	config      *config.Config
 	mainJS      []byte
 	zipJS       []byte
 	fileSaverJS []byte
@@ -30,12 +29,16 @@ type ScriptHandler struct {
 // NewScriptHandler 创建脚本处理器
 func NewScriptHandler(cfg *config.Config, mainJS, zipJS, fileSaverJS []byte, version string) *ScriptHandler {
 	return &ScriptHandler{
-		config:      cfg,
 		mainJS:      mainJS,
 		zipJS:       zipJS,
 		fileSaverJS: fileSaverJS,
 		version:     version,
 	}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *ScriptHandler) getConfig() *config.Config {
+	return config.Get()
 }
 
 // HandleHTMLResponse 处理HTML响应，注入JavaScript代码
@@ -331,11 +334,8 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 			// 调用原始函数进行下载
 			originalHandleClick(sp);
 			
-			// 记录下载
-			if (window.__wx_channels_store__ && window.__wx_channels_store__.profile) {
-				const profile = {...window.__wx_channels_store__.profile};
-				window.__wx_channels_record_download(profile);
-			}
+			// 注意：不再手动记录下载，因为后端API已经处理了记录保存
+			// 移除重复的记录调用以避免CSV中出现重复记录
 			
 			// 3秒后恢复播放（给下载一些时间开始）
 			setTimeout(() => {
@@ -354,11 +354,8 @@ func (h *ScriptHandler) getDownloadTrackerScript() string {
 			// 调用原始函数进行下载
 			originalDownloadCur();
 			
-			// 记录下载
-			if (window.__wx_channels_store__ && window.__wx_channels_store__.profile) {
-				const profile = {...window.__wx_channels_store__.profile};
-				window.__wx_channels_record_download(profile);
-			}
+			// 注意：不再手动记录下载，因为后端API已经处理了记录保存
+			// 移除重复的记录调用以避免CSV中出现重复记录
 			
 			// 3秒后恢复播放（给下载一些时间开始）
 			setTimeout(() => {
@@ -5400,7 +5397,7 @@ func (h *ScriptHandler) getCommentCaptureScript() string {
 func (h *ScriptHandler) getLogPanelScript() string {
 	// 根据配置决定是否显示日志按钮
 	showLogButton := "false"
-	if h.config.ShowLogButton {
+	if h.getConfig().ShowLogButton {
 		showLogButton = "true"
 	}
 
@@ -6003,7 +6000,7 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 // saveJavaScriptFile 保存页面加载的 JavaScript 文件到本地以便分析
 func (h *ScriptHandler) saveJavaScriptFile(path string, content []byte) {
 	// 检查是否启用JS文件保存
-	if h.config != nil && !h.config.SavePageJS {
+	if h.getConfig() != nil && !h.getConfig().SavePageJS {
 		return
 	}
 
@@ -6034,7 +6031,7 @@ func (h *ScriptHandler) saveJavaScriptFile(path string, content []byte) {
 	}
 
 	// 创建按页面类型分类的保存目录
-	jsDir := filepath.Join(baseDir, h.config.DownloadsDir, "cached_js", pageType)
+	jsDir := filepath.Join(baseDir, h.getConfig().DownloadsDir, "cached_js", pageType)
 	if err := utils.EnsureDir(jsDir); err != nil {
 		return
 	}

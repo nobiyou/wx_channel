@@ -21,15 +21,17 @@ import (
 
 // APIHandler API请求处理器
 type APIHandler struct {
-	config     *config.Config
 	currentURL string
 }
 
 // NewAPIHandler 创建API处理器
 func NewAPIHandler(cfg *config.Config) *APIHandler {
-	return &APIHandler{
-		config: cfg,
-	}
+	return &APIHandler{}
+}
+
+// getConfig 获取当前配置（动态获取最新配置）
+func (h *APIHandler) getConfig() *config.Config {
+	return config.Get()
 }
 
 // SetCurrentURL 设置当前页面URL
@@ -51,8 +53,8 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	utils.LogInfo("[Profile API] 收到视频信息请求")
 
     // 授权与来源校验（可选）
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -60,11 +62,11 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
             return true
         }
     }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
             allowed := false
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     allowed = true
                     break
@@ -373,8 +375,8 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -382,11 +384,11 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
             return true
         }
     }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
             allowed := false
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     allowed = true
                     break
@@ -560,8 +562,8 @@ func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-    if h.config != nil && h.config.SecretToken != "" {
-        if Conn.Request.Header.Get("X-Local-Auth") != h.config.SecretToken {
+    if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+        if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
             headers := http.Header{}
             headers.Set("Content-Type", "application/json")
             headers.Set("X-Content-Type-Options", "nosniff")
@@ -569,11 +571,11 @@ func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
             return true
         }
     }
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
             allowed := false
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     allowed = true
                     break
@@ -655,10 +657,10 @@ func (h *APIHandler) sendEmptyResponse(Conn *SunnyNet.HttpConn) {
 	headers.Set("Content-Type", "application/json")
     headers.Set("X-Content-Type-Options", "nosniff")
     // CORS
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     headers.Set("Access-Control-Allow-Origin", origin)
                     headers.Set("Vary", "Origin")
@@ -678,10 +680,10 @@ func (h *APIHandler) sendErrorResponse(Conn *SunnyNet.HttpConn, err error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/json")
     headers.Set("X-Content-Type-Options", "nosniff")
-    if h.config != nil && len(h.config.AllowedOrigins) > 0 {
+    if h.getConfig() != nil && len(h.getConfig().AllowedOrigins) > 0 {
         origin := Conn.Request.Header.Get("Origin")
         if origin != "" {
-            for _, o := range h.config.AllowedOrigins {
+            for _, o := range h.getConfig().AllowedOrigins {
                 if o == origin {
                     headers.Set("Access-Control-Allow-Origin", origin)
                     headers.Set("Vary", "Origin")

@@ -74,6 +74,20 @@ func (m *CSVManager) initFile() error {
 	return nil
 }
 
+// RecordExists 检查记录是否已存在
+func (m *CSVManager) RecordExists(id string) (bool, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if id == "" {
+		return false, nil
+	}
+
+	formattedID := "ID_" + id
+	_, exists := m.seenIDs[formattedID]
+	return exists, nil
+}
+
 // AddRecord 添加记录
 func (m *CSVManager) AddRecord(record *models.VideoDownloadRecord) error {
 	m.mutex.Lock()

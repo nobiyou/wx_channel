@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"wx_channel/internal/config"
 	"wx_channel/internal/database"
 	"wx_channel/internal/utils"
 
@@ -260,6 +261,12 @@ func (s *QueueService) CompleteDownload(id string) error {
 		return fmt.Errorf("queue item not found: %s", id)
 	}
 
+	// Check if already completed to avoid duplicate records
+	if item.Status == database.QueueStatusCompleted {
+		// Already completed, no need to create another record
+		return nil
+	}
+
 	item.Status = database.QueueStatusCompleted
 	item.DownloadedSize = item.TotalSize
 	item.ChunksCompleted = item.ChunksTotal
@@ -300,10 +307,22 @@ func (s *QueueService) CompleteDownload(id string) error {
 
 // calculateDownloadFilePath calculates the expected file path for a downloaded video
 func calculateDownloadFilePath(author, title string) string {
-	// Get software base directory
-	baseDir, err := utils.GetBaseDir()
-	if err != nil {
-		baseDir = "."
+	// Get download directory from current configuration
+	cfg := config.Get()
+	var downloadsDir string
+	var err error
+	
+	if cfg != nil {
+		downloadsDir, err = cfg.GetResolvedDownloadsDir()
+	}
+	
+	if err != nil || downloadsDir == "" {
+		// Fallback to software base directory + downloads
+		baseDir, baseErr := utils.GetBaseDir()
+		if baseErr != nil {
+			baseDir = "."
+		}
+		downloadsDir = filepath.Join(baseDir, "downloads")
 	}
 	
 	// Clean author name for folder
@@ -323,9 +342,9 @@ func calculateDownloadFilePath(author, title string) string {
 		cleanTitle = cleanTitle + ".mp4"
 	}
 	
-	// Return absolute path using filepath.Join for cross-platform compatibility
-	// Path format: {baseDir}/downloads/{author}/{title}.mp4
-	return filepath.Join(baseDir, "downloads", authorFolder, cleanTitle)
+	// Return absolute path using the correct download directory
+	// Path format: {downloadsDir}/{author}/{title}.mp4
+	return filepath.Join(downloadsDir, authorFolder, cleanTitle)
 }
 
 // cleanFolderName removes invalid characters from folder name

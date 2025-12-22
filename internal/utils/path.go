@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,4 +46,37 @@ func GetBaseDir() (string, error) {
 		return os.Getwd()
 	}
 	return filepath.Dir(exePath), nil
+}
+
+// ResolveDownloadDir 解析下载目录路径
+// 如果是绝对路径，直接使用；如果是相对路径，相对于程序基础目录
+func ResolveDownloadDir(downloadDir string) (string, error) {
+	// 如果是绝对路径，直接使用
+	if filepath.IsAbs(downloadDir) {
+		return downloadDir, nil
+	}
+	
+	// 如果是相对路径，相对于程序基础目录
+	baseDir, err := GetBaseDir()
+	if err != nil {
+		return "", err
+	}
+	
+	return filepath.Join(baseDir, downloadDir), nil
+}
+
+// GetDownloadsDirFromConfig 从配置获取解析后的下载目录
+func GetDownloadsDirFromConfig(cfg interface{}) (string, error) {
+	// 使用反射或类型断言来获取DownloadsDir字段
+	type ConfigWithDownloadsDir interface {
+		GetDownloadsDir() string
+	}
+	
+	if c, ok := cfg.(ConfigWithDownloadsDir); ok {
+		return ResolveDownloadDir(c.GetDownloadsDir())
+	}
+	
+	// 如果没有实现接口，尝试直接访问字段
+	// 这里需要根据实际的配置结构来调整
+	return "", fmt.Errorf("无法从配置获取下载目录")
 }
