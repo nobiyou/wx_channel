@@ -162,7 +162,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	utils.Info("📥 [批量下载] 开始读取请求体...")
-	
+
 	// 检查请求体是否为空
 	if Conn.Request.Body == nil {
 		err := fmt.Errorf("request body is nil")
@@ -170,7 +170,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-	
+
 	body, err := io.ReadAll(Conn.Request.Body)
 	if err != nil {
 		utils.HandleError(err, "读取batch_start请求体")
@@ -353,8 +353,18 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 		}(w)
 	}
 
-	// 分发任务
+	// 分发任务（只处理 pending 状态的任务，跳过 done 和 failed）
+	pendingCount := 0
 	for i := range h.tasks {
+		h.mu.RLock()
+		taskStatus := h.tasks[i].Status
+		h.mu.RUnlock()
+
+		// 只处理 pending 状态的任务
+		if taskStatus != "pending" {
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			close(taskChan)
@@ -362,9 +372,16 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 			utils.Info("⏹️ [批量下载] 已取消")
 			return
 		case taskChan <- i:
+			pendingCount++
 		}
 	}
 	close(taskChan)
+
+	if pendingCount == 0 {
+		utils.Info("ℹ️ [批量下载] 没有待处理的任务（所有任务已完成或失败）")
+		return
+	}
+	utils.Info("📋 [批量下载] 开始处理 %d 个待处理任务", pendingCount)
 
 	// 等待所有 worker 完成
 	wg.Wait()
@@ -393,12 +410,29 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		return fmt.Errorf("创建作者目录失败: %v", err)
 	}
 
-	// 生成文件名
-	cleanFilename := utils.CleanFilename(task.Title)
+	// 优先使用视频ID进行去重检查（如果提供了视频ID）
+	if !forceRedownload && task.ID != "" && h.csvManager != nil {
+		if exists, err := h.csvManager.RecordExists(task.ID); err == nil && exists {
+			// CSV记录中已存在该视频ID，说明已下载过，尝试查找文件
+			// 使用包含ID的文件名查找
+			filenameWithID := utils.GenerateVideoFilename(task.Title, task.ID)
+			filenameWithID = utils.EnsureExtension(filenameWithID, ".mp4")
+			filePathWithID := filepath.Join(savePath, filenameWithID)
+			if _, err := os.Stat(filePathWithID); err == nil {
+				utils.Info("⏭️ [批量下载] 视频ID已存在记录中，文件已存在，跳过: ID=%s, 文件名=%s", task.ID, filenameWithID)
+				// 文件已存在也保存记录（标记为已完成）
+				h.saveDownloadRecord(task, filePathWithID, "completed")
+				return nil
+			}
+		}
+	}
+
+	// 生成文件名：优先使用视频ID确保唯一性
+	cleanFilename := utils.GenerateVideoFilename(task.Title, task.ID)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
 	filePath := filepath.Join(savePath, cleanFilename)
 
-	// 检查文件是否已存在
+	// 检查文件是否已存在（作为备用检查，主要检查已通过ID完成）
 	if !forceRedownload {
 		if _, err := os.Stat(filePath); err == nil {
 			utils.Info("⏭️ [批量下载] 文件已存在，跳过: %s", cleanFilename)
@@ -432,7 +466,7 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 			jitter := time.Duration(rand.Intn(1000)) * time.Millisecond
 			delay := baseDelay + jitter
 			utils.Info("🔄 [批量下载] 等待 %v 后重试 (%d/%d): %s", delay, retry, maxRetries-1, task.Title)
-			
+
 			select {
 			case <-ctx.Done():
 				return fmt.Errorf("下载已取消")
@@ -474,7 +508,7 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 // downloadVideoOnce 执行一次下载尝试（支持断点续传）
 func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, filePath string, taskIdx int) error {
 	tmpPath := filePath + ".tmp"
-	
+
 	// 判断是否需要解密：优先使用 key（新方式），其次使用 decryptorPrefix（旧方式）
 	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
 
@@ -672,7 +706,7 @@ func (h *BatchHandler) downloadWithProgress(ctx context.Context, reader io.Reade
 func (h *BatchHandler) downloadAndDecrypt(ctx context.Context, reader io.Reader, writer io.Writer, task *BatchTask, taskIdx int, totalSize int64) error {
 	var decryptorPrefix []byte
 	var prefixLen int
-	
+
 	// 优先使用 key 生成解密数组（新方式）
 	if task.Key != "" {
 		// 解析 key 为 uint64
@@ -950,6 +984,7 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 	done, failed, running := 0, 0, 0
 	var downloadingTasks []map[string]interface{}
 	var allTasks []map[string]interface{}
+	isRunning := h.running // 检查是否正在运行
 
 	for _, t := range h.tasks {
 		taskInfo := map[string]interface{}{
@@ -970,8 +1005,11 @@ func (h *BatchHandler) HandleBatchProgress(Conn *SunnyNet.HttpConn) bool {
 		case "failed":
 			failed++
 		case "downloading":
-			running++
-			downloadingTasks = append(downloadingTasks, taskInfo)
+			// 只有在真正运行中时才统计为 running
+			if isRunning {
+				running++
+				downloadingTasks = append(downloadingTasks, taskInfo)
+			}
 		}
 	}
 	h.mu.RUnlock()
@@ -1020,6 +1058,15 @@ func (h *BatchHandler) HandleBatchCancel(Conn *SunnyNet.HttpConn) bool {
 	if h.running && h.cancelFunc != nil {
 		h.cancelFunc() // 立即取消所有正在进行的下载
 		h.running = false
+
+		// 将正在下载的任务状态更新为 pending（表示已取消，但保留在列表中）
+		// 这样前端可以通过 running=0 判断下载已取消
+		for i := range h.tasks {
+			if h.tasks[i].Status == "downloading" {
+				h.tasks[i].Status = "pending"
+				h.tasks[i].Progress = 0
+			}
+		}
 	}
 	h.mu.Unlock()
 
@@ -1094,6 +1141,119 @@ func (h *BatchHandler) HandleBatchFailed(Conn *SunnyNet.HttpConn) bool {
 	h.sendSuccessResponse(Conn, map[string]interface{}{
 		"failed": len(failedTasks),
 		"json":   exportFile,
+	})
+	return true
+}
+
+// HandleBatchResume 处理继续下载请求（从pending状态恢复）
+func (h *BatchHandler) HandleBatchResume(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/batch_resume" {
+		return false
+	}
+
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
+	}
+
+	// 授权校验
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
+			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
+			return true
+		}
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// 检查是否有待处理的任务
+	pendingCount := 0
+	for _, t := range h.tasks {
+		if t.Status == "pending" {
+			pendingCount++
+		}
+	}
+
+	if pendingCount == 0 {
+		h.sendErrorResponse(Conn, fmt.Errorf("没有待处理的任务"))
+		return true
+	}
+
+	// 如果已经在运行，返回错误
+	if h.running {
+		h.sendErrorResponse(Conn, fmt.Errorf("下载正在进行中，无法继续"))
+		return true
+	}
+
+	// 读取请求体获取 forceRedownload 参数
+	var req struct {
+		ForceRedownload bool `json:"forceRedownload"`
+	}
+	if Conn.Request.Body != nil {
+		body, _ := io.ReadAll(Conn.Request.Body)
+		json.Unmarshal(body, &req)
+		Conn.Request.Body.Close()
+	}
+
+	// 启动下载
+	h.running = true
+	forceRedownload := req.ForceRedownload
+
+	utils.Info("▶️ [批量下载] 继续下载 %d 个待处理任务", pendingCount)
+
+	// 启动后台下载
+	go h.startBatchDownload(forceRedownload)
+
+	h.sendSuccessResponse(Conn, map[string]interface{}{
+		"message": "继续下载已启动",
+		"pending": pendingCount,
+	})
+	return true
+}
+
+// HandleBatchClear 处理清除任务请求
+func (h *BatchHandler) HandleBatchClear(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/batch_clear" {
+		return false
+	}
+
+	// 处理 CORS 预检请求
+	if Conn.Request.Method == "OPTIONS" {
+		h.sendSuccessResponse(Conn, map[string]interface{}{"message": "OK"})
+		return true
+	}
+
+	// 授权校验
+	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
+		if Conn.Request.Header.Get("X-Local-Auth") != h.getConfig().SecretToken {
+			h.sendErrorResponse(Conn, fmt.Errorf("unauthorized"))
+			return true
+		}
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// 如果正在运行，先取消
+	if h.running && h.cancelFunc != nil {
+		h.cancelFunc()
+		h.running = false
+	}
+
+	// 清除所有任务
+	taskCount := len(h.tasks)
+	h.tasks = nil
+	h.cancelFunc = nil
+
+	utils.Info("🗑️ [批量下载] 已清除所有任务（%d 个）", taskCount)
+
+	h.sendSuccessResponse(Conn, map[string]interface{}{
+		"message": "任务已清除",
+		"cleared": taskCount,
 	})
 	return true
 }

@@ -1920,6 +1920,19 @@ window.__wx_channels_profile_collector = {
     return cj.path;
   },
 
+  // 辅助函数：过滤掉正在直播的图片类型数据（type === "picture" 且 contact.liveStatus === 1）
+  filterLivePictureVideos: function(videos) {
+    return (videos || []).filter(v => {
+      // 排除正在直播的图片类型数据
+      if (v.type === 'picture' && 
+          v.contact && 
+          v.contact.liveStatus === 1) {
+        return false;
+      }
+      return true;
+    });
+  },
+
   // 从页面采集所有视频信息
   collectVideosFromPage: function() {
     if (this.isCollecting) return;
@@ -2063,6 +2076,14 @@ window.__wx_channels_profile_collector = {
     
     if (!videoData || !videoData.id) return;
     
+    // 过滤掉正在直播的图片类型数据（type === "picture" 且 contact.liveStatus === 1）
+    if (videoData.type === 'picture' && 
+        videoData.contact && 
+        videoData.contact.liveStatus === 1) {
+      console.log('⏭️ [过滤] 跳过正在直播的图片类型数据:', videoData.title?.substring(0, 50));
+      return; // 不添加正在直播的图片类型数据
+    }
+    
     // 清理标题中的HTML标签
     if (videoData.title) {
       videoData.title = this.cleanHtmlTags(videoData.title);
@@ -2109,9 +2130,11 @@ window.__wx_channels_profile_collector = {
           }
         }
       } else {
-        // 主页：基于 this.videos.length
-        const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
-        const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
+        // 主页：分别统计视频和直播回放，不合并计算
+        // 过滤掉正在直播的图片类型数据
+        const filteredVideos = this.filterLivePictureVideos(this.videos);
+        const videoCount = filteredVideos.filter(v => v && v.type === 'media').length;
+        const liveReplayCount = filteredVideos.filter(v => v && v.type === 'live_replay').length;
         
         // 检查数据是否发生变化
         const videoChanged = videoCount !== this._lastTipVideoCount;
@@ -2124,7 +2147,7 @@ window.__wx_channels_profile_collector = {
         
         if (shouldSendVideoTip || shouldSendLiveReplayTip) {
           const pageTypeName = '主页采集器';
-          msg = `📊 [${pageTypeName}] 当前已采集 ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+          msg = `📊 [${pageTypeName}] 当前已采集 ${videoCount} 个视频， ${liveReplayCount} 个直播回放`;
           // 只有当消息内容与上次不同时才发送（双重保险）
           if (msg !== this._lastLogMessage) {
             shouldSendLog = true;
@@ -2201,9 +2224,12 @@ window.__wx_channels_profile_collector = {
                   }
                 }
               } else {
-                const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
-                const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
-                expectedText = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+                // 分别统计视频和直播回放，不合并计算
+                // 过滤掉正在直播的图片类型数据
+                const filteredVideos = this.filterLivePictureVideos(this.videos);
+                const videoCount = filteredVideos.filter(v => v && v.type === 'media').length;
+                const liveReplayCount = filteredVideos.filter(v => v && v.type === 'live_replay').length;
+                expectedText = `已采集: ${videoCount} 个视频， ${liveReplayCount} 个直播回放`;
               }
               
               if (currentText !== expectedText) {
@@ -2298,15 +2324,27 @@ window.__wx_channels_profile_collector = {
     }
     
     var self = this;
-    this.videos = videosData.map((video, index) => ({
-      id: video.id || `api_video_${index}`,
-      title: self.cleanHtmlTags(video.title || video.desc) || `视频 ${index + 1}`,
-      coverUrl: video.coverUrl || video.thumbUrl || '',
-      element: null,
-      index: index,
-      collected: false,
-      apiData: video
-    }));
+    // 过滤掉正在直播的图片类型数据（type === "picture" 且 contact.liveStatus === 1）
+    this.videos = videosData
+      .filter(video => {
+        // 过滤掉正在直播的图片类型数据
+        if (video.type === 'picture' && 
+            video.contact && 
+            video.contact.liveStatus === 1) {
+          console.log('⏭️ [过滤] 跳过正在直播的图片类型数据:', (video.title || video.desc)?.substring(0, 50));
+          return false; // 不采集正在直播的图片类型数据
+        }
+        return true;
+      })
+      .map((video, index) => ({
+        id: video.id || `api_video_${index}`,
+        title: self.cleanHtmlTags(video.title || video.desc) || `视频 ${index + 1}`,
+        coverUrl: video.coverUrl || video.thumbUrl || '',
+        element: null,
+        index: index,
+        collected: false,
+        apiData: video
+      }));
     
     console.log(`📊 [API采集] 获取到 ${this.videos.length} 个视频`);
     
@@ -2360,7 +2398,7 @@ window.__wx_channels_profile_collector = {
     
     ui.innerHTML = `
       <div style="margin-bottom: 10px; font-weight: bold;">${uiTitle}</div>
-      <div id="video-count">${isSearchPage ? '已采集: 0 个动态, 0 个账户, 0 个直播' : '已采集: 0 个视频, 0 个直播回放'}</div>
+      <div id="video-count">${isSearchPage ? '已采集: 0 个动态, 0 个账户, 0 个直播' : '已采集: 0 个视频， 0 个直播回放'}</div>
       <div id="status-message" style="
         display: none;
         margin-top: 8px;
@@ -2409,6 +2447,10 @@ window.__wx_channels_profile_collector = {
       <div style="margin-top:8px;">
         <button id="toggle-select-list" style="
           background:#595959;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">编辑选择</button>
+        <button id="select-all-btn" style="
+          background:#52c41a;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;display:none;">全选</button>
+        <button id="deselect-all-btn" style="
+          background:#ff4d4f;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;display:none;">取消全选</button>
         <button id="selected-frontend" style="
           background:#13c2c2;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;margin-right:6px;">仅选中-前端下载</button>
         <button id="selected-backend" style="
@@ -2452,7 +2494,7 @@ window.__wx_channels_profile_collector = {
           background:#fa8c16;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">导出直播回放</button>
         `}
       </div>
-      <div id="select-list" style="display:none;max-height:240px;overflow:auto;margin-top:8px;border:1px solid rgba(255,255,255,0.15);padding:6px;border-radius:4px;"></div>
+      <div id="select-list" style="display:none;max-height:400px;overflow-y:auto;margin-top:8px;border:1px solid rgba(255,255,255,0.15);padding:6px;border-radius:4px;"></div>
       <div id="download-progress" style="display: none; margin-top: 10px;">
         <div>下载进度: <span id="progress-text">0/0</span></div>
         <div style="background: #333; height: 4px; border-radius: 2px; margin-top: 5px;">
@@ -2621,6 +2663,8 @@ window.__wx_channels_profile_collector = {
         btnCancel: document.getElementById('server-batch-cancel'),
         btnFailed: document.getElementById('server-batch-failed'),
         btnToggleSelect: document.getElementById('toggle-select-list'),
+        btnSelectAll: document.getElementById('select-all-btn'),
+        btnDeselectAll: document.getElementById('deselect-all-btn'),
         btnSelFrontend: document.getElementById('selected-frontend'),
         btnSelBackend: document.getElementById('selected-backend'),
         btnExportProfiles: isSearchPage ? document.getElementById('export-profiles-btn') : null,
@@ -2640,51 +2684,197 @@ window.__wx_channels_profile_collector = {
       const btnCancel = buttons.btnCancel;
       const btnFailed = buttons.btnFailed;
       const btnToggleSelect = buttons.btnToggleSelect;
+      const btnSelectAll = buttons.btnSelectAll;
+      const btnDeselectAll = buttons.btnDeselectAll;
       const btnSelFrontend = buttons.btnSelFrontend;
       const btnSelBackend = buttons.btnSelBackend;
       const selList = buttons.selList;
       const forceRedownloadCheckbox = buttons.forceRedownloadCheckbox;
 
+      // 虚拟滚动状态
+      this._selectListScrollState = this._selectListScrollState || {
+        pageSize: 50,  // 每页显示50个
+        currentPage: 0,
+        totalPages: 0
+      };
+
       const renderSelectList = () => {
         if (!selList) return;
-      const items = (this.videos || []).slice(0, 200);
-      const fmtTs = (ts) => {
-        let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
-        if (n < 1e12) n = n * 1000; const d = new Date(n);
-        const p = (x)=>String(x).padStart(2,'0');
-        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+        // 统计所有视频（包括媒体和直播回放），与顶部显示保持一致
+        // 过滤掉正在直播的图片类型数据
+        const allItems = this.filterLivePictureVideos(this.videos);
+        const totalCount = allItems.length;
+        
+        // 如果视频数量较少（<=100），直接显示全部，否则使用虚拟滚动
+        const useVirtualScroll = totalCount > 100;
+        
+        if (useVirtualScroll) {
+          // 计算分页信息
+          const pageSize = this._selectListScrollState.pageSize;
+          const currentPage = this._selectListScrollState.currentPage || 0;
+          const totalPages = Math.ceil(totalCount / pageSize);
+          this._selectListScrollState.totalPages = totalPages;
+          
+          // 获取当前页的数据
+          const startIdx = currentPage * pageSize;
+          const endIdx = Math.min(startIdx + pageSize, totalCount);
+          const items = allItems.slice(startIdx, endIdx);
+          
+          const fmtTs = (ts) => {
+            let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+            if (n < 1e12) n = n * 1000; const d = new Date(n);
+            const p = (x)=>String(x).padStart(2,'0');
+            return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+          };
+          const fmtDur = (ms) => {
+            let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+            return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+          };
+          const fmtMB = (b) => {
+            const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB';
+          };
+          
+          // 渲染当前页的视频列表
+          const itemsHTML = items.map((v, idx) => {
+            const globalIdx = startIdx + idx;
+            const id = String(v.id || '');
+            const checked = this._selectedIds.has(id) ? 'checked' : '';
+            const title = String(v.title || '').slice(0, 40).replace(/</g,'&lt;');
+            const cover = v.coverUrl || (v.cover && v.cover.url) || '';
+            const ctime = fmtTs(v.createtime);
+            const dur = fmtDur(v.duration);
+            const size = fmtMB(v.size);
+            const isLiveReplay = v && v.type === 'live_replay';
+            // 直播回放的视觉标志：红色边框、标签和图标
+            const liveReplayBadge = isLiveReplay ? `
+              <span style="display:inline-flex;align-items:center;gap:3px;background:#ff4d4f;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:bold;margin-left:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;">
+                  <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+                </svg>
+                直播回放
+              </span>
+            ` : '';
+            const borderStyle = isLiveReplay ? 'border:2px solid #ff4d4f;' : 'border:1px solid rgba(255,255,255,0.15);';
+            return `<label style="display:flex;align-items:center;gap:8px;margin:6px 0;${isLiveReplay ? 'background:rgba(255,77,79,0.1);padding:4px;border-radius:4px;' : ''}">
+              <input type="checkbox" data-id="${id}" ${checked}/>
+              <img src="${cover}" onerror="this.style.display='none'" style="width:64px;height:36px;object-fit:cover;border-radius:4px;${borderStyle}"/>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+                <div style="opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;display:flex;align-items:center;">
+                  ${title || '(无标题)'}${liveReplayBadge}
+                </div>
+                <div style="opacity:.65;font-size:12px;">${ctime} · 时长 ${dur} · ${size}</div>
+              </div>
+            </label>`;
+          }).join('');
+          
+          // 渲染分页控件
+          const paginationHTML = totalPages > 1 ? `
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin:12px 0;padding:8px;border-top:1px solid rgba(255,255,255,0.15);">
+              <button id="select-list-prev" style="background:#595959;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;${currentPage === 0 ? 'opacity:0.5;cursor:not-allowed;' : ''}" ${currentPage === 0 ? 'disabled' : ''}>上一页</button>
+              <span style="color:rgba(255,255,255,0.8);font-size:13px;">第 ${currentPage + 1}/${totalPages} 页 (共 ${totalCount} 个视频)</span>
+              <button id="select-list-next" style="background:#595959;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;${currentPage >= totalPages - 1 ? 'opacity:0.5;cursor:not-allowed;' : ''}" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>下一页</button>
+            </div>
+          ` : '';
+          
+          selList.innerHTML = itemsHTML + paginationHTML;
+          
+          // 绑定分页按钮事件
+          const prevBtn = selList.querySelector('#select-list-prev');
+          const nextBtn = selList.querySelector('#select-list-next');
+          if (prevBtn) {
+            prevBtn.onclick = () => {
+              if (this._selectListScrollState.currentPage > 0) {
+                this._selectListScrollState.currentPage--;
+                renderSelectList();
+              }
+            };
+          }
+          if (nextBtn) {
+            nextBtn.onclick = () => {
+              if (this._selectListScrollState.currentPage < totalPages - 1) {
+                this._selectListScrollState.currentPage++;
+                renderSelectList();
+              }
+            };
+          }
+        } else {
+          // 视频数量较少，直接显示全部
+          const items = allItems;
+          const fmtTs = (ts) => {
+            let n = Number(ts); if (!Number.isFinite(n) || n <= 0) return '时间未知';
+            if (n < 1e12) n = n * 1000; const d = new Date(n);
+            const p = (x)=>String(x).padStart(2,'0');
+            return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+          };
+          const fmtDur = (ms) => {
+            let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
+            return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+          };
+          const fmtMB = (b) => {
+            const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB';
+          };
+          
+          selList.innerHTML = items.map(v => {
+            const id = String(v.id || '');
+            const checked = this._selectedIds.has(id) ? 'checked' : '';
+            const title = String(v.title || '').slice(0, 40).replace(/</g,'&lt;');
+            const cover = v.coverUrl || (v.cover && v.cover.url) || '';
+            const ctime = fmtTs(v.createtime);
+            const dur = fmtDur(v.duration);
+            const size = fmtMB(v.size);
+            const isLiveReplay = v && v.type === 'live_replay';
+            // 直播回放的视觉标志：红色边框、标签和图标
+            const liveReplayBadge = isLiveReplay ? `
+              <span style="display:inline-flex;align-items:center;gap:3px;background:#ff4d4f;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:bold;margin-left:4px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;">
+                  <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+                </svg>
+                直播回放
+              </span>
+            ` : '';
+            const borderStyle = isLiveReplay ? 'border:2px solid #ff4d4f;' : 'border:1px solid rgba(255,255,255,0.15);';
+            return `<label style="display:flex;align-items:center;gap:8px;margin:6px 0;${isLiveReplay ? 'background:rgba(255,77,79,0.1);padding:4px;border-radius:4px;' : ''}">
+              <input type="checkbox" data-id="${id}" ${checked}/>
+              <img src="${cover}" onerror="this.style.display='none'" style="width:64px;height:36px;object-fit:cover;border-radius:4px;${borderStyle}"/>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+                <div style="opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;display:flex;align-items:center;">
+                  ${title || '(无标题)'}${liveReplayBadge}
+                </div>
+                <div style="opacity:.65;font-size:12px;">${ctime} · 时长 ${dur} · ${size}</div>
+              </div>
+            </label>`;
+          }).join('');
+        }
+        
+        // 绑定复选框事件
+        selList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+          cb.onchange = (e) => {
+            const id = cb.getAttribute('data-id');
+            if (!id) return;
+            if (cb.checked) this._selectedIds.add(id); else this._selectedIds.delete(id);
+          };
+        });
       };
-      const fmtDur = (ms) => {
-        let s = Math.floor((Number(ms)||0)/1000); const m = Math.floor(s/60); s = s%60;
-        return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+      // 全选功能：选中所有视频
+      const selectAllVideos = () => {
+        const allItems = this.videos || [];
+        allItems.forEach(v => {
+          const id = String(v.id || '');
+          if (id) {
+            this._selectedIds.add(id);
+          }
+        });
+        renderSelectList();
+        const selectedCount = this._selectedIds.size;
+        this.showStatusMessage(`已全选 ${selectedCount} 个视频`, 'success', 2000);
       };
-      const fmtMB = (b) => {
-        const x = Number(b)||0; if (x<=0) return '未知'; return (x/1024/1024).toFixed(2)+'MB';
-      };
-      selList.innerHTML = items.map(v => {
-        const id = String(v.id || '');
-        const checked = this._selectedIds.has(id) ? 'checked' : '';
-        const title = String(v.title || '').slice(0, 40).replace(/</g,'&lt;');
-        const cover = v.coverUrl || (v.cover && v.cover.url) || '';
-        const ctime = fmtTs(v.createtime);
-        const dur = fmtDur(v.duration);
-        const size = fmtMB(v.size);
-        return `<label style="display:flex;align-items:center;gap:8px;margin:6px 0;">
-          <input type="checkbox" data-id="${id}" ${checked}/>
-          <img src="${cover}" onerror="this.style.display='none'" style="width:64px;height:36px;object-fit:cover;border-radius:4px;border:1px solid rgba(255,255,255,0.15)"/>
-          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <div style="opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px;">${title || '(无标题)'}</div>
-            <div style="opacity:.65;font-size:12px;">${ctime} · 时长 ${dur} · ${size}</div>
-          </div>
-        </label>`;
-      }).join('');
-      selList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.onchange = (e) => {
-          const id = cb.getAttribute('data-id');
-          if (!id) return;
-          if (cb.checked) this._selectedIds.add(id); else this._selectedIds.delete(id);
-        };
-      });
+
+      // 取消全选功能：取消所有选中
+      const deselectAllVideos = () => {
+        this._selectedIds.clear();
+        renderSelectList();
+        this.showStatusMessage('已取消全选', 'info', 2000);
       };
 
       // 后端下载进度轮询
@@ -2831,9 +3021,37 @@ window.__wx_channels_profile_collector = {
 
       if (btnToggleSelect) btnToggleSelect.onclick = () => {
       if (!selList) return;
-        if (selList.style.display === 'none') { renderSelectList(); selList.style.display = 'block'; }
-        else { selList.style.display = 'none'; }
+        if (selList.style.display === 'none') {
+          // 打开选择列表时，重置分页状态到第一页
+          if (this._selectListScrollState) {
+            this._selectListScrollState.currentPage = 0;
+          }
+          renderSelectList();
+          selList.style.display = 'block';
+          // 显示全选和取消全选按钮
+          if (btnSelectAll) btnSelectAll.style.display = 'inline-block';
+          if (btnDeselectAll) btnDeselectAll.style.display = 'inline-block';
+        } else {
+          selList.style.display = 'none';
+          // 隐藏全选和取消全选按钮
+          if (btnSelectAll) btnSelectAll.style.display = 'none';
+          if (btnDeselectAll) btnDeselectAll.style.display = 'none';
+        }
       };
+
+      // 绑定全选按钮事件
+      if (btnSelectAll) {
+        btnSelectAll.onclick = () => {
+          selectAllVideos();
+        };
+      }
+
+      // 绑定取消全选按钮事件
+      if (btnDeselectAll) {
+        btnDeselectAll.onclick = () => {
+          deselectAllVideos();
+        };
+      }
 
       // 仅选中下载（公共获取函数）
       const getSelectedVideos = () => {
@@ -3114,10 +3332,13 @@ window.__wx_channels_profile_collector = {
         countElement.textContent = `已采集: ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
         console.log('✓ UI已更新，当前动态数:', feedCount, '账户数:', profileCount, '直播数:', liveCount);
       } else {
-        // 主页：分别统计视频和直播回放
-        const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
-        const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
-        countElement.textContent = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+        // 主页：分别统计视频和直播回放，不合并计算
+        // 过滤掉正在直播的图片类型数据
+        const filteredVideos = this.filterLivePictureVideos(this.videos);
+        const videoCount = filteredVideos.filter(v => v && v.type === 'media').length;
+        const liveReplayCount = filteredVideos.filter(v => v && v.type === 'live_replay').length;
+        // 直接显示原始数据，不计算总数
+        countElement.textContent = `已采集: ${videoCount} 个视频， ${liveReplayCount} 个直播回放`;
         console.log('✓ UI已更新，当前视频数:', videoCount, '直播回放数:', liveReplayCount);
       }
     } else {
@@ -3136,9 +3357,13 @@ window.__wx_channels_profile_collector = {
             el.textContent = `已采集: ${feedCount} 个动态, ${profileCount} 个账户, ${liveCount} 个直播`;
             console.log('✓ 延迟更新UI成功，当前动态数:', feedCount, '账户数:', profileCount, '直播数:', liveCount);
           } else {
-            const videoCount = (this.videos || []).filter(v => v && v.type === 'media').length;
-            const liveReplayCount = (this.videos || []).filter(v => v && v.type === 'live_replay').length;
-            el.textContent = `已采集: ${videoCount} 个视频, ${liveReplayCount} 个直播回放`;
+            // 主页：分别统计视频和直播回放，不合并计算
+            // 过滤掉正在直播的图片类型数据
+            const filteredVideos = this.filterLivePictureVideos(this.videos);
+            const videoCount = filteredVideos.filter(v => v && v.type === 'media').length;
+            const liveReplayCount = filteredVideos.filter(v => v && v.type === 'live_replay').length;
+            // 直接显示原始数据，不计算总数
+            el.textContent = `已采集: ${videoCount} 个视频， ${liveReplayCount} 个直播回放`;
             console.log('✓ 延迟更新UI成功，当前视频数:', videoCount, '直播回放数:', liveReplayCount);
           }
         }
@@ -4234,3 +4459,4 @@ if (is_profile_page()) {
     }, 1000);
   }
 }
+

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	
+
 	"wx_channel/internal/utils"
 )
 
@@ -95,13 +95,13 @@ func Reload() *Config {
 func loadConfig() *Config {
 	// 1. 首先设置软件默认配置
 	config := getDefaultConfig()
-	
+
 	// 2. 然后从环境变量覆盖配置
 	loadFromEnvironment(config)
-	
+
 	// 3. 最后从数据库覆盖配置（优先级最高）
 	loadFromDatabase(config)
-	
+
 	return config
 }
 
@@ -110,7 +110,7 @@ func getDefaultConfig() *Config {
 	return &Config{
 		Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 		DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-		Version:                "5.2.6",                // 版本号（用于前端缓存破坏等）
+		Version:                "5.2.10",               // 版本号（用于前端缓存破坏等）
 		DownloadsDir:           "downloads",            // 下载根目录
 		RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 		CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）
@@ -143,7 +143,7 @@ func loadFromEnvironment(config *Config) {
 	if token := os.Getenv("WX_CHANNEL_TOKEN"); token != "" {
 		config.SecretToken = token
 	}
-	
+
 	// 从环境变量加载可选 Origin 白名单（逗号分隔）
 	if origins := os.Getenv("WX_CHANNEL_ALLOWED_ORIGINS"); origins != "" {
 		config.AllowedOrigins = parseCommaSeparatedString(origins)
@@ -191,19 +191,19 @@ func loadFromEnvironment(config *Config) {
 			config.DownloadConcurrency = val
 		}
 	}
-	
+
 	// 下载目录环境变量
 	if downloadDir := os.Getenv("WX_CHANNEL_DOWNLOAD_DIR"); downloadDir != "" {
 		config.DownloadsDir = downloadDir
 	}
-	
+
 	// 分片大小环境变量
 	if chunkSize := os.Getenv("WX_CHANNEL_CHUNK_SIZE"); chunkSize != "" {
 		if val, err := strconv.ParseInt(chunkSize, 10, 64); err == nil && val > 0 {
 			config.ChunkSize = val
 		}
 	}
-	
+
 	// 最大重试次数环境变量
 	if maxRetries := os.Getenv("WX_CHANNEL_MAX_RETRIES"); maxRetries != "" {
 		if val, err := strconv.Atoi(maxRetries); err == nil && val >= 0 {

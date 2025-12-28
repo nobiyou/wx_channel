@@ -11,7 +11,7 @@
       "0409": {
         "identity": {
           "name": "视频号下载助手",
-          "version": "5.2.8"
+          "version": "5.2.10"
         },
         "description": "一个简单易用的微信视频号下载工具",
         "minimum-os": "win7",
@@ -35,22 +35,22 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "5.2.8",
-          "product_version": "5.2.8"
+          "file_version": "5.2.10",
+          "product_version": "5.2.10"
         },
         "info": {
           "0409": {
             "Comments": "视频号下载助手",
             "CompanyName": "nobiyou[github]",
             "FileDescription": "一个简单易用的微信视频号下载工具",
-            "FileVersion": "5.2.8",
+            "FileVersion": "5.2.10",
             "InternalName": "wx_channel",
             "LegalCopyright": "© 2023-2025",
             "LegalTrademarks": "",
             "OriginalFilename": "wx_channel.exe",
             "PrivateBuild": "",
             "ProductName": "视频号下载助手",
-            "ProductVersion": "5.2.6",
+            "ProductVersion": "5.2.10",
             "SpecialBuild": ""
           }
         }

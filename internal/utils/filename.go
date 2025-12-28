@@ -131,3 +131,37 @@ func GenerateUniqueFilename(dir, filename string, maxAttempts int) string {
     timestamp := time.Now().Format("20060102_150405")
     return filepath.Join(dir, fmt.Sprintf("%s_%s%s", base, timestamp, ext))
 }
+
+// GenerateVideoFilename 根据视频标题和ID生成文件名
+// 优先使用视频ID确保唯一性，如果标题相同但ID不同，文件名会包含ID
+// 格式：标题_ID.mp4 或 标题.mp4（如果没有ID）
+func GenerateVideoFilename(title, videoID string) string {
+	// 清理标题
+	var filename string
+	if title != "" {
+		filename = CleanFilename(title)
+	} else if videoID != "" {
+		filename = "video_" + videoID
+	} else {
+		filename = "video_" + time.Now().Format("20060102_150405")
+	}
+
+	// 如果有视频ID，在文件名中包含ID以确保唯一性
+	// 格式：标题_ID.mp4
+	if videoID != "" {
+		// 检查文件名中是否已包含ID（避免重复添加）
+		idPattern := "_" + videoID
+		if !strings.Contains(filename, idPattern) {
+			// 移除扩展名（如果有）
+			base := strings.TrimSuffix(filename, filepath.Ext(filename))
+			ext := filepath.Ext(filename)
+			if ext == "" {
+				ext = ".mp4"
+			}
+			// 添加ID：标题_ID.mp4
+			filename = base + "_" + videoID + ext
+		}
+	}
+
+	return filename
+}

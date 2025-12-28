@@ -193,7 +193,23 @@ func (d *Downloader) tryDownload(client *http.Client, task DownloadTask) (string
 		return "", 0, err
 	}
 
-	cleanFilename := utils.CleanFilename(task.Filename)
+	// 优先使用视频ID进行去重检查（如果提供了视频ID）
+	if !task.ForceRedownload && task.ID != "" && d.csv != nil {
+		if exists, err := d.csv.RecordExists(task.ID); err == nil && exists {
+			// CSV记录中已存在该视频ID，说明已下载过，尝试查找文件
+			// 使用包含ID的文件名查找
+			filenameWithID := utils.GenerateVideoFilename(task.Filename, task.ID)
+			filenameWithID = utils.EnsureExtension(filenameWithID, ".mp4")
+			preferredPath := filepath.Join(saveDir, filenameWithID)
+			if fi, err := os.Stat(preferredPath); err == nil && fi.Size() > 0 {
+				utils.Info("[批量下载] 视频ID已存在记录中，文件已存在，跳过: ID=%s, 路径=%s, 大小=%.2fMB", task.ID, preferredPath, float64(fi.Size())/(1024*1024))
+				return preferredPath, float64(fi.Size()) / (1024 * 1024), nil
+			}
+		}
+	}
+
+	// 生成文件名：优先使用视频ID确保唯一性
+	cleanFilename := utils.GenerateVideoFilename(task.Filename, task.ID)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
 	// 优先使用固定文件名，若已存在且非空则直接返回；否则再生成唯一名
 	preferredPath := filepath.Join(saveDir, cleanFilename)

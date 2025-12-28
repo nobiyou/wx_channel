@@ -442,9 +442,11 @@ func printTitle() {
 
 	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    v5.2.8 更新要点：")
-	color.Green("    • 修复补充下载路径逻辑")
-	color.Green("    • 修复web控制台下载路径问题")
+	color.Green("    v5.2.10 更新要点：")
+	color.Green("    • 解除批量下载数量限制，优化批量下载UI")
+	color.Green("    • 增加视频和直播回放样式区别")
+	color.Green("    • web控制台增加批量下载相关操作")
+	color.Green("    • 增加取消下载，继续下载及清除任务功能")
 	fmt.Println()
 }
 
@@ -564,21 +566,21 @@ func main() {
 			utils.Warn("Web控制台功能可能受限")
 		} else {
 			utils.Info("✓ 数据库已初始化: %s", dbPath)
-			
+
 			// 设置数据库配置加载器
 			settingsRepo := database.NewSettingsRepository()
 			config.SetDatabaseLoader(settingsRepo)
-			
+
 			// 重新加载配置以应用数据库中的设置
 			cfg = config.Reload()
 			utils.Info("✓ 配置已从数据库重新加载")
-			
+
 			// 重新初始化下载记录系统（使用更新后的配置）
 			if err := initDownloadRecords(); err != nil {
 				utils.HandleError(err, "重新初始化下载记录系统")
 			} else {
 				utils.Info("✓ 下载记录系统已使用新配置重新初始化")
-				
+
 				// 重新初始化需要csvManager的处理器
 				if csvManager != nil {
 					uploadHandler = handlers.NewUploadHandler(cfg, csvManager)
@@ -877,6 +879,12 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 				return
 			}
 			if batchHandler.HandleBatchCancel(Conn) {
+				return
+			}
+			if batchHandler.HandleBatchResume(Conn) {
+				return
+			}
+			if batchHandler.HandleBatchClear(Conn) {
 				return
 			}
 			if batchHandler.HandleBatchFailed(Conn) {

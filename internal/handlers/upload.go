@@ -943,15 +943,24 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	// 生成文件名：使用视频标题，如果没有则使用视频ID
-	var filename string
-	if req.Title != "" {
-		filename = utils.CleanFilename(req.Title)
-	} else if req.VideoID != "" {
-		filename = "video_" + req.VideoID
-	} else {
-		filename = "video_" + fmt.Sprintf("%d", time.Now().Unix())
+	// 优先使用视频ID进行去重检查（如果提供了视频ID）
+	if !req.ForceSave && req.VideoID != "" && h.csvManager != nil {
+		if exists, err := h.csvManager.RecordExists(req.VideoID); err == nil && exists {
+			// CSV记录中已存在该视频ID，说明已下载过，跳过下载
+			utils.Info("⏭️ [视频下载] 视频ID已存在记录中，跳过下载: ID=%s", req.VideoID)
+			responseData := map[string]interface{}{
+				"success": true,
+				"skipped": true,
+				"message": "视频已下载（基于ID检查）",
+			}
+			responseBytes, _ := json.Marshal(responseData)
+			h.sendJSONResponse(Conn, 200, responseBytes)
+			return true
+		}
 	}
+
+	// 生成文件名：优先使用视频ID确保唯一性
+	filename := utils.GenerateVideoFilename(req.Title, req.VideoID)
 
 	// 检查文件名中是否已经包含分辨率信息（避免重复添加）
 	hasResolutionInFilename := false
@@ -985,7 +994,13 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			qualityInfo += "_" + cleanResolution
 		}
 
-		filename = filename + "_" + qualityInfo
+		// 在添加分辨率信息前，需要先移除扩展名
+		base := strings.TrimSuffix(filename, filepath.Ext(filename))
+		ext := filepath.Ext(filename)
+		if ext == "" {
+			ext = ".mp4"
+		}
+		filename = base + "_" + qualityInfo + ext
 		utils.Info("📐 [视频下载] 添加分辨率信息到文件名: %s", qualityInfo)
 	} else if hasResolutionInFilename {
 		utils.Info("📐 [视频下载] 文件名中已包含分辨率信息，跳过添加")
@@ -995,7 +1010,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	filename = utils.EnsureExtension(filename, ".mp4")
 	videoPath := filepath.Join(savePath, filename)
 
-	// 检查文件是否已存在
+	// 检查文件是否已存在（作为备用检查，主要检查已通过ID完成）
 	if !req.ForceSave {
 		if stat, err := os.Stat(videoPath); err == nil {
 			// 文件已存在，返回成功但不重新下载
