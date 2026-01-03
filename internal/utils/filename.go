@@ -81,12 +81,24 @@ func CleanFolderName(folderName string) string {
 		cleaned = "未知作者"
 	}
 
+	// Windows 文件系统会自动去除文件夹名称末尾的点（.）
+	// 为了确保创建文件夹和查找路径时使用相同的名称，我们需要手动去除末尾的点
+	// 这样可以避免路径不匹配的问题（如 "机器.." 会被 Windows 创建为 "机器"）
+	cleaned = strings.TrimRight(cleaned, ".")
+
+	// 如果去除末尾点后为空，使用默认名称
+	if strings.TrimSpace(cleaned) == "" {
+		cleaned = "未知作者"
+	}
+
 	// 文件夹名称也需要限制长度，但可以稍微宽松一些
 	// 限制为 50 个字符，避免路径过长
 	maxLength := 50
 	runes := []rune(cleaned)
 	if len(runes) > maxLength {
 		cleaned = string(runes[:maxLength]) + "..."
+		// 再次去除末尾的点（如果截断后添加的省略号导致末尾有点）
+		cleaned = strings.TrimRight(cleaned, ".")
 	}
 
 	return cleaned

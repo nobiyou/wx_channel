@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频号下载控制台</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="stylesheet" href="css/app.css?v=1764987636">
+</head>
+<body>
+    <!-- Hamburger Menu Button (Mobile) -->
+    <button class="hamburger" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+    </button>
+
+    <!-- Sidebar Overlay (Mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1>视频号下载助手</h1>
+                <p>—— 简单控制台 ——</p>
+            </div>
+
+            <nav class="sidebar-nav">
+                <!-- 工具 -->
+                <div class="nav-group">
+                    <div class="nav-group-title">工具</div>
+                    <a class="nav-item active" data-page="batch">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/>
+                            <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                        <span>批量下载</span>
+                    </a>
+                </div>
+                
+                <!-- 系统 -->
+                <div class="nav-group">
+                    <div class="nav-group-title">系统</div>
+                    <a class="nav-item theme-toggle-item" onclick="toggleTheme()">
+                        <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="5"/>
+                            <line x1="12" y1="1" x2="12" y2="3"/>
+                            <line x1="12" y1="21" x2="12" y2="23"/>
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                            <line x1="1" y1="12" x2="3" y2="12"/>
+                            <line x1="21" y1="12" x2="23" y2="12"/>
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                        </svg>
+                        <svg class="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                        </svg>
+                        <span id="themeText">浅色模式</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Page Header -->
+            <div class="page-header">
+                <h2 class="page-title">批量下载</h2>
+            </div>
+
+            <!-- Batch Download Page -->
+            <div class="page-view active">
+                <!-- 下载表单 -->
+                <div class="card">
+                    <h2 class="card-title">提交下载任务</h2>
+                    
+                    <div class="form-group">
+                        <label class="form-label">API 地址</label>
+                        <input type="text" class="form-input" id="apiUrl" value="http://127.0.0.1:2025" placeholder="http://127.0.0.1:2025">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">授权令牌（可选）</label>
+                        <input type="text" class="form-input" id="authToken" placeholder="如果配置了 WX_CHANNEL_TOKEN，请填写">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">视频列表（JSON 格式）</label>
+                        <textarea class="form-textarea" id="videoList" rows="12" placeholder='请输入 JSON 格式的视频列表，支持两种格式：
+
+1. 批量下载格式（推荐）：
+[
+  {
+    "id": "video_001",
+    "url": "https://example.com/video.mp4",
+    "title": "视频标题",
+    "authorName": "作者名称",
+    "decryptorPrefix": "AQIDBA==",
+    "prefixLen": 1024
+  }
+]
+
+2. 账户导出格式（自动转换）：
+{
+  "videos": [
+    {
+      "id": "video_001",
+      "url": "https://example.com/video.mp4",
+      "title": "视频标题",
+      "author": "作者名称",
+      "key": "123765583"
+    }
+  ]
+}'></textarea>
+                    </div>
+
+                    <div id="formatDetection" class="alert alert-info" style="display: none;">
+                        <strong>🔄 检测到账户导出格式</strong>
+                        <p id="formatMessage"></p>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="forceRedownload">
+                            <span>强制重新下载（即使文件已存在）</span>
+                        </label>
+                    </div>
+
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="startDownload()">开始下载</button>
+                        <button class="btn btn-secondary" onclick="loadExample()">加载示例</button>
+                    </div>
+
+                    <div class="example-box" style="margin-top: 20px;">
+                        <strong>支持的格式：</strong>
+                        <ul style="margin-left: 20px; margin-top: 10px;">
+                            <li><strong>批量下载格式</strong>（推荐）：直接使用</li>
+                            <li><strong>账户导出格式</strong>：自动转换为批量下载格式</li>
+                        </ul>
+                        <div style="margin-top: 12px; padding: 12px; background: var(--primary-lighter); border-radius: 4px; border-left: 3px solid var(--primary-color);">
+                            <strong style="color: var(--primary-color); font-size: 14px;">自动解密功能</strong>
+                            <ul style="margin-left: 20px; margin-top: 8px; color: var(--text-primary); font-size: 13px; line-height: 1.8;">
+                                <li><code style="background: var(--bg-hover); padding: 2px 6px; border-radius: 2px; font-size: 12px;">author</code> → <code style="background: var(--bg-hover); padding: 2px 6px; border-radius: 2px; font-size: 12px;">authorName</code></li>
+                                <li><code style="background: var(--bg-hover); padding: 2px 6px; border-radius: 2px; font-size: 12px;">key</code> 字段由后端自动处理解密</li>
+                            </ul>
+                            <small style="display: block; margin-top: 8px; color: var(--text-secondary); font-size: 12px;">
+                                提示：直接粘贴账户导出的数据即可，系统会自动处理加密密钥
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 进度显示 -->
+                <div class="card progress-card" id="progressCard" style="display: none;">
+                    <h2 class="card-title">下载进度</h2>
+                    
+                    <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 20px;">
+                        <div class="stat-card">
+                            <div class="stat-content">
+                                <div class="stat-label">总任务数</div>
+                                <div class="stat-value" id="totalCount">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-content">
+                                <div class="stat-label">已完成</div>
+                                <div class="stat-value" id="doneCount" style="color: var(--success-color);">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-content">
+                                <div class="stat-label">失败</div>
+                                <div class="stat-value" id="failedCount" style="color: var(--danger-color);">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-content">
+                                <div class="stat-label">进行中</div>
+                                <div class="stat-value" id="runningCount" style="color: var(--info-color);">0</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 当前任务详情 -->
+                    <div id="currentTaskInfo" style="display: none; background: var(--primary-lighter); padding: 16px; border-radius: var(--border-radius-sm); margin-bottom: 16px; border-left: 3px solid var(--primary-color);">
+                        <div style="font-weight: 500; margin-bottom: 12px; color: var(--primary-color); font-size: 14px;">当前下载</div>
+                        <div id="currentTaskTitle" style="margin-bottom: 12px; color: var(--text-primary); font-size: 13px; line-height: 1.6;"></div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="flex: 1; background: var(--bg-hover); height: 18px; border-radius: 9px; overflow: hidden;">
+                                <div id="currentTaskProgress" style="height: 100%; background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-hover) 100%); width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 500;"></div>
+                            </div>
+                            <div id="currentTaskSize" style="min-width: 130px; text-align: right; color: var(--text-secondary); font-size: 12px; font-family: 'SF Mono', monospace;"></div>
+                        </div>
+                    </div>
+
+                    <div class="progress-bar" style="width: 100%; height: 24px; background: var(--bg-hover); border-radius: 12px; overflow: hidden; margin-bottom: 20px;">
+                        <div class="progress-fill" id="progressFill" style="height: 100%; background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-hover) 100%); width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: 500; font-size: 13px;">0%</div>
+                    </div>
+
+                    <div class="button-group">
+                        <button class="btn btn-danger" onclick="cancelDownload()">取消下载</button>
+                        <button class="btn btn-secondary" onclick="exportFailed()">导出失败清单</button>
+                        <button class="btn btn-secondary" onclick="clearLogs()">清空日志</button>
+                    </div>
+
+                    <!-- 实时日志 -->
+                    <div class="log-container" id="logContainer" style="background: var(--bg-hover); color: var(--text-primary); padding: 16px; border-radius: var(--border-radius-sm); max-height: 400px; overflow-y: auto; font-family: 'SF Mono', 'Monaco', 'Courier New', monospace; font-size: 12px; margin-top: 16px; border: 1px solid var(--border-color);">
+                        <div class="log-line log-info">等待下载任务...</div>
+                    </div>
+                </div>
+
+                <!-- 消息提示 -->
+                <div id="messageArea"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let progressInterval = null;
+
+        // UI 相关函数
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            if (sidebar) sidebar.classList.toggle('open');
+            if (overlay) overlay.classList.toggle('open');
+        }
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme') || 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            // 更新图标和文字
+            updateThemeUI(newTheme);
+        }
+
+        function updateThemeUI(theme) {
+            const lightIcon = document.querySelector('.theme-icon-light');
+            const darkIcon = document.querySelector('.theme-icon-dark');
+            const themeText = document.getElementById('themeText');
+            
+            if (lightIcon && darkIcon && themeText) {
+                if (theme === 'light') {
+                    lightIcon.style.display = 'block';
+                    darkIcon.style.display = 'none';
+                    themeText.textContent = '浅色模式';
+                } else {
+                    lightIcon.style.display = 'none';
+                    darkIcon.style.display = 'block';
+                    themeText.textContent = '深色模式';
+                }
+            }
+        }
+
+        // 初始化主题
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeUI(savedTheme);
+        })();
+
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const messageArea = document.getElementById('messageArea');
+            const alertClass = type === 'success' ? 'alert-success' : 
+                              type === 'error' ? 'alert-error' : 'alert-info';
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert ${alertClass}`;
+            alertDiv.textContent = message;
+            
+            messageArea.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        // 检测并转换数据格式（同步版本，key 直接传给后端处理）
+        function detectAndConvertFormat(data) {
+            // 如果已经是数组格式，检查是否需要转换字段
+            if (Array.isArray(data)) {
+                let needsConversion = false;
+                let keyCount = 0;
+                const converted = [];
+                
+                for (const video of data) {
+                    const result = { ...video };
+                    
+                    // 转换 author -> authorName
+                    if (video.author && !video.authorName) {
+                        result.authorName = video.author;
+                        delete result.author;
+                        needsConversion = true;
+                    }
+                    
+                    // 保留 key 字段，让后端处理解密
+                    if (video.key) {
+                        result.key = String(video.key);
+                        keyCount++;
+                        needsConversion = true;
+                    }
+                    
+                    converted.push(result);
+                }
+                
+                if (needsConversion) {
+                    showFormatDetection('数组格式', converted.length, keyCount);
+                    return converted;
+                }
+                return data;
+            }
+            
+            // 如果是对象格式（账户导出格式）
+            if (data && typeof data === 'object' && data.videos && Array.isArray(data.videos)) {
+                const videos = data.videos;
+                let keyCount = 0;
+                const converted = [];
+                
+                for (const video of videos) {
+                    const result = {
+                        id: video.id || '',
+                        url: video.url || '',
+                        title: video.title || '',
+                        authorName: video.author || video.authorName || ''
+                    };
+                    
+                    // 处理密钥：优先使用 decryptorPrefix（旧方式），否则保留 key（新方式）
+                    if (video.decryptorPrefix) {
+                        result.decryptorPrefix = video.decryptorPrefix;
+                        result.prefixLen = video.prefixLen || 131072;
+                        keyCount++;
+                    } else if (video.key) {
+                        // 直接传 key，让后端处理
+                        result.key = String(video.key);
+                        keyCount++;
+                    }
+                    
+                    converted.push(result);
+                }
+                
+                showFormatDetection('账户导出格式', converted.length, keyCount);
+                return converted;
+            }
+            
+            return data;
+        }
+
+        // 显示格式检测信息
+        function showFormatDetection(formatType, videoCount, keyCount) {
+            const detectionDiv = document.getElementById('formatDetection');
+            const messageP = document.getElementById('formatMessage');
+            
+            messageP.innerHTML = `
+                检测到 <strong>${formatType}</strong>，已自动转换为批量下载格式<br>
+                视频数量: ${videoCount} 个，包含密钥: ${keyCount} 个
+            `;
+            
+            detectionDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                detectionDiv.style.display = 'none';
+            }, 8000);
+        }
+
+        // 获取 API 配置
+        function getApiConfig() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const authToken = document.getElementById('authToken').value.trim();
+            
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (authToken) {
+                headers['X-Local-Auth'] = authToken;
+            }
+            
+            return { apiUrl, headers };
+        }
+
+        // 开始下载
+        async function startDownload() {
+            const videoListText = document.getElementById('videoList').value.trim();
+            const forceRedownload = document.getElementById('forceRedownload').checked;
+            
+            if (!videoListText) {
+                showMessage('请输入视频列表', 'error');
+                addLog('请输入视频列表', 'error');
+                return;
+            }
+            
+            addLog('开始解析视频列表...', 'info');
+            
+            let parsedData;
+            try {
+                parsedData = JSON.parse(videoListText);
+            } catch (e) {
+                showMessage('JSON 格式错误: ' + e.message, 'error');
+                addLog('JSON 格式错误: ' + e.message, 'error');
+                return;
+            }
+            
+            addLog('JSON 解析成功', 'success');
+            
+            // 自动检测并转换格式
+            addLog('检测并转换数据格式...', 'info');
+            let videos = detectAndConvertFormat(parsedData);
+            
+            if (!Array.isArray(videos) || videos.length === 0) {
+                showMessage('转换后的视频列表为空或格式不正确', 'error');
+                addLog('视频列表为空或格式不正确', 'error');
+                return;
+            }
+            
+            // 检查加密视频数量
+            const withEncryption = videos.filter(v => v.key || v.decryptorPrefix).length;
+            addLog(`格式转换完成: 共 ${videos.length} 个视频，${withEncryption} 个加密视频`, 'success');
+            
+            const { apiUrl, headers } = getApiConfig();
+            
+            addLog('提交下载任务到服务器...', 'info');
+            
+            try {
+                const response = await fetch(`${apiUrl}/__wx_channels_api/batch_start`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        videos: videos,
+                        forceRedownload: forceRedownload
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`下载任务已提交，共 ${videos.length} 个视频`, 'success');
+                    addLog(`下载任务已提交，共 ${videos.length} 个视频`, 'success');
+                    document.getElementById('progressCard').style.display = 'block';
+                    startProgressMonitoring();
+                } else {
+                    showMessage('提交失败: ' + (result.error || '未知错误'), 'error');
+                    addLog('提交失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (e) {
+                showMessage('请求失败: ' + e.message, 'error');
+                addLog('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // 开始监控进度
+        function startProgressMonitoring() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+            }
+            
+            updateProgress();
+            progressInterval = setInterval(updateProgress, 2000);
+        }
+
+        // 更新进度
+        let lastProgress = { done: 0, failed: 0, running: 0 };
+        
+        async function updateProgress() {
+            const { apiUrl, headers } = getApiConfig();
+            
+            try {
+                const response = await fetch(`${apiUrl}/__wx_channels_api/batch_progress`, {
+                    headers: headers
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('totalCount').textContent = data.total;
+                    document.getElementById('doneCount').textContent = data.done;
+                    document.getElementById('failedCount').textContent = data.failed;
+                    document.getElementById('runningCount').textContent = data.running;
+                    
+                    const percentage = data.total > 0 ? 
+                        Math.round((data.done + data.failed) / data.total * 100) : 0;
+                    
+                    const progressFill = document.getElementById('progressFill');
+                    progressFill.style.width = percentage + '%';
+                    progressFill.textContent = percentage + '%';
+                    
+                    // 显示当前任务信息
+                    const currentTaskInfo = document.getElementById('currentTaskInfo');
+                    if (data.currentTask) {
+                        currentTaskInfo.style.display = 'block';
+                        document.getElementById('currentTaskTitle').textContent = data.currentTask.title;
+                        
+                        const taskProgress = Math.round(data.currentTask.progress || 0);
+                        const taskProgressBar = document.getElementById('currentTaskProgress');
+                        taskProgressBar.style.width = taskProgress + '%';
+                        taskProgressBar.textContent = taskProgress + '%';
+                        
+                        let sizeText = '';
+                        if (data.currentTask.totalMB > 0) {
+                            sizeText = `${data.currentTask.downloadedMB.toFixed(2)} / ${data.currentTask.totalMB.toFixed(2)} MB`;
+                        } else if (data.currentTask.downloadedMB > 0) {
+                            sizeText = `${data.currentTask.downloadedMB.toFixed(2)} MB`;
+                        }
+                        document.getElementById('currentTaskSize').textContent = sizeText;
+                    } else {
+                        currentTaskInfo.style.display = 'none';
+                    }
+                    
+                    // 记录进度变化
+                    if (data.done > lastProgress.done) {
+                        const newDone = data.done - lastProgress.done;
+                        addLog(`完成 ${newDone} 个视频 (总计: ${data.done}/${data.total})`, 'success');
+                    }
+                    
+                    if (data.failed > lastProgress.failed) {
+                        const newFailed = data.failed - lastProgress.failed;
+                        addLog(`失败 ${newFailed} 个视频 (总计: ${data.failed}/${data.total})`, 'error');
+                    }
+                    
+                    if (data.running !== lastProgress.running) {
+                        if (data.running > 0) {
+                            addLog(`正在下载: ${data.running} 个视频`, 'info');
+                        }
+                    }
+                    
+                    lastProgress = { done: data.done, failed: data.failed, running: data.running };
+                    
+                    // 检查是否完成
+                    if (data.done + data.failed === data.total && data.total > 0) {
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                        
+                        if (data.failed > 0) {
+                            showMessage(`下载完成！成功: ${data.done}, 失败: ${data.failed}`, 'info');
+                            addLog(`下载完成！成功: ${data.done}, 失败: ${data.failed}`, 'info');
+                        } else {
+                            showMessage(`全部下载成功！共 ${data.done} 个视频`, 'success');
+                            addLog(`全部下载成功！共 ${data.done} 个视频`, 'success');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('更新进度失败:', e);
+            }
+        }
+
+        // 取消下载
+        async function cancelDownload() {
+            if (!confirm('确定要取消当前的下载任务吗？')) {
+                return;
+            }
+            
+            addLog('正在取消下载...', 'warn');
+            
+            const { apiUrl, headers } = getApiConfig();
+            
+            try {
+                const response = await fetch(`${apiUrl}/__wx_channels_api/batch_cancel`, {
+                    method: 'POST',
+                    headers: headers
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('下载已取消', 'info');
+                    addLog('下载已取消', 'warn');
+                    if (progressInterval) {
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                    }
+                } else {
+                    showMessage('取消失败: ' + (result.error || '未知错误'), 'error');
+                    addLog('取消失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (e) {
+                showMessage('请求失败: ' + e.message, 'error');
+                addLog('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // 导出失败清单
+        async function exportFailed() {
+            addLog('正在导出失败清单...', 'info');
+            
+            const { apiUrl, headers } = getApiConfig();
+            
+            try {
+                const response = await fetch(`${apiUrl}/__wx_channels_api/batch_failed`, {
+                    headers: headers
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (result.failed > 0) {
+                        showMessage(`失败清单已导出: ${result.json}`, 'success');
+                        addLog(`失败清单已导出: ${result.json}`, 'success');
+                        addLog(`共 ${result.failed} 个失败任务`, 'info');
+                    } else {
+                        showMessage('没有失败的任务', 'info');
+                        addLog('没有失败的任务', 'info');
+                    }
+                } else {
+                    showMessage('导出失败: ' + (result.error || '未知错误'), 'error');
+                    addLog('导出失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (e) {
+                showMessage('请求失败: ' + e.message, 'error');
+                addLog('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // 加载示例
+        function loadExample() {
+            // 随机选择一个示例格式
+            const useExportFormat = Math.random() > 0.5;
+            
+            let example;
+            if (useExportFormat) {
+                // 账户导出格式示例
+                example = {
+                    "generated_at": "2025/11/22 12:47:04",
+                    "count": 2,
+                    "videos": [
+                        {
+                            "index": 1,
+                            "title": "听说大家想看船上大厨做饭",
+                            "id": "14792935438852163674",
+                            "url": "https://finder.video.qq.com/251/20302/stodownload?encfilekey=...",
+                            "key": "123765583",
+                            "author": "中国船员"
+                        },
+                        {
+                            "index": 2,
+                            "title": "另一个视频示例",
+                            "id": "14792935438852163675",
+                            "url": "https://example.com/video2.mp4",
+                            "key": "987654321",
+                            "author": "测试作者"
+                        }
+                    ]
+                };
+                showMessage('✓ 已加载账户导出格式示例（将自动转换）', 'info');
+            } else {
+                // 批量下载格式示例
+                example = [
+                    {
+                        id: "video_001",
+                        url: "https://example.com/video.mp4",
+                        title: "示例视频1",
+                        authorName: "示例作者"
+                    },
+                    {
+                        id: "video_002",
+                        url: "https://example.com/encrypted_video.mp4",
+                        title: "加密视频示例",
+                        authorName: "示例作者",
+                        decryptorPrefix: "MTIzNzY1NTgz",
+                        prefixLen: 1024
+                    }
+                ];
+                showMessage('✓ 已加载批量下载格式示例', 'success');
+            }
+            
+            document.getElementById('videoList').value = JSON.stringify(example, null, 2);
+        }
+
+        // 日志管理
+        let logLines = [];
+        const maxLogLines = 500;
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logLine = `[${timestamp}] ${message}`;
+            
+            logLines.push({ message: logLine, type: type });
+            if (logLines.length > maxLogLines) {
+                logLines.shift();
+            }
+            
+            updateLogDisplay();
+        }
+
+        function updateLogDisplay() {
+            const container = document.getElementById('logContainer');
+            if (!container) return;
+            
+            container.innerHTML = logLines.map(log => {
+                const className = `log-line log-${log.type}`;
+                return `<div class="${className}">${escapeHtml(log.message)}</div>`;
+            }).join('');
+            
+            // 自动滚动到底部
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLogs() {
+            logLines = [];
+            const container = document.getElementById('logContainer');
+            if (container) {
+                container.innerHTML = '<div class="log-line log-info">日志已清空</div>';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // 页面加载时检查进度
+        window.addEventListener('load', () => {
+            addLog('Web 控制台已加载', 'info');
+            updateProgress();
+        });
+    </script>
+</body>
+</html>

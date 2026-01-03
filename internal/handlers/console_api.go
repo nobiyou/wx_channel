@@ -1048,6 +1048,8 @@ func (h *ConsoleAPIHandler) HandleAPIRequest(w http.ResponseWriter, r *http.Requ
 	switch {
 	case path == "/api/health":
 		h.HandleHealth(w, r)
+	case path == "/api/console/verify-token":
+		h.HandleVerifyToken(w, r)
 	case path == "/api/search":
 		h.HandleSearch(w, r)
 	case path == "/api/settings":
@@ -1069,6 +1071,53 @@ func (h *ConsoleAPIHandler) HandleAPIRequest(w http.ResponseWriter, r *http.Requ
 	default:
 		h.sendError(w, r, http.StatusNotFound, "endpoint not found")
 	}
+}
+
+// ============================================================================
+// Console Token Verification
+// ============================================================================
+
+// HandleVerifyToken handles POST /api/console/verify-token - verify web console access token
+func (h *ConsoleAPIHandler) HandleVerifyToken(w http.ResponseWriter, r *http.Request) {
+	// Handle CORS preflight
+	if h.HandleCORS(w, r) {
+		return
+	}
+
+	if r.Method != "POST" {
+		h.sendError(w, r, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Token string `json:"token"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, r, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	cfg := h.getConfig()
+	// 如果未配置 token，则允许访问
+	if cfg == nil || cfg.WebConsoleToken == "" {
+		h.sendSuccess(w, r, map[string]interface{}{
+			"valid": true,
+			"message": "token not required",
+		})
+		return
+	}
+
+	// 验证 token
+	if req.Token == cfg.WebConsoleToken {
+		h.sendSuccess(w, r, map[string]interface{}{
+			"valid": true,
+			"message": "token verified",
+		})
+		return
+	}
+
+	h.sendError(w, r, http.StatusUnauthorized, "invalid token")
 }
 
 // ============================================================================

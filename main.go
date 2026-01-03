@@ -442,11 +442,10 @@ func printTitle() {
 
 	color.Yellow("    微信视频号下载助手 v%s", cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    v5.2.10 更新要点：")
-	color.Green("    • 解除批量下载数量限制，优化批量下载UI")
-	color.Green("    • 增加视频和直播回放样式区别")
-	color.Green("    • web控制台增加批量下载相关操作")
-	color.Green("    • 增加取消下载，继续下载及清除任务功能")
+	color.Green("    v%s 更新要点：", cfg.Version)
+	color.Green("    • 修复windows下载文件夹命名规范")
+	color.Green("    • 优化web控制台界面UI")
+	color.Green("    • 增加完整版web控制台验证功能")
 	fmt.Println()
 }
 
@@ -901,9 +900,9 @@ func HttpCallback(Conn *SunnyNet.HttpConn) {
 
 		// 提供 Web 控制台
 		if path == "/console" || path == "/console/" {
-			consoleHTML, err := os.ReadFile("web/console.html")
+			consoleHTML, err := os.ReadFile("web/index.html")
 			if err != nil {
-				utils.Warn("无法读取 web/console.html: %v", err)
+				utils.Warn("无法读取 web/index.html: %v", err)
 				Conn.StopRequest(404, "Console not found", http.Header{})
 				return
 			}

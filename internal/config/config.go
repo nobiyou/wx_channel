@@ -35,8 +35,9 @@ type Config struct {
 	SaveDelay        time.Duration // 保存延迟
 
 	// 安全配置
-	SecretToken    string   // 本地授权令牌（可选，通过 WX_CHANNEL_TOKEN 注入）
-	AllowedOrigins []string // 允许的 Origin 白名单（可选，通过 WX_CHANNEL_ALLOWED_ORIGINS 注入，逗号分隔）
+	SecretToken     string   // 本地授权令牌（可选，通过 WX_CHANNEL_TOKEN 注入）
+	WebConsoleToken string   // Web 控制台访问令牌（可选，通过 WX_CHANNEL_WEB_CONSOLE_TOKEN 注入）
+	AllowedOrigins  []string // 允许的 Origin 白名单（可选，通过 WX_CHANNEL_ALLOWED_ORIGINS 注入，逗号分隔）
 
 	// 并发与限流
 	UploadChunkConcurrency int           // 分片上传并发上限
@@ -110,7 +111,7 @@ func getDefaultConfig() *Config {
 	return &Config{
 		Port:                   2025,                   // 监听端口（运行期可被命令行 -p/--port 覆盖）
 		DefaultPort:            2025,                   // 参数解析失败时使用的默认端口
-		Version:                "5.2.10",               // 版本号（用于前端缓存破坏等）
+		Version:                "5.2.11",               // 版本号（用于前端缓存破坏等）
 		DownloadsDir:           "downloads",            // 下载根目录
 		RecordsFile:            "download_records.csv", // 下载记录 CSV 文件名
 		CertFile:               "SunnyRoot.cer",        // 证书文件名（用于手动安装）
@@ -121,6 +122,7 @@ func getDefaultConfig() *Config {
 		CertInstallDelay:       3 * time.Second,        // 安装证书后的等待时间
 		SaveDelay:              500 * time.Millisecond, // 某些保存动作的缓冲延迟
 		SecretToken:            "",                     // 本地接口鉴权令牌（从 env WX_CHANNEL_TOKEN 注入）
+		WebConsoleToken:        "",                     // Web 控制台访问令牌（从 env WX_CHANNEL_WEB_CONSOLE_TOKEN 注入）
 		AllowedOrigins:         nil,                    // CORS 允许的 Origin 白名单（env WX_CHANNEL_ALLOWED_ORIGINS）
 		UploadChunkConcurrency: 4,                      // 分片上传并发上限
 		UploadMergeConcurrency: 1,                      // 分片合并并发上限
@@ -142,6 +144,11 @@ func loadFromEnvironment(config *Config) {
 	// 从环境变量加载可选令牌
 	if token := os.Getenv("WX_CHANNEL_TOKEN"); token != "" {
 		config.SecretToken = token
+	}
+
+	// 从环境变量加载 Web 控制台访问令牌
+	if webToken := os.Getenv("WX_CHANNEL_WEB_CONSOLE_TOKEN"); webToken != "" {
+		config.WebConsoleToken = webToken
 	}
 
 	// 从环境变量加载可选 Origin 白名单（逗号分隔）
@@ -290,6 +297,11 @@ func loadFromDatabase(config *Config) {
 	// 下载断点续传开关
 	if downloadResume, err := dbLoader.GetBool("download_resume_enabled", config.DownloadResumeEnabled); err == nil {
 		config.DownloadResumeEnabled = downloadResume
+	}
+
+	// Web 控制台访问令牌
+	if webToken, err := dbLoader.Get("web_console_token"); err == nil && webToken != "" {
+		config.WebConsoleToken = webToken
 	}
 }
 

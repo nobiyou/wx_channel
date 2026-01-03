@@ -60,13 +60,13 @@ func TestCleanFolderName_LongName(t *testing.T) {
 	
 	// 检查长度是否被限制
 	runes := []rune(cleaned)
-	if len(runes) > 53 { // 50 + "..." (3个字符)
-		t.Errorf("文件夹名长度超过限制: 期望 <= 53, 实际 = %d", len(runes))
+	if len(runes) > 50 { // 限制为 50 个字符（去除末尾点后可能少于 50）
+		t.Errorf("文件夹名长度超过限制: 期望 <= 50, 实际 = %d", len(runes))
 	}
 	
-	// 检查是否添加了省略号
-	if !strings.HasSuffix(cleaned, "...") {
-		t.Errorf("超长文件夹名应该以 '...' 结尾")
+	// 检查是否以点结尾（不应该，因为会被去除）
+	if strings.HasSuffix(cleaned, ".") {
+		t.Errorf("文件夹名不应该以点结尾（Windows 会自动去除）")
 	}
 	
 	t.Logf("原始名称长度: %d 字符", len([]rune(longName)))
@@ -80,5 +80,32 @@ func TestCleanFolderName_EmptyName(t *testing.T) {
 	
 	if cleaned != "未知作者" {
 		t.Errorf("空名称应该返回默认值: 期望 = 未知作者, 实际 = %s", cleaned)
+	}
+}
+
+func TestCleanFolderName_TrailingDots(t *testing.T) {
+	// 测试末尾点的处理（Windows 文件系统会自动去除末尾的点）
+	testCases := []struct {
+		input    string
+		expected string
+		desc     string
+	}{
+		{"机器..", "机器", "去除末尾两个点"},
+		{"机器...", "机器", "去除末尾三个点"},
+		{"机器.", "机器", "去除末尾一个点"},
+		{"机器.测试", "机器.测试", "中间的点保留"},
+		{".机器", ".机器", "开头的点保留"},
+		{"机器", "机器", "没有点，不变"},
+		{"测试..", "测试", "去除末尾两个点"},
+		{"测试.", "测试", "去除末尾一个点"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			cleaned := CleanFolderName(tc.input)
+			if cleaned != tc.expected {
+				t.Errorf("输入: %q, 期望: %q, 实际: %q", tc.input, tc.expected, cleaned)
+			}
+		})
 	}
 }

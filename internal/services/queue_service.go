@@ -358,9 +358,12 @@ func cleanFolderName(name string) string {
 	for _, char := range invalid {
 		result = strings.ReplaceAll(result, char, "_")
 	}
-	// Trim spaces and dots
+	// Trim spaces
 	result = strings.TrimSpace(result)
-	result = strings.Trim(result, ".")
+	// Windows 文件系统会自动去除文件夹名称末尾的点（.）
+	// 为了确保创建文件夹和查找路径时使用相同的名称，我们需要手动去除末尾的点
+	result = strings.TrimRight(result, ".")
+	// 如果去除末尾点后为空，返回空字符串（调用方会处理）
 	return result
 }
 
