@@ -108,6 +108,7 @@ func main() {
 	auth.HandleFunc("/api/device/lock", controllers.LockDevice).Methods("POST")
 	auth.HandleFunc("/api/device/group", controllers.SetDeviceGroup).Methods("POST")
 	auth.HandleFunc("/api/device/transfer", controllers.TransferDevice).Methods("POST")
+	auth.HandleFunc("/api/device/config", controllers.UpdateDeviceConfig).Methods("POST")
 
 	// Subscription
 	auth.HandleFunc("/api/subscriptions", controllers.CreateSubscription).Methods("POST")

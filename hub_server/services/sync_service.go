@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	"wx_channel/hub_server/database"
 	"wx_channel/hub_server/models"
@@ -167,7 +168,8 @@ func (s *SyncService) SyncDevice(machineID string) error {
 // syncBrowseHistory 同步浏览记录
 func (s *SyncService) syncBrowseHistory(node *models.Node, syncStatus *models.SyncStatus) error {
 	// 构建请求 URL
-	url := fmt.Sprintf("http://%s/api/sync/browse", node.IP)
+	baseURL := s.getNodeAPIURL(node)
+	url := fmt.Sprintf("%s/api/sync/browse", baseURL)
 	if syncStatus.LastBrowseSyncTime.IsZero() {
 		url += "?limit=1000"
 	} else {
@@ -235,7 +237,8 @@ func (s *SyncService) syncBrowseHistory(node *models.Node, syncStatus *models.Sy
 // syncDownloadRecords 同步下载记录
 func (s *SyncService) syncDownloadRecords(node *models.Node, syncStatus *models.SyncStatus) error {
 	// 构建请求 URL
-	url := fmt.Sprintf("http://%s/api/sync/download", node.IP)
+	baseURL := s.getNodeAPIURL(node)
+	url := fmt.Sprintf("%s/api/sync/download", baseURL)
 	if syncStatus.LastDownloadSyncTime.IsZero() {
 		url += "?limit=1000"
 	} else {
@@ -462,6 +465,27 @@ func InitSyncService(config SyncConfig) {
 
 	globalSyncService = NewSyncService(config)
 	go globalSyncService.Start()
+}
+
+// getNodeAPIURL 获取节点的 API URL
+func (s *SyncService) getNodeAPIURL(node *models.Node) string {
+	// 优先使用自定义的同步 API URL（用于 NAT 穿透或自定义地址）
+	if node.SyncAPIURL != "" {
+		return node.SyncAPIURL
+	}
+
+	// 使用 IP 和端口构建 URL
+	port := node.Port
+	if port == 0 {
+		port = 2025 // 默认端口
+	}
+
+	// 如果 IP 包含端口号，直接使用
+	if strings.Contains(node.IP, ":") {
+		return fmt.Sprintf("http://%s", node.IP)
+	}
+
+	return fmt.Sprintf("http://%s:%d", node.IP, port)
 }
 
 // GetSyncService 获取全局同步服务

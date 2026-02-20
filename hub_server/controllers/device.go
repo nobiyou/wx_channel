@@ -359,3 +359,78 @@ func TransferDevice(w http.ResponseWriter, r *http.Request) {
 		"message": "Device transferred successfully",
 	})
 }
+
+// UpdateDeviceConfig 更新设备配置（包括同步 API URL）
+func UpdateDeviceConfig(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(middleware.ContextKeyUserID).(uint)
+
+	var req struct {
+		DeviceID   string `json:"device_id"`
+		SyncAPIURL string `json:"sync_api_url"`
+		Port       int    `json:"port"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    1,
+			"message": "Invalid request body",
+		})
+		return
+	}
+
+	if req.DeviceID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    1,
+			"message": "device_id is required",
+		})
+		return
+	}
+
+	// 获取设备并验证所有权
+	node, err := database.GetNodeByID(req.DeviceID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    1,
+			"message": "Device not found",
+		})
+		return
+	}
+
+	if node.UserID != userID {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    1,
+			"message": "Permission denied",
+		})
+		return
+	}
+
+	// 更新配置
+	updates := make(map[string]interface{})
+	if req.SyncAPIURL != "" {
+		updates["sync_api_url"] = req.SyncAPIURL
+	}
+	if req.Port > 0 {
+		updates["port"] = req.Port
+	}
+
+	if len(updates) > 0 {
+		if err := database.DB.Model(&models.Node{}).Where("id = ?", req.DeviceID).Updates(updates).Error; err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"code":    1,
+				"message": "Failed to update device config",
+			})
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"code":    0,
+		"message": "Device config updated successfully",
+	})
+}
