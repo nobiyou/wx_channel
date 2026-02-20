@@ -130,7 +130,7 @@ func (r *APIRouter) registerRoutes() {
 
 	// Hub 同步 API - 供 Hub Server 拉取数据
 	syncHandler := handlers.NewSyncAPIHandler()
-	r.mux.HandleFunc("/api/sync/browse", syncHandler.HandleGetBrowseRecords)
+	r.mux.HandleFunc("/api/sync/browse", syncHandler.HandleGetBrowseHistory)
 	r.mux.HandleFunc("/api/sync/download", syncHandler.HandleGetDownloadRecords)
 	r.mux.HandleFunc("/api/sync/stats", syncHandler.HandleGetStats)
 
