@@ -72,6 +72,7 @@ func main() {
 		MaxRetries: 3,
 		Timeout:    30 * 1000000000, // 30 seconds
 		BatchSize:  1000,
+		Hub:        hub, // 传递 WebSocket Hub 实例
 	})
 
 	// 2.7 初始化 API 指标采集

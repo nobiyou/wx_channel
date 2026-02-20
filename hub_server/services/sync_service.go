@@ -23,6 +23,7 @@ type SyncService struct {
 	maxRetries   int
 	running      bool
 	stopChan     chan struct{}
+	hub          interface{} // WebSocket Hub，用于反向同步
 }
 
 // SyncConfig 同步配置
@@ -33,6 +34,7 @@ type SyncConfig struct {
 	MaxRetries   int           `json:"max_retries"`
 	Timeout      time.Duration `json:"timeout"`
 	BatchSize    int           `json:"batch_size"`
+	Hub          interface{}   `json:"-"` // WebSocket Hub
 }
 
 var globalSyncService *SyncService
@@ -48,6 +50,7 @@ func NewSyncService(config SyncConfig) *SyncService {
 		syncInterval: config.Interval,
 		maxRetries:   config.MaxRetries,
 		stopChan:     make(chan struct{}),
+		hub:          config.Hub,
 	}
 }
 
@@ -134,6 +137,22 @@ func (s *SyncService) SyncDevice(machineID string) error {
 	syncStatus.LastSyncStatus = "in_progress"
 	s.db.Save(syncStatus)
 
+	// 优先尝试 WebSocket 反向同步（适用于 NAT 后的客户端）
+	if s.hub != nil {
+		log.Printf("[SyncService] Attempting WebSocket sync for device: %s", machineID)
+		wsErr := s.syncViaWebSocket(node, syncStatus)
+		if wsErr == nil {
+			// WebSocket 同步成功
+			syncStatus.LastSyncStatus = "success"
+			syncStatus.LastSyncError = ""
+			s.db.Save(syncStatus)
+			log.Printf("[SyncService] WebSocket sync completed for device: %s", machineID)
+			return nil
+		}
+		log.Printf("[SyncService] WebSocket sync failed, falling back to HTTP: %v", wsErr)
+	}
+
+	// 回退到 HTTP 拉取模式
 	// 同步浏览记录
 	browseErr := s.syncBrowseHistory(node, syncStatus)
 	if browseErr != nil {
@@ -491,4 +510,152 @@ func (s *SyncService) getNodeAPIURL(node *models.Node) string {
 // GetSyncService 获取全局同步服务
 func GetSyncService() *SyncService {
 	return globalSyncService
+}
+
+// syncViaWebSocket 通过 WebSocket 反向同步（客户端推送数据）
+func (s *SyncService) syncViaWebSocket(node *models.Node, syncStatus *models.SyncStatus) error {
+	// 这个方法会通过 WebSocket 发送命令给客户端，要求客户端推送同步数据
+	// 实际的数据接收在 WebSocket 消息处理器中完成
+	
+	// 注意：这里只是标记需要同步，实际同步由客户端主动推送
+	// 客户端会定期检查是否需要同步，或者 Hub 可以发送命令触发
+	
+	log.Printf("[SyncService] WebSocket sync requested for device: %s", node.ID)
+	
+	// TODO: 通过 WebSocket 发送同步请求命令给客户端
+	// 这需要访问 Hub 的 SendCommand 方法
+	
+	// 暂时返回错误，让它回退到 HTTP 模式
+	// 完整实现需要客户端配合
+	return fmt.Errorf("WebSocket sync not yet implemented, use HTTP fallback")
+}
+
+// HandleSyncDataFromClient 处理客户端推送的同步数据
+// 这个方法应该从 WebSocket 消息处理器中调用
+func (s *SyncService) HandleSyncDataFromClient(machineID string, syncType string, records interface{}) error {
+	log.Printf("[SyncService] Received sync data from client: %s, type: %s", machineID, syncType)
+	
+	// 获取同步状态
+	syncStatus, err := s.getOrCreateSyncStatus(machineID)
+	if err != nil {
+		return fmt.Errorf("failed to get sync status: %w", err)
+	}
+	
+	switch syncType {
+	case "browse":
+		// 处理浏览记录
+		browseRecords, ok := records.([]BrowseRecord)
+		if !ok {
+			return fmt.Errorf("invalid browse records format")
+		}
+		return s.saveBrowseRecords(machineID, browseRecords, syncStatus)
+		
+	case "download":
+		// 处理下载记录
+		downloadRecords, ok := records.([]DownloadRecord)
+		if !ok {
+			return fmt.Errorf("invalid download records format")
+		}
+		return s.saveDownloadRecords(machineID, downloadRecords, syncStatus)
+		
+	default:
+		return fmt.Errorf("unknown sync type: %s", syncType)
+	}
+}
+
+// saveBrowseRecords 保存浏览记录（从 syncBrowseHistory 提取的逻辑）
+func (s *SyncService) saveBrowseRecords(machineID string, records []BrowseRecord, syncStatus *models.SyncStatus) error {
+	if len(records) == 0 {
+		return nil
+	}
+	
+	savedCount := 0
+	for _, record := range records {
+		hubRecord := &models.HubBrowseHistory{
+			ID:              record.ID,
+			MachineID:       machineID,
+			Title:           record.Title,
+			Author:          record.Author,
+			AuthorID:        record.AuthorID,
+			Duration:        record.Duration,
+			Size:            record.Size,
+			Resolution:      record.Resolution,
+			CoverURL:        record.CoverURL,
+			VideoURL:        record.VideoURL,
+			DecryptKey:      record.DecryptKey,
+			BrowseTime:      record.BrowseTime,
+			LikeCount:       record.LikeCount,
+			CommentCount:    record.CommentCount,
+			FavCount:        record.FavCount,
+			ForwardCount:    record.ForwardCount,
+			PageURL:         record.PageURL,
+			SourceCreatedAt: record.CreatedAt,
+			SourceUpdatedAt: record.UpdatedAt,
+			SyncedAt:        time.Now(),
+		}
+
+		result := s.db.Where("id = ? AND machine_id = ?", hubRecord.ID, hubRecord.MachineID).
+			FirstOrCreate(hubRecord)
+		
+		if result.Error == nil && result.RowsAffected > 0 {
+			savedCount++
+		}
+	}
+
+	// 更新同步状态
+	syncStatus.LastBrowseSyncTime = time.Now()
+	syncStatus.BrowseRecordCount += int64(savedCount)
+	s.recordSyncHistory(machineID, "browse", savedCount, "success", "")
+	
+	log.Printf("[SyncService] Saved %d browse records for device: %s", savedCount, machineID)
+	return nil
+}
+
+// saveDownloadRecords 保存下载记录（从 syncDownloadRecords 提取的逻辑）
+func (s *SyncService) saveDownloadRecords(machineID string, records []DownloadRecord, syncStatus *models.SyncStatus) error {
+	if len(records) == 0 {
+		return nil
+	}
+	
+	savedCount := 0
+	for _, record := range records {
+		hubRecord := &models.HubDownloadRecord{
+			ID:              record.ID,
+			MachineID:       machineID,
+			VideoID:         record.VideoID,
+			Title:           record.Title,
+			Author:          record.Author,
+			CoverURL:        record.CoverURL,
+			Duration:        record.Duration,
+			FileSize:        record.FileSize,
+			FilePath:        record.FilePath,
+			Format:          record.Format,
+			Resolution:      record.Resolution,
+			Status:          record.Status,
+			DownloadTime:    record.DownloadTime,
+			ErrorMessage:    record.ErrorMessage,
+			LikeCount:       record.LikeCount,
+			CommentCount:    record.CommentCount,
+			ForwardCount:    record.ForwardCount,
+			FavCount:        record.FavCount,
+			SourceCreatedAt: record.CreatedAt,
+			SourceUpdatedAt: record.UpdatedAt,
+			SyncedAt:        time.Now(),
+		}
+
+		result := s.db.Where("id = ? AND machine_id = ?", hubRecord.ID, hubRecord.MachineID).
+			FirstOrCreate(hubRecord)
+		
+		if result.Error == nil && result.RowsAffected > 0 {
+			savedCount++
+		}
+	}
+
+	// 更新同步状态
+	syncStatus.LastDownloadSyncTime = time.Now()
+	syncStatus.DownloadRecordCount += int64(savedCount)
+	s.recordSyncHistory(machineID, "download", savedCount, "success", "")
+	
+	log.Printf("[SyncService] Saved %d download records for device: %s", savedCount, machineID)
+	return nil
 }

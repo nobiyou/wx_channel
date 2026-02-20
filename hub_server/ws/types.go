@@ -9,6 +9,7 @@ const (
 	MsgTypeCommand   MessageType = "command"
 	MsgTypeResponse  MessageType = "response"
 	MsgTypeBind      MessageType = "bind"
+	MsgTypeSyncData  MessageType = "sync_data" // 客户端主动推送同步数据
 )
 
 type CloudMessage struct {
@@ -37,4 +38,12 @@ type ResponsePayload struct {
 	Success   bool            `json:"success"`
 	Data      json.RawMessage `json:"data"`
 	Error     string          `json:"error"`
+}
+
+// SyncDataPayload 同步数据负载
+type SyncDataPayload struct {
+	SyncType string          `json:"sync_type"` // "browse" or "download"
+	Records  json.RawMessage `json:"records"`   // 记录数组
+	Count    int             `json:"count"`
+	HasMore  bool            `json:"has_more"`
 }
