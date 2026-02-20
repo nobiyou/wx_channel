@@ -7,7 +7,7 @@ import (
 // HubBrowseHistory Hub端浏览记录
 type HubBrowseHistory struct {
 	ID              string    `json:"id" gorm:"primaryKey"`
-	MachineID       string    `json:"machine_id" gorm:"index:idx_machine_updated"`
+	MachineID       string    `json:"machine_id" gorm:"index:idx_browse_machine_updated"`
 	Title           string    `json:"title"`
 	Author          string    `json:"author"`
 	AuthorID        string    `json:"author_id"`
@@ -24,7 +24,7 @@ type HubBrowseHistory struct {
 	ForwardCount    int       `json:"forward_count"`
 	PageURL         string    `json:"page_url"`
 	SourceCreatedAt time.Time `json:"source_created_at"`
-	SourceUpdatedAt time.Time `json:"source_updated_at" gorm:"index:idx_machine_updated"`
+	SourceUpdatedAt time.Time `json:"source_updated_at" gorm:"index:idx_browse_machine_updated"`
 	SyncedAt        time.Time `json:"synced_at"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
@@ -33,7 +33,7 @@ type HubBrowseHistory struct {
 // HubDownloadRecord Hub端下载记录
 type HubDownloadRecord struct {
 	ID              string    `json:"id" gorm:"primaryKey"`
-	MachineID       string    `json:"machine_id" gorm:"index:idx_machine_updated"`
+	MachineID       string    `json:"machine_id" gorm:"index:idx_download_machine_updated"`
 	VideoID         string    `json:"video_id"`
 	Title           string    `json:"title"`
 	Author          string    `json:"author"`
@@ -51,7 +51,7 @@ type HubDownloadRecord struct {
 	ForwardCount    int       `json:"forward_count"`
 	FavCount        int       `json:"fav_count"`
 	SourceCreatedAt time.Time `json:"source_created_at"`
-	SourceUpdatedAt time.Time `json:"source_updated_at" gorm:"index:idx_machine_updated"`
+	SourceUpdatedAt time.Time `json:"source_updated_at" gorm:"index:idx_download_machine_updated"`
 	SyncedAt        time.Time `json:"synced_at"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
