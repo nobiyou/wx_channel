@@ -1,50 +1,80 @@
 # 微信视频号下载助手 - 配置文件示例
 # 复制此文件为 config.yaml 并修改相应配置
 
-# === 云端管理功能 ===
-# 是否启用云端管理功能（Hub Server 集中管理）
-# true: 启用，客户端会连接到 Hub Server
-# false: 禁用，客户端独立运行
+# ============================================
+# 云端集成配置
+# ============================================
+# 本系统支持两种与 Hub Server 的集成方式：
+# 1. 云端管理（cloud_*）: 客户端主动连接 Hub，接收实时控制指令
+# 2. Hub 同步（hub_sync）: Hub 主动拉取客户端数据，用于数据采集
+# 两者可以独立启用或同时使用
+
+# === 1. 云端管理功能（客户端 → Hub）===
+# 客户端通过 WebSocket 连接到 Hub Server
+# 用途：实时控制、状态监控、指令下发
 cloud_enabled: true
 
-# === 设备标识 ===
-# 自动生成，用于在云端唯一标识此设备，请勿手动修改
-# 首次运行时会自动生成
-machine_id: ""
-
-# === 绑定令牌 ===
-# 用于绑定设备到用户账号
-# 从 Hub Server 获取
-bind_token: ""
-
-# === 云端服务器地址 ===
 # Hub Server 的 WebSocket 地址
-# 默认: ws://wx.dujulaoren.com/ws/client
 cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
 
-# === 云端通信密钥 ===
-# 用于加密通信（可选）
+# 云端通信密钥（可选，用于加密通信）
 cloud_secret: ""
 
-# === Hub 同步配置 ===
-# Hub Server 主动拉取客户端数据的配置
+# 设备标识（自动生成，请勿手动修改）
+# 用于在云端唯一标识此设备
+machine_id: ""
+
+# 绑定令牌（从 Hub Server 获取）
+# 用于绑定设备到用户账号
+bind_token: ""
+
+# === 2. Hub 同步配置（Hub → 客户端）===
+# Hub Server 通过 HTTP API 主动拉取客户端数据
+# 用途：数据采集、历史记录同步、数据备份
 hub_sync:
-  # 是否启用同步 API（供 Hub Server 拉取数据）
+  # 是否启用同步 API
+  # true: Hub 可以拉取数据
+  # false: 禁用数据拉取功能
   enabled: true
   
-  # 同步令牌（Hub Server 请求时需要提供）
-  # 留空则不验证令牌
+  # 同步令牌（Hub Server 请求时需要在 X-Sync-Token 头中提供）
+  # 留空则不验证令牌（不推荐）
+  # 建议设置一个强密码，例如: "your-secure-random-token-here"
   token: ""
   
-  # IP 白名单（允许访问同步 API 的 IP 地址列表）
-  # 留空则允许所有 IP
+  # IP 白名单（只允许这些 IP 访问同步 API）
+  # 留空则允许所有 IP（不推荐）
+  # 建议只添加 Hub Server 的 IP 地址
   allowed_ips:
     - "127.0.0.1"
     - "::1"
-    # - "192.168.1.100"  # Hub Server IP
+    # - "192.168.1.100"  # 添加你的 Hub Server IP
   
-  # 单次请求最大返回记录数
+  # 单次请求最大返回记录数（防止一次性返回过多数据）
   max_records: 1000
+
+# ============================================
+# 使用场景说明
+# ============================================
+# 场景 1: 完整功能（推荐）
+#   cloud_enabled: true
+#   hub_sync.enabled: true
+#   → 实时控制 + 数据同步
+#
+# 场景 2: 仅实时控制
+#   cloud_enabled: true
+#   hub_sync.enabled: false
+#   → 只接收 Hub 指令，不提供数据拉取
+#
+# 场景 3: 仅数据同步
+#   cloud_enabled: false
+#   hub_sync.enabled: true
+#   → Hub 只能拉取数据，不能实时控制
+#
+# 场景 4: 独立运行
+#   cloud_enabled: false
+#   hub_sync.enabled: false
+#   → 完全独立运行，不与 Hub 交互
 
 # === 其他配置 ===
 # 根据需要添加其他配置项
