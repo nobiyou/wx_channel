@@ -80,6 +80,7 @@ const items = computed(() => {
             label: 'Management',
             items: [
                 { label: '设备管理', icon: 'pi pi-mobile', route: '/devices' },
+                { label: '数据同步', icon: 'pi pi-sync', route: '/sync' },
                 { label: '任务追踪', icon: 'pi pi-list', route: '/tasks' }
             ]
         },
