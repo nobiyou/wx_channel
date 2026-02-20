@@ -46,6 +46,10 @@ func InitDB(path string) error {
 		&models.Setting{},
 		&models.Subscription{},
 		&models.SubscribedVideo{},
+		&models.HubBrowseHistory{},
+		&models.HubDownloadRecord{},
+		&models.SyncStatus{},
+		&models.SyncHistory{},
 	)
 	if err != nil {
 		return err

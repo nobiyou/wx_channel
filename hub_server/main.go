@@ -64,7 +64,17 @@ func main() {
 	// 2.5 启动积分矿工服务 (在线时长统计)
 	services.StartMiningService()
 
-	// 2.6 初始化 API 指标采集
+	// 2.6 启动同步服务
+	services.InitSyncService(services.SyncConfig{
+		Enabled:    true,
+		Interval:   5 * 60 * 1000000000, // 5 minutes
+		Token:      "",                   // 从环境变量或配置文件读取
+		MaxRetries: 3,
+		Timeout:    30 * 1000000000, // 30 seconds
+		BatchSize:  1000,
+	})
+
+	// 2.7 初始化 API 指标采集
 	metricsStore := middleware.InitMetricsStore()
 
 	// 3. 创建路由器（全局 panic recovery + 指标采集）
@@ -117,6 +127,14 @@ func main() {
 	auth.HandleFunc("/api/metrics/summary", controllers.GetMetricsSummary).Methods("GET")
 	auth.HandleFunc("/api/metrics/timeseries", controllers.GetTimeSeriesData).Methods("GET")
 	auth.HandleFunc("/api/ws/stats", controllers.GetWSStats(hub)).Methods("GET")
+
+	// Sync Management
+	auth.HandleFunc("/api/sync/status", controllers.GetSyncStatus).Methods("GET")
+	auth.HandleFunc("/api/sync/status/{machine_id}", controllers.GetDeviceSyncStatus).Methods("GET")
+	auth.HandleFunc("/api/sync/trigger", controllers.TriggerSync).Methods("POST")
+	auth.HandleFunc("/api/sync/history/{machine_id}", controllers.GetSyncHistory).Methods("GET")
+	auth.HandleFunc("/api/sync/browse", controllers.GetBrowseRecords).Methods("GET")
+	auth.HandleFunc("/api/sync/download", controllers.GetDownloadRecords).Methods("GET")
 
 	// ─── 管理员 API（Admin Subrouter）───
 	admin := auth.PathPrefix("/api/admin").Subrouter()
