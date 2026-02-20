@@ -79,6 +79,16 @@ type Config struct {
 	CompressionThreshold int    `mapstructure:"compression_threshold"`  // 压缩阈值（字节），小于此值不压缩
 	MetricsEnabled       bool   `mapstructure:"metrics_enabled"`        // 是否启用 Prometheus 监控
 	MetricsPort          int    `mapstructure:"metrics_port"`           // Prometheus 监控端口
+
+	// Hub同步配置
+	HubSync HubSyncConfig `mapstructure:"hub_sync"`
+}
+
+// HubSyncConfig Hub同步配置
+type HubSyncConfig struct {
+	Enabled    bool     `mapstructure:"enabled"`     // 是否启用Hub同步API
+	Token      string   `mapstructure:"token"`       // Hub访问令牌
+	AllowedIPs []string `mapstructure:"allowed_ips"` // 允许访问的IP列表
 }
 
 var globalConfig *Config
@@ -223,6 +233,11 @@ func setDefaults() {
 	viper.SetDefault("compression_threshold", 1024) // 1KB
 	viper.SetDefault("metrics_enabled", true)
 	viper.SetDefault("metrics_port", 9090)
+
+	// Hub同步默认值
+	viper.SetDefault("hub_sync.enabled", true)
+	viper.SetDefault("hub_sync.token", "")
+	viper.SetDefault("hub_sync.allowed_ips", []string{})
 }
 
 // GetMachineID 获取或生成唯一的机器 ID (稳定硬件特征码)

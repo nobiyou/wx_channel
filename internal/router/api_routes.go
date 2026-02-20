@@ -128,6 +128,12 @@ func (r *APIRouter) registerRoutes() {
 	// 控制台 API - 触发评论采集
 	r.mux.HandleFunc("/api/control/comment/start", r.consoleHandler.HandleStartCommentCollection)
 
+	// Hub 同步 API - 供 Hub Server 拉取数据
+	syncHandler := handlers.NewSyncAPIHandler()
+	r.mux.HandleFunc("/api/sync/browse", syncHandler.HandleGetBrowseRecords)
+	r.mux.HandleFunc("/api/sync/download", syncHandler.HandleGetDownloadRecords)
+	r.mux.HandleFunc("/api/sync/stats", syncHandler.HandleGetStats)
+
 	// v1 版本化路由（别名）
 	r.mux.HandleFunc("/api/v1/browse", r.consoleHandler.HandleBrowseAPI)
 	r.mux.HandleFunc("/api/v1/browse/", r.consoleHandler.HandleBrowseAPI)

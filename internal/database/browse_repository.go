@@ -433,3 +433,61 @@ func (r *BrowseHistoryRepository) GetByIDs(ids []string) ([]BrowseRecord, error)
 
 	return records, nil
 }
+
+// GetRecordsSince 获取指定时间之后的浏览记录（用于增量同步）
+func (r *BrowseHistoryRepository) GetRecordsSince(since time.Time, limit int) ([]BrowseRecord, error) {
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	query := `
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+			decrypt_key, browse_time, like_count, comment_count, 
+			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
+			created_at, updated_at
+		FROM browse_history
+		WHERE updated_at > ?
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`
+
+	rows, err := r.db.Query(query, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get records since: %w", err)
+	}
+	defer rows.Close()
+
+	var records []BrowseRecord
+	for rows.Next() {
+		var record BrowseRecord
+		err := rows.Scan(
+			&record.ID, &record.Title, &record.Author, &record.AuthorID,
+			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
+			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan browse record: %w", err)
+		}
+		records = append(records, record)
+	}
+
+	if records == nil {
+		records = []BrowseRecord{}
+	}
+
+	return records, nil
+}
+
+// GetLatestTimestamp 获取最新记录的时间戳（用于增量同步）
+func (r *BrowseHistoryRepository) GetLatestTimestamp() (time.Time, error) {
+	var timestamp time.Time
+	err := r.db.QueryRow("SELECT COALESCE(MAX(updated_at), '1970-01-01') FROM browse_history").Scan(&timestamp)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get latest timestamp: %w", err)
+	}
+	return timestamp, nil
+}

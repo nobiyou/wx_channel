@@ -26,6 +26,26 @@ cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
 # 用于加密通信（可选）
 cloud_secret: ""
 
+# === Hub 同步配置 ===
+# Hub Server 主动拉取客户端数据的配置
+hub_sync:
+  # 是否启用同步 API（供 Hub Server 拉取数据）
+  enabled: true
+  
+  # 同步令牌（Hub Server 请求时需要提供）
+  # 留空则不验证令牌
+  token: ""
+  
+  # IP 白名单（允许访问同步 API 的 IP 地址列表）
+  # 留空则允许所有 IP
+  allowed_ips:
+    - "127.0.0.1"
+    - "::1"
+    # - "192.168.1.100"  # Hub Server IP
+  
+  # 单次请求最大返回记录数
+  max_records: 1000
+
 # === 其他配置 ===
 # 根据需要添加其他配置项
 # 详见完整配置文档
