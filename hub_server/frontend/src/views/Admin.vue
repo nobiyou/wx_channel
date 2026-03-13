@@ -93,9 +93,9 @@
                     <template #body="{ data }">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">
-                                {{ data.email?.charAt(0).toUpperCase() }}
+                                {{ (data.email || 'U').charAt(0).toUpperCase() }}
                             </div>
-                            <span class="text-sm font-medium">{{ data.email }}</span>
+                            <span class="text-sm font-medium">{{ data.email || '-' }}</span>
                         </div>
                     </template>
                 </Column>
@@ -285,6 +285,154 @@
                 </Column>
             </DataTable>
         </div>
+
+        <!-- Database Management Tab -->
+        <div v-show="activeTab === 4" class="p-6">
+            <div v-if="dbLoading" class="flex items-center justify-center p-10">
+                <i class="pi pi-spin pi-spinner text-3xl text-primary"></i>
+            </div>
+            <div v-else class="space-y-6">
+                <!-- Database Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                                <i class="pi pi-database text-lg"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-text-muted font-medium">数据库大小</p>
+                                <p class="text-2xl font-bold text-text">{{ dbStats.size_mb }} MB</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center">
+                                <i class="pi pi-list text-lg"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-text-muted font-medium">总记录数</p>
+                                <p class="text-2xl font-bold text-text">{{ dbStats.total_records?.toLocaleString() || 0 }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                                <i class="pi pi-table text-lg"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-text-muted font-medium">数据表数量</p>
+                                <p class="text-2xl font-bold text-text">{{ dbStats.tables?.length || 0 }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tables Stats -->
+                <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                    <h3 class="text-sm font-bold text-text mb-4 flex items-center gap-2">
+                        <i class="pi pi-table text-primary"></i>
+                        数据表统计
+                    </h3>
+                    <div v-if="dbStats.tables && dbStats.tables.length > 0" class="space-y-2">
+                        <div v-for="table in dbStats.tables" :key="table.table_name || table.name" 
+                            class="flex items-center justify-between p-3 bg-white rounded-lg border border-surface-100">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">
+                                    {{ (table.table_name || table.name || 'T').charAt(0).toUpperCase() }}
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-text">{{ table.table_name || table.name || '-' }}</p>
+                                    <p class="text-xs text-text-muted">{{ table.record_count?.toLocaleString() || 0 }} 条记录</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-text">{{ table.size_mb || '0' }} MB</p>
+                                <p class="text-xs text-text-muted">{{ table.oldest_record || '-' }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="flex flex-col items-center justify-center p-6 text-text-muted">
+                        <i class="pi pi-table text-2xl mb-2 text-surface-300"></i>
+                        <p class="text-sm">暂无数据表信息</p>
+                    </div>
+                </div>
+
+                <!-- Optimization Section -->
+                <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                    <h3 class="text-sm font-bold text-text mb-3 flex items-center gap-2">
+                        <i class="pi pi-cog text-primary"></i>
+                        数据库优化
+                    </h3>
+                    <p class="text-xs text-text-muted mb-4">
+                        执行 ANALYZE 和 VACUUM 操作，优化查询性能并回收空间。建议每月执行一次。
+                    </p>
+                    <Button 
+                        label="立即优化" 
+                        icon="pi pi-bolt" 
+                        @click="optimizeDatabase" 
+                        :loading="optimizing"
+                        severity="info"
+                        class="!rounded-xl"
+                    />
+                </div>
+
+                <!-- Archive Section -->
+                <div class="bg-surface-50 rounded-xl p-5 border border-surface-100">
+                    <h3 class="text-sm font-bold text-text mb-3 flex items-center gap-2">
+                        <i class="pi pi-trash text-amber-500"></i>
+                        数据归档
+                    </h3>
+                    <p class="text-xs text-text-muted mb-4">
+                        删除旧数据以释放空间。此操作不可恢复，请谨慎操作。
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="text-xs font-medium text-text mb-2 block">浏览记录保留</label>
+                            <InputNumber 
+                                v-model="archiveConfig.browse_months" 
+                                suffix=" 个月" 
+                                :min="1" 
+                                :max="24"
+                                showButtons
+                                class="w-full"
+                            />
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-text mb-2 block">下载记录保留</label>
+                            <InputNumber 
+                                v-model="archiveConfig.download_years" 
+                                suffix=" 年" 
+                                :min="1" 
+                                :max="5"
+                                showButtons
+                                class="w-full"
+                            />
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium text-text mb-2 block">同步历史保留</label>
+                            <InputNumber 
+                                v-model="archiveConfig.history_months" 
+                                suffix=" 个月" 
+                                :min="1" 
+                                :max="12"
+                                showButtons
+                                class="w-full"
+                            />
+                        </div>
+                    </div>
+                    <Button 
+                        label="执行归档" 
+                        icon="pi pi-trash" 
+                        @click="archiveOldData" 
+                        :loading="archiving"
+                        severity="danger"
+                        class="!rounded-xl"
+                    />
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Edit Credits Dialog -->
@@ -375,7 +523,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -411,6 +559,7 @@ const tabs = computed(() => [
     { label: '设备管理', icon: 'pi pi-desktop', count: devices.value.length },
     { label: '任务监控', icon: 'pi pi-list', count: tasks.value.length },
     { label: '订阅管理', icon: 'pi pi-bookmark', count: subscriptions.value.length },
+    { label: '数据库管理', icon: 'pi pi-database', count: undefined },
 ])
 
 const dialogs = ref({
@@ -633,6 +782,124 @@ const confirmDeleteSubscription = (sub) => {
         }
     })
 }
+
+// ===== 数据库管理 =====
+const dbStats = ref({
+    tables: [],
+    size_mb: '0',
+    total_records: 0
+})
+const dbLoading = ref(false)
+const optimizing = ref(false)
+const archiving = ref(false)
+const archiveConfig = ref({
+    browse_months: 6,
+    download_years: 1,
+    history_months: 3
+})
+
+// 加载数据库统计
+const loadDatabaseStats = async () => {
+    dbLoading.value = true
+    try {
+        const token = localStorage.getItem('token')
+        const res = await fetch('/api/admin/database/stats', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        const data = await res.json()
+        if (data.code === 0) {
+            dbStats.value = data.data
+        }
+    } catch (e) {
+        console.error('Failed to load database stats:', e)
+        toast.add({ severity: 'error', summary: '错误', detail: '加载数据库统计失败', life: 3000 })
+    } finally {
+        dbLoading.value = false
+    }
+}
+
+// 优化数据库
+const optimizeDatabase = async () => {
+    confirm.require({
+        message: '优化数据库会执行 ANALYZE 和 VACUUM 操作，可能需要几分钟时间。是否继续？',
+        header: '确认优化',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: '确认',
+        rejectLabel: '取消',
+        accept: async () => {
+            optimizing.value = true
+            try {
+                const token = localStorage.getItem('token')
+                const res = await fetch('/api/admin/database/optimize', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+                const data = await res.json()
+                if (data.code === 0) {
+                    toast.add({ severity: 'success', summary: '成功', detail: '数据库优化完成', life: 3000 })
+                    await loadDatabaseStats()
+                } else {
+                    toast.add({ severity: 'error', summary: '错误', detail: data.message || '优化失败', life: 3000 })
+                }
+            } catch (e) {
+                console.error('Failed to optimize database:', e)
+                toast.add({ severity: 'error', summary: '错误', detail: '优化数据库失败', life: 3000 })
+            } finally {
+                optimizing.value = false
+            }
+        }
+    })
+}
+
+// 归档旧数据
+const archiveOldData = async () => {
+    confirm.require({
+        message: `将删除 ${archiveConfig.value.browse_months} 个月前的浏览记录、${archiveConfig.value.download_years} 年前的下载记录和 ${archiveConfig.value.history_months} 个月前的同步历史。此操作不可恢复！`,
+        header: '确认归档',
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: '确认删除',
+        rejectLabel: '取消',
+        acceptClass: 'p-button-danger',
+        accept: async () => {
+            archiving.value = true
+            try {
+                const token = localStorage.getItem('token')
+                const res = await fetch('/api/admin/database/archive', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(archiveConfig.value)
+                })
+                const data = await res.json()
+                if (data.code === 0) {
+                    toast.add({ 
+                        severity: 'success', 
+                        summary: '成功', 
+                        detail: `已删除 ${data.data.total_deleted} 条记录`, 
+                        life: 5000 
+                    })
+                    await loadDatabaseStats()
+                } else {
+                    toast.add({ severity: 'error', summary: '错误', detail: data.message || '归档失败', life: 3000 })
+                }
+            } catch (e) {
+                console.error('Failed to archive data:', e)
+                toast.add({ severity: 'error', summary: '错误', detail: '归档数据失败', life: 3000 })
+            } finally {
+                archiving.value = false
+            }
+        }
+    })
+}
+
+// 监听标签切换，加载数据库统计
+watch(activeTab, (newTab) => {
+    if (newTab === 4) { // 数据库管理标签
+        loadDatabaseStats()
+    }
+})
 </script>
 
 <style scoped>

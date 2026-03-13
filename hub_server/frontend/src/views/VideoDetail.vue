@@ -250,7 +250,129 @@ const loadVideoDetail = async () => {
     error.value = null
     isClientInactive.value = false
     debugInfo.value = ''
+    
     try {
+        // 检查是否从浏览记录跳转过来
+        const browseRecord = history.state?.browseRecord
+        if (browseRecord && route.query.from === 'browse_history') {
+            console.log('[VideoDetail] Loading from browse history:', browseRecord)
+            
+            // 直接使用浏览记录中的数据
+            video.value = {
+                id: browseRecord.id,
+                title: browseRecord.title,
+                desc: browseRecord.title,
+                createTime: Date.now(),
+                author: {
+                    username: browseRecord.author,
+                    nickname: browseRecord.author,
+                    headUrl: '',
+                    signature: ''
+                },
+                baseUrl: browseRecord.video_url,
+                urlToken: '',
+                decryptKey: browseRecord.decrypt_key || '',
+                readCount: 0,
+                likeCount: browseRecord.like_count || 0,
+                favCount: browseRecord.fav_count || 0,
+                forwardCount: 0,
+                commentCount: browseRecord.comment_count || 0,
+                ipRegion: ''
+            }
+            
+            // 构建完整的视频 URL
+            let fullVideoUrl = video.value.baseUrl
+            
+            // 优先使用保存的 file_format 字段
+            if (browseRecord.file_format) {
+                console.log('[VideoDetail] Using saved file_format:', browseRecord.file_format)
+                if (!fullVideoUrl.includes('X-snsvideoflag')) {
+                    fullVideoUrl += `&X-snsvideoflag=${browseRecord.file_format}`
+                }
+            } else {
+                // 如果没有保存 file_format，根据分辨率推测（向后兼容）
+                console.log('[VideoDetail] No file_format saved, guessing from resolution:', browseRecord.resolution)
+                let videoFormat = 'xWT111' // 默认格式
+                if (browseRecord.resolution) {
+                    const res = browseRecord.resolution.toLowerCase()
+                    if (res.includes('1080') || res.includes('1920')) {
+                        videoFormat = 'xWT128' // 1080p
+                    } else if (res.includes('720') || res.includes('1280')) {
+                        videoFormat = 'xWT111' // 720p
+                    }
+                }
+                if (!fullVideoUrl.includes('X-snsvideoflag')) {
+                    fullVideoUrl += `&X-snsvideoflag=${videoFormat}`
+                }
+            }
+            
+            if (fullVideoUrl && video.value.decryptKey) {
+                // 构建通过 Hub Server 代理的 URL
+                let finalUrl = `/api/video/play?url=${encodeURIComponent(fullVideoUrl)}`
+                finalUrl += `&key=${video.value.decryptKey}`
+                playerUrl.value = finalUrl
+                console.log('[VideoDetail] Player URL:', finalUrl)
+            } else if (fullVideoUrl) {
+                // 如果没有解密密钥，直接使用原始 URL
+                playerUrl.value = fullVideoUrl
+            }
+            
+            loading.value = false
+            return
+        }
+        
+        // 检查是否从订阅视频跳转过来
+        const subscriptionVideo = history.state?.subscriptionVideo
+        if (subscriptionVideo && route.query.from === 'subscription') {
+            console.log('[VideoDetail] Loading from subscription:', subscriptionVideo)
+            
+            // 直接使用订阅视频中的数据
+            video.value = {
+                id: subscriptionVideo.id,
+                title: subscriptionVideo.title,
+                desc: subscriptionVideo.title,
+                createTime: Date.now(),
+                author: {
+                    username: '',
+                    nickname: '',
+                    headUrl: '',
+                    signature: ''
+                },
+                baseUrl: subscriptionVideo.video_url,
+                urlToken: '',
+                decryptKey: subscriptionVideo.decrypt_key || '',
+                readCount: 0,
+                likeCount: subscriptionVideo.like_count || 0,
+                favCount: 0,
+                forwardCount: 0,
+                commentCount: subscriptionVideo.comment_count || 0,
+                ipRegion: ''
+            }
+            
+            // 构建完整的视频 URL（订阅视频通常已经包含完整URL）
+            let fullVideoUrl = video.value.baseUrl
+            
+            // 如果URL不包含 X-snsvideoflag，添加默认格式
+            if (!fullVideoUrl.includes('X-snsvideoflag')) {
+                fullVideoUrl += `&X-snsvideoflag=xWT128` // 默认使用高清格式
+            }
+            
+            if (fullVideoUrl && video.value.decryptKey) {
+                // 构建通过 Hub Server 代理的 URL
+                let finalUrl = `/api/video/play?url=${encodeURIComponent(fullVideoUrl)}`
+                finalUrl += `&key=${video.value.decryptKey}`
+                playerUrl.value = finalUrl
+                console.log('[VideoDetail] Player URL (subscription):', finalUrl)
+            } else if (fullVideoUrl) {
+                // 如果没有解密密钥，直接使用原始 URL
+                playerUrl.value = fullVideoUrl
+            }
+            
+            loading.value = false
+            return
+        }
+        
+        // 原有的加载逻辑
         if (!client.value) {
            await clientStore.fetchClients() 
            if (!clientStore.currentClient && clientStore.clients.length > 0) {

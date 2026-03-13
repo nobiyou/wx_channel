@@ -1,8 +1,8 @@
 /**
  * @file 保持页面活跃 - 防止页面休眠导致API调用超时
- * @version 3.1 - 禁用自动刷新，依赖 WebSocket 自动重连机制
+ * @version 3.3 - 缩短刷新间隔为15分钟，防止内存溢出
  */
-console.log('[keep_alive.js] 加载页面保活模块 v3.1 (自动刷新已禁用)');
+console.log('[keep_alive.js] 加载页面保活模块 v3.3 (自动刷新已启用)');
 
 window.__wx_keep_alive = {
     wakeLock: null,
@@ -45,8 +45,8 @@ window.__wx_keep_alive = {
         // 方法5: 定期发送心跳到后端（可选，用于监控）
         this.startHeartbeat();
 
-        // 方法6: 定期刷新页面（已禁用 - 依赖 WebSocket 自动重连机制）
-        // this.startAutoRefresh();
+        // 方法6: 定期刷新页面（每10分钟刷新一次，防止连接超时）
+        this.startAutoRefresh();
 
         // 添加全局访问方法
         window.getKeepAliveStats = () => this.getStats();
@@ -226,16 +226,16 @@ window.__wx_keep_alive = {
 
     // 定期刷新页面（最后的保活手段）
     startAutoRefresh: function () {
-        // 每 10 分钟刷新一次页面，确保连接不会超时
-        const REFRESH_INTERVAL = 10 * 60 * 1000; // 10 分钟
+        // 每 15 分钟刷新一次页面，防止内存溢出
+        const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 分钟
 
         this.refreshTimer = setInterval(() => {
             const now = Date.now();
             const timeSinceLastRefresh = now - this.lastRefreshTime;
 
-            // 只有在页面运行超过 5 分钟时才刷新
+            // 只有在页面运行超过 15 分钟时才刷新
             if (timeSinceLastRefresh >= REFRESH_INTERVAL) {
-                this.performRefresh('定期刷新');
+                this.performRefresh('定期刷新（防止内存溢出）');
             }
         }, REFRESH_INTERVAL);
 
@@ -252,7 +252,7 @@ window.__wx_keep_alive = {
             console.error('[页面保活] 恢复状态失败:', e);
         }
 
-        console.log('[页面保活] ✅ 自动刷新已启动 (10分钟间隔)');
+        console.log('[页面保活] ✅ 自动刷新已启动 (15分钟间隔，防止内存溢出)');
     },
 
     // 执行页面刷新（可被外部调用）
@@ -353,6 +353,6 @@ window.addEventListener('beforeunload', () => {
     window.__wx_keep_alive.stop();
 });
 
-console.log('[keep_alive.js] 页面保活模块加载完成 v3.0 (自动刷新已禁用)');
+console.log('[keep_alive.js] 页面保活模块加载完成 v3.3 (自动刷新已启用 - 15分钟间隔)');
 console.log('[keep_alive.js] 使用 window.getKeepAliveStats() 查看统计信息');
-console.log('[keep_alive.js] 依赖 WebSocket 自动重连机制保持连接稳定');
+console.log('[keep_alive.js] 页面将每15分钟自动刷新一次，防止内存溢出');

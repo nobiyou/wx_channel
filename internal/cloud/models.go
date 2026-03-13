@@ -1,8 +1,6 @@
 package cloud
 
-import (
-	"encoding/json"
-)
+import json "github.com/json-iterator/go"
 
 // MessageType 消息类型
 type MessageType string
@@ -13,6 +11,7 @@ const (
 	MsgTypeResponse  MessageType = "response"  // 响应
 	MsgTypeEvent     MessageType = "event"     // 事件告警
 	MsgTypeBind      MessageType = "bind"      // 设备绑定
+	MsgTypeSyncData  MessageType = "sync_data" // 同步数据推送
 )
 
 // CloudMessage 云端消息包装
@@ -45,4 +44,12 @@ type ResponsePayload struct {
 	Success   bool            `json:"success"`    // 是否成功
 	Data      json.RawMessage `json:"data"`       // 返回数据
 	Error     string          `json:"error"`      // 错误信息
+}
+
+// SyncDataPayload 同步数据载荷
+type SyncDataPayload struct {
+	SyncType string          `json:"sync_type"` // "browse" or "download"
+	Records  json.RawMessage `json:"records"`   // 记录数组
+	Count    int             `json:"count"`     // 记录数量
+	HasMore  bool            `json:"has_more"`  // 是否还有更多数据
 }

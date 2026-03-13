@@ -285,10 +285,21 @@ func FetchVideos(hub *ws.Hub) http.HandlerFunc {
 
 			// Check if video already exists
 			var existing models.SubscribedVideo
-			err := database.DB.Where("subscription_id = ? AND object_id = ?", subscription.ID, objectID).First(&existing).Error
-			if err == nil {
-				// Already exists, skip
-				continue
+			existsErr := database.DB.Where("subscription_id = ? AND object_id = ?", subscription.ID, objectID).First(&existing).Error
+			
+			videoExists := existsErr == nil
+			shouldUpdate := false
+			
+			// 如果视频已存在，检查是否需要更新
+			if videoExists {
+				// 检查 URL 是否完整（完整的 URL 通常超过 500 字符）
+				if len(existing.VideoURL) > 500 {
+					// URL 完整，跳过
+					continue
+				}
+				// URL 不完整，需要更新
+				shouldUpdate = true
+				fmt.Printf("[Subscription] Updating incomplete video: %s (URL length: %d)\n", objectID, len(existing.VideoURL))
 			}
 
 			// Extract video information
@@ -333,6 +344,16 @@ func FetchVideos(hub *ws.Hub) http.HandlerFunc {
 			}
 
 			// Create new video record
+			// 构建完整的视频 URL（包含 urlToken）
+			videoURL := getStringField(firstMedia, "url")
+			urlToken := getStringField(firstMedia, "urlToken")
+			if videoURL != "" && urlToken != "" {
+				videoURL = videoURL + urlToken
+				fmt.Printf("[Subscription] Video URL with token: %s (length: %d)\n", videoURL[:50], len(videoURL))
+			} else {
+				fmt.Printf("[Subscription] Warning: Missing URL or token for video %s\n", objectID)
+			}
+			
 			video := models.SubscribedVideo{
 				SubscriptionID: subscription.ID,
 				ObjectID:       objectID,
@@ -345,16 +366,27 @@ func FetchVideos(hub *ws.Hub) http.HandlerFunc {
 				Height:         getIntField(firstMedia, "height"),
 				LikeCount:      getIntField(actualVideo, "likeCount"),
 				CommentCount:   getIntField(actualVideo, "commentCount"),
-				VideoURL:       getStringField(firstMedia, "url"),
+				VideoURL:       videoURL, // 使用完整的 URL
 				DecryptKey:     getStringField(firstMedia, "decodeKey"),
 				PublishedAt:    time.Unix(int64(createTime), 0),
 			}
 
-			if err := database.DB.Create(&video).Error; err != nil {
+			// 如果视频已存在且需要更新，保留原有的 ID 和创建时间
+			if shouldUpdate {
+				video.ID = existing.ID
+				video.CreatedAt = existing.CreatedAt
+			}
+			
+			if err := database.DB.Save(&video).Error; err != nil {
 				// Log error but continue
+				fmt.Printf("[Subscription] Failed to save/update video %s: %v\n", objectID, err)
 				continue
 			}
-			newCount++
+			
+			// 只有新视频才计入 newCount
+			if !videoExists {
+				newCount++
+			}
 		}
 
 		// Update subscription metadata

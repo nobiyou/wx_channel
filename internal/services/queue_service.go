@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"wx_channel/internal/config"
@@ -18,7 +17,6 @@ import (
 type QueueService struct {
 	repo     *database.QueueRepository
 	settings *database.SettingsRepository
-	mu       sync.RWMutex
 }
 
 // NewQueueService 创建一个新的 QueueService
@@ -44,8 +42,6 @@ type VideoInfo struct {
 
 // AddToQueue 将视频添加到下载队列
 func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// 加载设置以获取分片大小
 	settings, err := s.settings.Load()
@@ -107,24 +103,18 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 // RemoveFromQueue 从队列中移除项目
 // 注意：根据需求 10.5，这不会删除任何部分下载数据
 func (s *QueueService) RemoveFromQueue(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.Remove(id)
 }
 
 // RemoveMany 从队列中批量移除项目
 func (s *QueueService) RemoveMany(ids []string) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.RemoveMany(ids)
 }
 
 // Pause 暂停正在下载的项目
 func (s *QueueService) Pause(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	item, err := s.repo.GetByID(id)
 	if err != nil {
@@ -144,8 +134,6 @@ func (s *QueueService) Pause(id string) error {
 
 // Resume 恢复暂停的项目
 func (s *QueueService) Resume(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	item, err := s.repo.GetByID(id)
 	if err != nil {
@@ -165,16 +153,12 @@ func (s *QueueService) Resume(id string) error {
 
 // Reorder 根据提供的 ID 顺序重新排序队列
 func (s *QueueService) Reorder(ids []string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.Reorder(ids)
 }
 
 // SetPriority 设置队列项目的优先级
 func (s *QueueService) SetPriority(id string, priority int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	item, err := s.repo.GetByID(id)
 	if err != nil {
@@ -190,56 +174,47 @@ func (s *QueueService) SetPriority(id string, priority int) error {
 
 // GetQueue 返回按优先级排序的所有队列项目
 func (s *QueueService) GetQueue() ([]database.QueueItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	return s.repo.List()
 }
 
 // GetByID 按 ID 返回队列项目
 func (s *QueueService) GetByID(id string) (*database.QueueItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	return s.repo.GetByID(id)
 }
 
+// GetByVideoID 根据 VideoID 返回队列项目
+func (s *QueueService) GetByVideoID(videoID string) (*database.QueueItem, error) {
+	return s.repo.GetByVideoID(videoID)
+}
+
 // GetByStatus 返回具有特定状态的队列项目
 func (s *QueueService) GetByStatus(status string) ([]database.QueueItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	return s.repo.ListByStatus(status)
 }
 
 // GetNextPending 返回下一个待下载的项目
 func (s *QueueService) GetNextPending() (*database.QueueItem, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	return s.repo.GetNextPending()
 }
 
 // UpdateProgress 更新队列项目的下载进度
 func (s *QueueService) UpdateProgress(id string, downloadedSize int64, chunksCompleted int, speed int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.UpdateProgress(id, downloadedSize, chunksCompleted, speed)
 }
 
 // UpdateStatus 更新队列项目的状态
 func (s *QueueService) UpdateStatus(id string, status string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.UpdateStatus(id, status)
 }
 
 // StartDownload 标记项目为正在下载并设置开始时间
 func (s *QueueService) StartDownload(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := s.repo.UpdateStatus(id, database.QueueStatusDownloading); err != nil {
 		return err
@@ -249,8 +224,6 @@ func (s *QueueService) StartDownload(id string) error {
 
 // CompleteDownload 标记项目为完成并创建下载记录
 func (s *QueueService) CompleteDownload(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	item, err := s.repo.GetByID(id)
 	if err != nil {
@@ -279,9 +252,28 @@ func (s *QueueService) CompleteDownload(id string) error {
 	// 路径格式: {baseDir}/downloads/{authorFolder}/{cleanFilename}.mp4
 	filePath := calculateDownloadFilePath(item.Author, item.Title)
 
-	// 创建下载记录
+	downloadRepo := database.NewDownloadRecordRepository()
+
+	// 检查是否已经存在该视频的下载记录 (由 batch.go 等其他流程创建)
+	if existingRecord, _ := downloadRepo.GetByVideoID(item.VideoID); existingRecord != nil {
+		// 已存在记录，仅需确保状态为完成，不需要新建
+		if existingRecord.Status != database.DownloadStatusCompleted {
+			existingRecord.Status = database.DownloadStatusCompleted
+			existingRecord.FilePath = filePath
+			_ = downloadRepo.Update(existingRecord)
+		}
+		return nil
+	}
+
+	// 使用 VideoID 作为主键ID (如果有)，否则使用 UUID，确保与 batch.go 行为一致，触发 REPLACE 逻辑
+	recordID := item.VideoID
+	if recordID == "" {
+		recordID = uuid.New().String()
+	}
+
+	// 创建全新的下载记录
 	downloadRecord := &database.DownloadRecord{
-		ID:           uuid.New().String(),
+		ID:           recordID,
 		VideoID:      item.VideoID,
 		Title:        item.Title,
 		Author:       item.Author,
@@ -295,7 +287,6 @@ func (s *QueueService) CompleteDownload(id string) error {
 		DownloadTime: time.Now(),
 	}
 
-	downloadRepo := database.NewDownloadRecordRepository()
 	if err := downloadRepo.Create(downloadRecord); err != nil {
 		// 记录错误但不失败完成
 		fmt.Printf("Warning: failed to create download record: %v\n", err)
@@ -388,59 +379,26 @@ func cleanFilename(name string) string {
 
 // FailDownload 标记项目为失败并附带错误消息
 func (s *QueueService) FailDownload(id string, errorMessage string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.SetError(id, errorMessage)
 }
 
 // IncrementRetryCount 增加项目的重试计数
 func (s *QueueService) IncrementRetryCount(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.IncrementRetryCount(id)
 }
 
 // ClearQueue 从队列中移除所有项目
 func (s *QueueService) ClearQueue() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.Clear()
 }
 
 // GetQueueStats 返回队列统计信息
 func (s *QueueService) GetQueueStats() (*QueueStats, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
-	total, err := s.repo.Count()
-	if err != nil {
-		return nil, err
-	}
-
-	pending, err := s.repo.CountByStatus(database.QueueStatusPending)
-	if err != nil {
-		return nil, err
-	}
-
-	downloading, err := s.repo.CountByStatus(database.QueueStatusDownloading)
-	if err != nil {
-		return nil, err
-	}
-
-	paused, err := s.repo.CountByStatus(database.QueueStatusPaused)
-	if err != nil {
-		return nil, err
-	}
-
-	completed, err := s.repo.CountByStatus(database.QueueStatusCompleted)
-	if err != nil {
-		return nil, err
-	}
-
-	failed, err := s.repo.CountByStatus(database.QueueStatusFailed)
+	total, pending, downloading, paused, completed, failed, err := s.repo.GetQueueStats()
 	if err != nil {
 		return nil, err
 	}
@@ -483,8 +441,6 @@ func CalculateChunkCount(fileSize, chunkSize int64) int {
 
 // ResetRetryCount 重置队列项目的重试计数
 func (s *QueueService) ResetRetryCount(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	item, err := s.repo.GetByID(id)
 	if err != nil {
@@ -500,8 +456,6 @@ func (s *QueueService) ResetRetryCount(id string) error {
 
 // UpdateItem 更新队列项目
 func (s *QueueService) UpdateItem(item *database.QueueItem) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	return s.repo.Update(item)
 }

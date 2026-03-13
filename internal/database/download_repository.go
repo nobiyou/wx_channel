@@ -78,6 +78,39 @@ func (r *DownloadRecordRepository) GetByID(id string) (*DownloadRecord, error) {
 	return record, nil
 }
 
+// GetByVideoID 根据 VideoID 获取下载记录
+func (r *DownloadRecordRepository) GetByVideoID(videoID string) (*DownloadRecord, error) {
+	query := `
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+			format, resolution, status, download_time, error_message,
+			like_count, comment_count, forward_count, fav_count,
+			created_at, updated_at
+		FROM download_records WHERE video_id = ? LIMIT 1
+	`
+	record := &DownloadRecord{}
+	var filePath, format, resolution, errorMessage, coverURL sql.NullString
+	err := r.db.QueryRow(query, videoID).Scan(
+		&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+		&record.Duration, &record.FileSize, &filePath, &format,
+		&resolution, &record.Status, &record.DownloadTime,
+		&errorMessage,
+		&record.LikeCount, &record.CommentCount, &record.ForwardCount, &record.FavCount,
+		&record.CreatedAt, &record.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get download record by video id: %w", err)
+	}
+	record.CoverURL = coverURL.String
+	record.FilePath = filePath.String
+	record.Format = format.String
+	record.Resolution = resolution.String
+	record.ErrorMessage = errorMessage.String
+	return record, nil
+}
+
 // Update 更新现有的下载记录
 func (r *DownloadRecordRepository) Update(record *DownloadRecord) error {
 	record.UpdatedAt = time.Now()
@@ -504,4 +537,70 @@ func (r *DownloadRecordRepository) GetTotalFileSize() (int64, error) {
 		return 0, fmt.Errorf("failed to get total file size: %w", err)
 	}
 	return total.Int64, nil
+}
+
+// GetRecordsSince 获取指定时间之后的下载记录（用于增量同步）
+func (r *DownloadRecordRepository) GetRecordsSince(since time.Time, limit int) ([]DownloadRecord, error) {
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	query := `
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
+			format, resolution, status, download_time, error_message,
+			like_count, comment_count, forward_count, fav_count,
+			created_at, updated_at
+		FROM download_records
+		WHERE updated_at > ?
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`
+
+	rows, err := r.db.Query(query, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get records since: %w", err)
+	}
+	defer rows.Close()
+
+	var records []DownloadRecord
+	for rows.Next() {
+		var record DownloadRecord
+		var filePath, format, resolution, errorMessage, coverURL sql.NullString
+		err := rows.Scan(
+			&record.ID, &record.VideoID, &record.Title, &record.Author, &coverURL,
+			&record.Duration, &record.FileSize, &filePath, &format,
+			&resolution, &record.Status, &record.DownloadTime,
+			&errorMessage,
+			&record.LikeCount, &record.CommentCount, &record.ForwardCount, &record.FavCount,
+			&record.CreatedAt, &record.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan download record: %w", err)
+		}
+		record.CoverURL = coverURL.String
+		record.FilePath = filePath.String
+		record.Format = format.String
+		record.Resolution = resolution.String
+		record.ErrorMessage = errorMessage.String
+		records = append(records, record)
+	}
+
+	if records == nil {
+		records = []DownloadRecord{}
+	}
+
+	return records, nil
+}
+
+// GetLatestTimestamp 获取最新记录的时间戳（用于增量同步）
+func (r *DownloadRecordRepository) GetLatestTimestamp() (time.Time, error) {
+	var timestamp time.Time
+	err := r.db.QueryRow("SELECT COALESCE(MAX(updated_at), '1970-01-01') FROM download_records").Scan(&timestamp)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get latest timestamp: %w", err)
+	}
+	return timestamp, nil
 }

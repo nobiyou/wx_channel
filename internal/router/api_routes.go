@@ -24,6 +24,7 @@ type APIRouter struct {
 	proxyService       *api.ProxyService
 	certificateService *api.CertificateService
 	versionService     *api.VersionAPI
+	radarAPI           *api.RadarServiceAPI
 	allowedOrigins     []string
 	secretToken        string
 }
@@ -64,6 +65,7 @@ func NewAPIRouter(cfg *config.Config, hub *websocket.Hub, sunny *SunnyNet.Sunny)
 		proxyService:       api.NewProxyService(sunny, cfg.Port),
 		certificateService: api.NewCertificateService(sunny),
 		versionService:     api.NewVersionAPI(),
+		radarAPI:           api.NewRadarServiceAPI(),
 		allowedOrigins:     cfg.AllowedOrigins,
 		secretToken:        cfg.SecretToken,
 	}
@@ -138,6 +140,9 @@ func (r *APIRouter) registerRoutes() {
 	r.mux.HandleFunc("/api/v1/settings", r.consoleHandler.HandleSettingsAPI)
 	r.mux.HandleFunc("/api/v1/stats", r.consoleHandler.HandleStatsAPI)
 	r.mux.HandleFunc("/api/v1/stats/", r.consoleHandler.HandleStatsAPI)
+
+	// Radar API
+	r.radarAPI.RegisterRoutes(r.mux)
 }
 
 // Handler 返回带中间件的 HTTP Handler

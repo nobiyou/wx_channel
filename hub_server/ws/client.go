@@ -212,6 +212,50 @@ func (c *Client) handleMessage(msg CloudMessage) {
 			respBytes, _ := json.Marshal(response)
 			c.WriteMessage(respBytes)
 		}
+
+	case MsgTypeSyncData:
+		// 处理客户端推送的同步数据
+		var payload SyncDataPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("解析同步数据失败: ClientID=%s, Error=%v", c.ID, err)
+			return
+		}
+
+		// 获取同步服务
+		syncService := services.GetSyncService()
+		if syncService == nil {
+			log.Printf("同步服务不可用: ClientID=%s", c.ID)
+			return
+		}
+
+		// 解析记录
+		var records interface{}
+		if payload.SyncType == "browse" {
+			var browseRecords []services.BrowseRecord
+			if err := json.Unmarshal(payload.Records, &browseRecords); err != nil {
+				log.Printf("解析浏览记录失败: ClientID=%s, Error=%v", c.ID, err)
+				return
+			}
+			records = browseRecords
+		} else if payload.SyncType == "download" {
+			var downloadRecords []services.DownloadRecord
+			if err := json.Unmarshal(payload.Records, &downloadRecords); err != nil {
+				log.Printf("解析下载记录失败: ClientID=%s, Error=%v", c.ID, err)
+				return
+			}
+			records = downloadRecords
+		} else {
+			log.Printf("未知的同步类型: ClientID=%s, SyncType=%s", c.ID, payload.SyncType)
+			return
+		}
+
+		// 处理同步数据
+		if err := syncService.HandleSyncDataFromClient(c.ID, payload.SyncType, records); err != nil {
+			log.Printf("处理同步数据失败: ClientID=%s, Error=%v", c.ID, err)
+		} else {
+			log.Printf("成功同步 %d 条 %s 记录 (客户端: %s)", 
+				payload.Count, payload.SyncType, c.ID)
+		}
 	}
 }
 

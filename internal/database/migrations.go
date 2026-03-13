@@ -229,6 +229,60 @@ ALTER TABLE download_records ADD COLUMN forward_count INTEGER DEFAULT 0;
 ALTER TABLE download_records ADD COLUMN fav_count INTEGER DEFAULT 0;
 `,
 	},
+	{
+		Version:     9,
+		Description: "Add file_format column to browse_history table for video format identification",
+		Up: `
+-- Add file_format column to browse_history table for video format (e.g., xWT128, xWT111)
+ALTER TABLE browse_history ADD COLUMN file_format TEXT DEFAULT '';
+`,
+	},
+	{
+		Version:     10,
+		Description: "Create radar_targets table for competitor monitoring",
+		Up: `
+-- Radar targets table (24h静默雷达监控目标)
+CREATE TABLE IF NOT EXISTS radar_targets (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    interval_minutes INTEGER DEFAULT 60,
+    last_check_time DATETIME,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for username to prevent duplicates
+CREATE UNIQUE INDEX IF NOT EXISTS idx_radar_targets_username ON radar_targets(username);
+-- Index for status filtering
+CREATE INDEX IF NOT EXISTS idx_radar_targets_status ON radar_targets(status);
+`,
+	},
+	{
+		Version:     13,
+		Description: "Create radar_logs table for execution details",
+		Up: `
+CREATE TABLE IF NOT EXISTS radar_logs (
+    id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    check_time DATETIME NOT NULL,
+    found_videos INTEGER DEFAULT 0,
+    new_videos INTEGER DEFAULT 0,
+    status TEXT NOT NULL,
+    error_message TEXT DEFAULT '',
+    FOREIGN KEY(target_id) REFERENCES radar_targets(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_radar_logs_target_id ON radar_logs(target_id);
+CREATE INDEX IF NOT EXISTS idx_radar_logs_check_time ON radar_logs(check_time);
+`,
+	},
+	{
+		Version:     14,
+		Description: "Add video_list column to radar_logs for per-video details",
+		Up:          `ALTER TABLE radar_logs ADD COLUMN video_list TEXT DEFAULT '';`,
+	},
 }
 
 // runMigrations 执行所有待处理的迁移

@@ -70,6 +70,12 @@ const router = createRouter({
             meta: { requiresAuth: true, layout: 'Sidebar' }
         },
         {
+            path: '/sync',
+            name: 'Sync',
+            component: () => import('../views/Sync.vue'),
+            meta: { requiresAuth: true, layout: 'Sidebar' }
+        },
+        {
             path: '/nodes/:id',
             name: 'NodeDetail',
             component: () => import('../views/NodeDetail.vue'),

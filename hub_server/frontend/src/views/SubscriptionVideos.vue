@@ -192,7 +192,34 @@ const loadMoreVideos = () => {
 }
 
 const playVideo = (video) => {
-    if (video.object_id) {
+    // 检查是否有完整的视频数据（video_url 和 decrypt_key）
+    if (video.video_url && video.decrypt_key) {
+        console.log('[SubscriptionVideos] Playing video from saved data:', video.title)
+        
+        // 直接使用保存的数据跳转到视频详情页
+        router.push({
+            path: `/video/${video.object_id}`,
+            query: {
+                from: 'subscription' // 标记来源
+            },
+            state: {
+                // 传递订阅视频的完整信息
+                subscriptionVideo: {
+                    id: video.object_id,
+                    nonce_id: video.object_nonce_id,
+                    title: video.title,
+                    cover_url: video.cover_url,
+                    video_url: video.video_url,
+                    decrypt_key: video.decrypt_key,
+                    duration: video.duration,
+                    like_count: video.like_count,
+                    comment_count: video.comment_count
+                }
+            }
+        })
+    } else if (video.object_id) {
+        // 如果没有保存的视频数据，回退到原来的方式（请求 API）
+        console.log('[SubscriptionVideos] Playing video via API:', video.title)
         router.push({
             name: 'VideoDetail',
             params: { id: video.object_id },

@@ -154,6 +154,8 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 
 	// 提取分辨率信息：优先从media直接获取宽x高格式
 	resolution := ""
+	fileFormat := "" // 视频格式标识（如 xWT128, xWT111）
+	
 	// 前端发送的media是单个对象，不是数组
 	if mediaItem, ok := data["media"].(map[string]interface{}); ok {
 		// 从media直接获取width和height
@@ -168,16 +170,42 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 			resolution = fmt.Sprintf("%dx%d", width, height)
 			utils.LogInfo("[分辨率] 从media获取: %s", resolution)
 		}
-		// 如果media中没有，从spec中获取xWT111格式的分辨率
-		if resolution == "" {
-			if spec, ok := mediaItem["spec"].([]interface{}); ok && len(spec) > 0 {
-				resolution = extractResolutionFromSpec(spec)
-				utils.LogInfo("[分辨率] 从spec获取: %s", resolution)
+		
+		// 从spec中提取fileFormat和分辨率
+		if spec, ok := mediaItem["spec"].([]interface{}); ok && len(spec) > 0 {
+			// 遍历spec数组，找到最高质量的格式（通常是第一个或最后一个）
+			for _, item := range spec {
+				if specItem, ok := item.(map[string]interface{}); ok {
+					// 提取fileFormat（如 xWT128, xWT111）
+					if format, ok := specItem["fileFormat"].(string); ok && format != "" {
+						fileFormat = format
+						utils.LogInfo("[视频格式] 从spec获取: %s", fileFormat)
+					}
+					
+					// 如果还没有分辨率，从spec中提取
+					if resolution == "" {
+						if w, ok := specItem["width"].(float64); ok {
+							if h, ok := specItem["height"].(float64); ok {
+								resolution = fmt.Sprintf("%dx%d", int64(w), int64(h))
+								utils.LogInfo("[分辨率] 从spec获取: %s", resolution)
+							}
+						}
+					}
+					
+					// 如果已经找到fileFormat，优先使用第一个（通常是最高质量）
+					if fileFormat != "" {
+						break
+					}
+				}
 			}
 		}
 	}
+	
 	if resolution == "" {
 		utils.LogInfo("[分辨率] 未能获取分辨率信息")
+	}
+	if fileFormat == "" {
+		utils.LogInfo("[视频格式] 未能获取格式标识")
 	}
 
 	pageUrl := h.currentURL
@@ -186,7 +214,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 		videoID, title, author, sizeMB, url, decryptKey, resolution)
 
 	// 保存浏览记录到数据库
-	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, likeCount, commentCount, favCount, forwardCount, pageUrl)
+	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, fileFormat, likeCount, commentCount, favCount, forwardCount, pageUrl)
 
 	color.Yellow("\n")
 
@@ -272,7 +300,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 }
 
 // saveBrowseRecord 保存浏览记录到数据库
-func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, duration, size int64, coverUrl, videoUrl, decryptKey, resolution string, likeCount, commentCount, favCount, forwardCount int64, pageUrl string) {
+func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, duration, size int64, coverUrl, videoUrl, decryptKey, resolution, fileFormat string, likeCount, commentCount, favCount, forwardCount int64, pageUrl string) {
 	// 检查数据库是否已初始化
 	db := database.GetDB()
 	if db == nil {
@@ -294,6 +322,7 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 		Duration:     duration,
 		Size:         size,
 		Resolution:   resolution,
+		FileFormat:   fileFormat,
 		CoverURL:     coverUrl,
 		VideoURL:     videoUrl,
 		DecryptKey:   decryptKey,

@@ -1,6 +1,6 @@
 package websocket
 
-import "encoding/json"
+import json "github.com/json-iterator/go"
 
 // WebSocket 消息类型
 type WSMessageType string

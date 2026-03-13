@@ -81,6 +81,13 @@
                         </svg>
                         <span>批量下载</span>
                     </a>
+                    <a class="nav-item" data-page="radar" onclick="navigateTo('radar')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            <circle cx="12" cy="11" r="3" />
+                        </svg>
+                        <span>对标雷达</span>
+                    </a>
                 </div>
 
                 <!-- 系统 -->
@@ -1217,6 +1224,57 @@
                 </div>
             </div>
 
+            <!-- Radar Page (24h静默雷达) -->
+            <div class="page-view" id="page-radar">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">对标账号雷达 (24小时自动监控)</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" onclick="openAddRadarModal()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    style="width: 16px; height: 16px;">
+                                    <line x1="12" y1="5" x2="12" y2="19" />
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                </svg>
+                                添加监控
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info" style="margin-bottom: 20px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            style="width: 20px; height: 20px; flex-shrink: 0;">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="16" x2="12" y2="12" />
+                            <line x1="12" y1="8" x2="12.01" y2="8" />
+                        </svg>
+                        <span>系统会在后台静默轮询以下博主，发现新视频后会自动推入您的下载队列。(如果博主列表为空，请先在视频号添加博主)</span>
+                    </div>
+
+                    <div id="radarTargetList">
+                        <table class="data-table" id="radarTable">
+                            <thead>
+                                <tr>
+                                    <th>博主名称</th>
+                                    <th>唯一ID</th>
+                                    <th style="width: 100px;">监控频率</th>
+                                    <th style="width: 140px;">上次检测</th>
+                                    <th style="width: 100px;">状态</th>
+                                    <th style="width: 160px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="radarTableBody">
+                                <tr>
+                                    <td colspan="6"
+                                        style="text-align: center; color: var(--text-secondary); padding: 40px;">加载中...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- Help Page -->
             <div class="page-view" id="page-help">
                 <div class="card">
@@ -1431,6 +1489,50 @@
         </div>
     </div>
 
+    <!-- Add Radar Target Dialog -->
+    <div class="dialog-overlay" id="addRadarDialogOverlay" onclick="closeAddRadarModal(event)" style="display: none;">
+        <div class="dialog" onclick="event.stopPropagation()">
+            <div class="dialog-header">
+                <h3 class="dialog-title" id="radarDialogTitle">添加监控目标</h3>
+                <button class="dialog-close" onclick="closeAddRadarModal(event)" title="关闭">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="dialog-body">
+                <form id="radarTargetForm">
+                    <input type="hidden" id="radarId" value="">
+
+                    <div class="form-group">
+                        <label>博主名称 <span style="color: red">*</span></label>
+                        <input type="text" id="radarAuthorName" placeholder="例如: 某某摄影" required
+                            style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);">
+                    </div>
+
+                    <div class="form-group">
+                        <label>视频号唯一 ID <span style="color: red">*</span></label>
+                        <input type="text" id="radarUsername" placeholder="博主加密ID v2_xxxx..." required
+                            style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);">
+                        <div class="form-hint" style="margin-top: 4px;">由于微信限制，需从搜索接口抓取到的原始 username。</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>监控轮询频率 (分钟)</label>
+                        <input type="number" id="radarInterval" value="60" min="5"
+                            style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary);">
+                        <div class="form-hint" style="margin-top: 4px;">建议不要低于5分钟以防被系统封禁</div>
+                    </div>
+                </form>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-secondary" onclick="closeAddRadarModal(event)">取消</button>
+                <button class="btn btn-primary" onclick="saveRadarTarget()">保存</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Date-based Cleanup Dialog - Requirements: 5.5 -->
     <div class="dialog-overlay" id="cleanupDialogOverlay" onclick="closeCleanupDialog(event)">
         <div class="dialog" onclick="event.stopPropagation()">
@@ -1530,6 +1632,45 @@
         </div>
     </div>
 
+    <!-- Radar Logs Dialog -->
+    <div class="dialog-overlay" id="radarLogsDialogOverlay"
+        onclick="if(event.target === this) closeRadarLogsModal(event)">
+        <div class="dialog" style="max-width: 600px; width: 90%;">
+            <div class="dialog-header">
+                <h3 class="dialog-title" id="radarLogsTitle">监控日志</h3>
+                <button class="dialog-close" onclick="closeRadarLogsModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="dialog-body" style="max-height: 400px; overflow-y: auto;">
+                <table class="data-table" style="width: 100%; font-size: 13px;">
+                    <thead>
+                        <tr>
+                            <th style="width: 150px;">检测时间</th>
+                            <th style="width: 70px;">视频数</th>
+                            <th style="width: 70px;">新增数</th>
+                            <th>状态</th>
+                            <th style="width: 30px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="radarLogsTableBody">
+                        <tr>
+                            <td colspan="4" class="empty-state">
+                                <div class="video-player-spinner" style="margin: 20px auto;"></div>
+                                <p>正在加载日志...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-primary" onclick="closeRadarLogsModal()">关闭</button>
+            </div>
+        </div>
+    </div>
     <!-- Lightbox for Cover Image Preview - Requirements: 8.3 -->
     <div class="lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox(event)">
         <div class="lightbox-content" onclick="event.stopPropagation()">
@@ -1649,6 +1790,7 @@
     <!-- JS Modules -->
     <script src="js/core.js?v=1764987636"></script>
     <script src="js/ui.js?v=1764987636"></script>
+    <script src="js/radar.js?v=1764987636"></script>
     <script src="js/pages-browse.js?v=1764987636"></script>
     <script src="js/pages-download.js?v=1764987636"></script>
     <script src="js/pages-settings.js?v=1764987636"></script>

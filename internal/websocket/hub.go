@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -9,6 +8,8 @@ import (
 	"time"
 
 	"wx_channel/internal/utils"
+
+	json "github.com/json-iterator/go"
 )
 
 // Hub 管理所有 WebSocket 客户端连接
@@ -187,18 +188,18 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 			utils.LogError("响应通道已关闭: ID=%s", reqID)
 			return nil, errors.New("response channel closed")
 		}
-		
+
 		duration := time.Since(startTime)
 		if resp.ErrCode != 0 {
-			utils.LogError("API 调用失败: ID=%s, Duration=%v, ErrCode=%d, ErrMsg=%s", 
+			utils.LogError("API 调用失败: ID=%s, Duration=%v, ErrCode=%d, ErrMsg=%s",
 				reqID, duration, resp.ErrCode, resp.ErrMsg)
 			return nil, fmt.Errorf("API error (code=%d): %s", resp.ErrCode, resp.ErrMsg)
 		}
-		
-		utils.LogInfo("API 调用成功: ID=%s, Duration=%v, DataSize=%d", 
+
+		utils.LogInfo("API 调用成功: ID=%s, Duration=%v, DataSize=%d",
 			reqID, duration, len(resp.Data))
 		return resp.Data, nil
-		
+
 	case <-time.After(timeout):
 		utils.LogError("API 调用超时: ID=%s, Timeout=%v", reqID, timeout)
 		return nil, fmt.Errorf("request timeout after %v", timeout)

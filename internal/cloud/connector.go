@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
@@ -19,6 +18,7 @@ import (
 	hubws "wx_channel/internal/websocket"
 
 	"github.com/coder/websocket"
+	json "github.com/json-iterator/go"
 )
 
 // Connector 云端连接器
@@ -42,6 +42,9 @@ type Connector struct {
 	// 性能优化
 	gzipPool      sync.Pool    // 复用 gzip.Writer
 	metricsClient *http.Client // 复用 HTTP 客户端
+
+	// 同步推送器
+	syncPusher *SyncPusher
 }
 
 // NewConnector 创建云端连接器
@@ -91,11 +94,26 @@ func (c *Connector) Start() {
 
 	utils.LogInfo("正在启动云端连接器 (ID: %s, URL: %s)", c.clientID, c.cfg.CloudHubURL)
 
+	// 启动同步推送器（如果启用了 Hub 同步和推送功能）
+	if c.cfg.HubSync.Enabled && c.cfg.HubSync.PushEnabled {
+		c.syncPusher = NewSyncPusher(c)
+		go c.syncPusher.Start()
+		utils.LogInfo("✓ Hub 同步推送器已启动 (间隔: %v, 批量: %d)",
+			c.cfg.HubSync.PushInterval, c.cfg.HubSync.PushBatchSize)
+	} else if c.cfg.HubSync.Enabled && !c.cfg.HubSync.PushEnabled {
+		utils.LogInfo("Hub 同步已启用，但推送功能已禁用 (push_enabled: false)")
+	}
+
 	go c.connectLoop()
 }
 
 // Stop 停止连接器
 func (c *Connector) Stop() {
+	// 停止同步推送器
+	if c.syncPusher != nil {
+		c.syncPusher.Stop()
+	}
+
 	c.cancel()
 	c.mu.Lock()
 	if c.conn != nil {

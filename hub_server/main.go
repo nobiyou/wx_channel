@@ -1,16 +1,19 @@
 package main
 
 import (
-	"log"
+	"log" // Kept log for log.Fatalf and log.Printf, as its removal would cause compilation errors with existing calls.
 	"net/http"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"wx_channel/hub_server/controllers"
 	"wx_channel/hub_server/database"
 	"wx_channel/hub_server/middleware"
 	"wx_channel/hub_server/services"
+	"wx_channel/hub_server/utils" // Added utils import
 	"wx_channel/hub_server/ws"
 
 	"github.com/gorilla/mux"
@@ -64,7 +67,15 @@ func main() {
 	// 2.5 启动积分矿工服务 (在线时长统计)
 	services.StartMiningService()
 
-	// 2.6 初始化 API 指标采集
+	// 2.6 启动同步服务
+	services.InitSyncService(services.SyncConfig{
+		Enabled:    true,
+		Interval:   5 * time.Minute, // 5 分钟
+		MaxRetries: 3,
+		Hub:        hub, // 传递 WebSocket Hub 实例
+	})
+
+	// 2.7 初始化 API 指标采集
 	metricsStore := middleware.InitMetricsStore()
 
 	// 3. 创建路由器（全局 panic recovery + 指标采集）
@@ -98,6 +109,7 @@ func main() {
 	auth.HandleFunc("/api/device/lock", controllers.LockDevice).Methods("POST")
 	auth.HandleFunc("/api/device/group", controllers.SetDeviceGroup).Methods("POST")
 	auth.HandleFunc("/api/device/transfer", controllers.TransferDevice).Methods("POST")
+	auth.HandleFunc("/api/device/config", controllers.UpdateDeviceConfig).Methods("POST")
 
 	// Subscription
 	auth.HandleFunc("/api/subscriptions", controllers.CreateSubscription).Methods("POST")
@@ -118,6 +130,14 @@ func main() {
 	auth.HandleFunc("/api/metrics/timeseries", controllers.GetTimeSeriesData).Methods("GET")
 	auth.HandleFunc("/api/ws/stats", controllers.GetWSStats(hub)).Methods("GET")
 
+	// Sync Management
+	auth.HandleFunc("/api/sync/status", controllers.GetSyncStatus).Methods("GET")
+	auth.HandleFunc("/api/sync/status/{machine_id}", controllers.GetDeviceSyncStatus).Methods("GET")
+	auth.HandleFunc("/api/sync/trigger", controllers.TriggerSync).Methods("POST")
+	auth.HandleFunc("/api/sync/history/{machine_id}", controllers.GetSyncHistory).Methods("GET")
+	auth.HandleFunc("/api/sync/browse", controllers.GetBrowseRecords).Methods("GET")
+	auth.HandleFunc("/api/sync/download", controllers.GetDownloadRecords).Methods("GET")
+
 	// ─── 管理员 API（Admin Subrouter）───
 	admin := auth.PathPrefix("/api/admin").Subrouter()
 	admin.Use(adminMiddleware)
@@ -130,6 +150,11 @@ func main() {
 	admin.HandleFunc("/devices", controllers.GetAllDevices).Methods("GET")
 	admin.HandleFunc("/device/unbind", controllers.AdminUnbindDevice).Methods("POST")
 	admin.HandleFunc("/device/{id}", controllers.AdminDeleteDevice).Methods("DELETE")
+
+	// Database Management
+	admin.HandleFunc("/database/stats", controllers.GetDatabaseStats).Methods("GET")
+	admin.HandleFunc("/database/optimize", controllers.OptimizeDatabase).Methods("POST")
+	admin.HandleFunc("/database/archive", controllers.ArchiveOldData).Methods("POST")
 	admin.HandleFunc("/tasks", controllers.GetAllTasks).Methods("GET")
 	admin.HandleFunc("/task/{id}", controllers.AdminDeleteTask).Methods("DELETE")
 	admin.HandleFunc("/subscriptions", controllers.GetAllSubscriptions).Methods("GET")
@@ -156,6 +181,13 @@ func main() {
 		fs.ServeHTTP(w, r)
 	})
 
-	log.Println("Hub Server started on :8080")
+	// System optimization
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// API 层和下载引擎频繁申请/释放大量小规模对象，为了缓解 GC 抖动，
+	// 适当放宽 GC 回收条件。牺牲小部分内存，换取平稳的高负载表现
+	debug.SetGCPercent(200)
+
+	utils.LogInfo("Starting Hub Server...")
 	log.Fatal(http.ListenAndServe(":8080", router))
 }

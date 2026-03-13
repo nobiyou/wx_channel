@@ -1,30 +1,67 @@
 # 微信视频号下载助手 - 配置文件示例
 # 复制此文件为 config.yaml 并修改相应配置
 
+# ============================================
+# 云端集成配置
+# ============================================
+
 # === 云端管理功能 ===
-# 是否启用云端管理功能（Hub Server 集中管理）
-# true: 启用，客户端会连接到 Hub Server
-# false: 禁用，客户端独立运行
+# 客户端通过 WebSocket 连接到 Hub Server
+# 用途：实时控制、状态监控、数据同步
 cloud_enabled: true
 
-# === 设备标识 ===
-# 自动生成，用于在云端唯一标识此设备，请勿手动修改
-# 首次运行时会自动生成
-machine_id: ""
-
-# === 绑定令牌 ===
-# 用于绑定设备到用户账号
-# 从 Hub Server 获取
-bind_token: ""
-
-# === 云端服务器地址 ===
 # Hub Server 的 WebSocket 地址
-# 默认: ws://wx.dujulaoren.com/ws/client
 cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
 
-# === 云端通信密钥 ===
-# 用于加密通信（可选）
+# 云端通信密钥（可选，用于加密通信）
 cloud_secret: ""
+
+# 设备标识（自动生成，请勿手动修改）
+# 用于在云端唯一标识此设备
+machine_id: ""
+
+# 绑定令牌（从 Hub Server 获取）
+# 用于绑定设备到用户账号
+bind_token: ""
+
+# === Hub 同步配置 ===
+# 客户端通过 WebSocket 主动推送数据到 Hub Server
+# 适用于内网环境，无需公网 IP 或端口转发
+hub_sync:
+  # 是否启用同步功能
+  enabled: true
+  
+  # 是否启用主动推送
+  # true: 客户端定期推送数据到 Hub（推荐）
+  # false: 禁用同步功能
+  push_enabled: true
+  
+  # 推送间隔（客户端多久推送一次数据）
+  # 格式: 1m (1分钟), 5m (5分钟), 1h (1小时)
+  # 建议: 5m-15m，根据数据量和网络情况调整
+  push_interval: 5m
+  
+  # 推送批量大小（每次推送最多多少条记录）
+  # 建议: 500-2000，避免单次推送数据过大
+  push_batch_size: 1000
+
+# ============================================
+# 使用场景说明
+# ============================================
+# 场景 1: 完整功能（推荐）
+#   cloud_enabled: true
+#   hub_sync.enabled: true
+#   hub_sync.push_enabled: true
+#   → 实时控制 + 数据同步
+#
+# 场景 2: 仅实时控制
+#   cloud_enabled: true
+#   hub_sync.enabled: false
+#   → 只接收 Hub 指令，不同步数据
+#
+# 场景 3: 独立运行
+#   cloud_enabled: false
+#   → 完全独立运行，不与 Hub 交互
 
 # === 其他配置 ===
 # 根据需要添加其他配置项

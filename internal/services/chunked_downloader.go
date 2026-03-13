@@ -168,96 +168,206 @@ func (d *ChunkedDownloader) downloadItem(ctx context.Context, state *DownloadSta
 	d.mu.Unlock()
 }
 
-// downloadChunks 下载项目的所有分片
+// downloadChunks 下载项目的所有分片（并发下载）
 func (d *ChunkedDownloader) downloadChunks(ctx context.Context, state *DownloadState, downloadPath string) error {
 	item := state.QueueItem
 	chunkSize := item.ChunkSize
 	totalChunks := item.ChunksTotal
 
 	// 打开或创建文件
-	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(downloadPath, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	// 从上一个完成的分片恢复
-	startChunk := state.CurrentChunk
-	startOffset := int64(startChunk) * chunkSize
-
-	// 跳转到正确位置
-	if _, err := file.Seek(startOffset, 0); err != nil {
-		return fmt.Errorf("failed to seek to position: %w", err)
+	// 预分配文件大小
+	if err := file.Truncate(item.TotalSize); err != nil {
+		return fmt.Errorf("failed to truncate file: %w", err)
 	}
 
-	downloadedSize := startOffset
+	startChunk := state.CurrentChunk
+	downloadedSize := int64(startChunk) * chunkSize
+
+	// 获取最大并发数
+	concurrentLimit := d.maxConcurrent
+	if concurrentLimit <= 0 {
+		concurrentLimit = 3 // 默认并发 3
+	}
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, totalChunks)
+	chunkChan := make(chan int, totalChunks)
+
+	// 填充任务通道
+	for i := startChunk; i < totalChunks; i++ {
+		chunkChan <- i
+	}
+	close(chunkChan)
+
+	var mu sync.Mutex // 保护共享状态
 	lastSpeedCalcTime := time.Now()
 	lastDownloadedSize := downloadedSize
 
-	for chunkIndex := startChunk; chunkIndex < totalChunks; chunkIndex++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	// 启动 worker
+	for i := 0; i < concurrentLimit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for chunkIndex := range chunkChan {
+				select {
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
+				default:
+				}
+
+				// 检查是否暂停
+				d.mu.RLock()
+				isPaused := state.IsPaused
+				d.mu.RUnlock()
+				if isPaused {
+					return
+				}
+
+				// 计算分片范围
+				chunkStart := int64(chunkIndex) * chunkSize
+				chunkEnd := chunkStart + chunkSize - 1
+				if chunkEnd >= item.TotalSize {
+					chunkEnd = item.TotalSize - 1
+				}
+
+				// 带重试下载并写入分片
+				written, err := d.downloadAndWriteChunkWithRetry(ctx, item.VideoURL, chunkStart, chunkEnd, file)
+				if err != nil {
+					errChan <- fmt.Errorf("failed to download chunk %d: %w", chunkIndex, err)
+					return
+				}
+
+				// 更新状态
+				mu.Lock()
+				downloadedSize += written
+				// 这里简单地增加 CurrentChunk，实际上多线程下 Completed 计数才是准确的
+				// 但为了兼容，保持每次加 1
+				state.CurrentChunk++
+
+				// 计算速度
+				now := time.Now()
+				elapsed := now.Sub(lastSpeedCalcTime).Seconds()
+				if elapsed >= 1.0 {
+					bytesDownloaded := downloadedSize - lastDownloadedSize
+					state.BytesPerSecond = int64(float64(bytesDownloaded) / elapsed)
+					lastSpeedCalcTime = now
+					lastDownloadedSize = downloadedSize
+				}
+
+				// 复制状态用于后续使用
+				currChunk := state.CurrentChunk
+				bytesPerSec := state.BytesPerSecond
+
+				mu.Unlock()
+
+				// 更新数据库中的进度（只做一次 DB 调用）
+				if err := d.queueService.UpdateProgress(item.ID, downloadedSize, currChunk, bytesPerSec); err != nil {
+					utils.Warn("[ChunkedDownloader] Failed to update progress: %v", err)
+				}
+
+				// 发送进度更新
+				d.sendProgress(ProgressUpdate{
+					QueueID:         item.ID,
+					DownloadedSize:  downloadedSize,
+					TotalSize:       item.TotalSize,
+					ChunksCompleted: currChunk,
+					ChunksTotal:     totalChunks,
+					Speed:           bytesPerSec,
+					Status:          database.QueueStatusDownloading,
+				})
+			}
+		}()
+	}
+
+	// 等待所有 worker 完成
+	wg.Wait()
+	close(errChan)
+
+	// 检查是否有错误
+	for e := range errChan {
+		if e != nil && e != context.Canceled {
+			return e
 		}
+	}
 
-		// 检查是否暂停
-		d.mu.RLock()
-		isPaused := state.IsPaused
-		d.mu.RUnlock()
-		if isPaused {
-			return nil
-		}
-
-		// 计算分片范围
-		chunkStart := int64(chunkIndex) * chunkSize
-		chunkEnd := chunkStart + chunkSize - 1
-		if chunkEnd >= item.TotalSize {
-			chunkEnd = item.TotalSize - 1
-		}
-
-		// 带重试下载分片
-		chunkBytes, err := d.downloadChunkWithRetry(ctx, item.VideoURL, chunkStart, chunkEnd)
-		if err != nil {
-			return fmt.Errorf("failed to download chunk %d: %w", chunkIndex, err)
-		}
-
-		// 将分片写入文件
-		if _, err := file.Write(chunkBytes); err != nil {
-			return fmt.Errorf("failed to write chunk %d: %w", chunkIndex, err)
-		}
-
-		downloadedSize += int64(len(chunkBytes))
-		state.CurrentChunk = chunkIndex + 1
-
-		// 计算速度
-		now := time.Now()
-		elapsed := now.Sub(lastSpeedCalcTime).Seconds()
-		if elapsed >= 1.0 {
-			bytesDownloaded := downloadedSize - lastDownloadedSize
-			state.BytesPerSecond = int64(float64(bytesDownloaded) / elapsed)
-			lastSpeedCalcTime = now
-			lastDownloadedSize = downloadedSize
-		}
-
-		// 更新数据库中的进度
-		if err := d.queueService.UpdateProgress(item.ID, downloadedSize, state.CurrentChunk, state.BytesPerSecond); err != nil {
-			utils.Warn("[ChunkedDownloader] Failed to update progress: %v", err)
-		}
-
-		// 发送进度更新
-		d.sendProgress(ProgressUpdate{
-			QueueID:         item.ID,
-			DownloadedSize:  downloadedSize,
-			TotalSize:       item.TotalSize,
-			ChunksCompleted: state.CurrentChunk,
-			ChunksTotal:     totalChunks,
-			Speed:           state.BytesPerSecond,
-			Status:          database.QueueStatusDownloading,
-		})
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	return nil
+}
+
+// downloadAndWriteChunkWithRetry 带重试逻辑下载并写入单个分片
+func (d *ChunkedDownloader) downloadAndWriteChunkWithRetry(ctx context.Context, url string, start, end int64, file *os.File) (int64, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= d.maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+
+		if attempt > 0 {
+			// 重试前等待（指数退避）
+			waitTime := time.Duration(attempt) * time.Second
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(waitTime):
+			}
+		}
+
+		written, err := d.downloadAndWriteChunk(ctx, url, start, end, file)
+		if err == nil {
+			return written, nil
+		}
+
+		lastErr = err
+		utils.Warn("[ChunkedDownloader] Chunk download failed (attempt %d/%d): %v", attempt+1, d.maxRetries+1, err)
+	}
+
+	return 0, fmt.Errorf("chunk download failed after %d retries: %w", d.maxRetries+1, lastErr)
+}
+
+// downloadAndWriteChunk 使用 HTTP Range 请求下载单个分片并直接写入文件缓冲
+func (d *ChunkedDownloader) downloadAndWriteChunk(ctx context.Context, url string, start, end int64, file *os.File) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// 设置部分内容的 Range 头
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 接受 200 (完整内容) 和 206 (部分内容)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	// 使用 io.Copy 代替 io.ReadAll，避免内存暴涨
+	// 创建一个专门用于此分片写入的 SectionWriter
+	writer := io.NewOffsetWriter(file, start)
+
+	written, err := io.Copy(writer, resp.Body)
+	if err != nil {
+		return written, fmt.Errorf("failed to write response to file: %w", err)
+	}
+
+	return written, nil
 }
 
 // downloadChunkWithRetry 带重试逻辑下载单个分片

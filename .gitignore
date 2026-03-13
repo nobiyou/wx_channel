@@ -107,6 +107,7 @@ config.yaml
 config.local.yaml
 config.local.json
 *.local.*
+hardware_fingerprint.json
 
 # 配置备份文件
 config.yaml---

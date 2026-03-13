@@ -83,6 +83,45 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	return item, nil
 }
 
+// GetByVideoID 根据 VideoID 获取队列项目
+func (r *QueueRepository) GetByVideoID(videoID string) (*QueueItem, error) {
+	query := `
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, total_size, downloaded_size,
+			status, priority, added_time, start_time, speed, chunk_size,
+			chunks_total, chunks_completed, retry_count, error_message,
+			created_at, updated_at
+		FROM download_queue WHERE video_id = ? LIMIT 1
+	`
+	item := &QueueItem{}
+	var startTime sql.NullTime
+	var errorMessage sql.NullString
+	var decryptKey sql.NullString
+	var coverURL sql.NullString
+	var resolution sql.NullString
+	err := r.db.QueryRow(query, videoID).Scan(
+		&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
+		&item.Duration, &resolution, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+		&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
+		&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
+		&errorMessage, &item.CreatedAt, &item.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get queue item by video id: %w", err)
+	}
+	if startTime.Valid {
+		item.StartTime = startTime.Time
+	}
+	item.CoverURL = coverURL.String
+	item.Resolution = resolution.String
+	item.ErrorMessage = errorMessage.String
+	item.DecryptKey = decryptKey.String
+	return item, nil
+}
+
 // Update 更新现有的队列项目
 func (r *QueueRepository) Update(item *QueueItem) error {
 	item.UpdatedAt = time.Now()
@@ -340,6 +379,32 @@ func (r *QueueRepository) CountByStatus(status string) (int64, error) {
 		return 0, fmt.Errorf("failed to count queue items by status: %w", err)
 	}
 	return count, nil
+}
+
+// GetQueueStats 返回队列的所有状态统计聚合
+func (r *QueueRepository) GetQueueStats() (total, pending, downloading, paused, completed, failed int64, err error) {
+	query := `
+		SELECT 
+			COUNT(*) as total,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as downloading,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as paused,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as failed
+		FROM download_queue
+	`
+	err = r.db.QueryRow(query,
+		QueueStatusPending,
+		QueueStatusDownloading,
+		QueueStatusPaused,
+		QueueStatusCompleted,
+		QueueStatusFailed,
+	).Scan(&total, &pending, &downloading, &paused, &completed, &failed)
+
+	if err != nil {
+		return 0, 0, 0, 0, 0, 0, fmt.Errorf("failed to get aggregated queue stats: %w", err)
+	}
+	return total, pending, downloading, paused, completed, failed, nil
 }
 
 // GetNextPending 获取下一个待处理的队列项目

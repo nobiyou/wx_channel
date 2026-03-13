@@ -26,6 +26,7 @@ type Node struct {
 	Hostname string    `json:"hostname"`
 	Version  string    `json:"version"`
 	IP       string    `json:"ip"`
+	Port     int       `json:"port" gorm:"default:2025"` // 客户端 API 端口
 	Status   string    `json:"status"` // online, offline
 	LastSeen time.Time `json:"last_seen"`
 
@@ -34,11 +35,12 @@ type Node struct {
 	BindStatus bool `json:"bind_status" gorm:"default:false"`
 
 	// Device Management (Phase 2)
-	DisplayName        string    `json:"display_name" gorm:"default:''"`                  // 用户自定义设备名称
-	HardwareFingerprint string   `json:"hardware_fingerprint,omitempty" gorm:"type:text"` // 硬件指纹 JSON
-	FirstSeen          time.Time `json:"first_seen"`                                      // 首次连接时间
-	IsLocked           bool      `json:"is_locked" gorm:"default:false"`                  // 是否锁定（防止转移）
-	DeviceGroup        string    `json:"device_group" gorm:"default:''"`                  // 设备分组
+	DisplayName         string    `json:"display_name" gorm:"default:''"`                  // 用户自定义设备名称
+	HardwareFingerprint string    `json:"hardware_fingerprint,omitempty" gorm:"type:text"` // 硬件指纹 JSON
+	FirstSeen           time.Time `json:"first_seen"`                                      // 首次连接时间
+	IsLocked            bool      `json:"is_locked" gorm:"default:false"`                  // 是否锁定（防止转移）
+	DeviceGroup         string    `json:"device_group" gorm:"default:''"`                  // 设备分组
+	SyncAPIURL          string    `json:"sync_api_url" gorm:"default:''"`                  // 同步 API 地址（可选，用于 NAT 穿透）
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

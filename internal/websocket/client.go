@@ -2,14 +2,15 @@ package websocket
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
+
 	"wx_channel/internal/utils"
 
 	"github.com/coder/websocket"
+	json "github.com/json-iterator/go"
 )
 
 // Client 表示一个 WebSocket 客户端连接
@@ -65,11 +66,46 @@ func (c *Client) ReadPump() {
 		c.Close()
 	}()
 
-	// 设置最大消息大小为 10MB
-	c.Conn.SetReadLimit(10 * 1024 * 1024)
+	// 设置最大消息大小为 1MB (而不是之前的10MB，防止恶意大包内存撑爆)
+	c.Conn.SetReadLimit(1 * 1024 * 1024)
 
 	// 启动 ping 循环
 	go c.pingLoop()
+
+	// Create a worker pool to limit concurrent API response processing
+	const numWorkers = 5
+	msgChan := make(chan WSMessage, 50)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range msgChan {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							utils.LogError("API 响应处理 panic: %v", r)
+						}
+					}()
+
+					var resp APICallResponse
+					if err := json.Unmarshal(msg.Data, &resp); err != nil {
+						utils.LogError("API 响应解析失败: %v", err)
+						return
+					}
+					c.hub.handleAPIResponse(resp)
+				}()
+			}
+		}()
+	}
+
+	// Ensure workers are cleaned up
+	defer func() {
+		close(msgChan)
+		wg.Wait()
+	}()
 
 	for {
 
@@ -102,22 +138,21 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		// 处理 API 响应（使用 goroutine 防止阻塞）
+		// 处理 API 响应（使用工作池防止 Goroutine 泛滥）
 		if msg.Type == WSMessageTypeAPIResponse {
-			go func(m WSMessage) {
-				defer func() {
-					if r := recover(); r != nil {
-						utils.LogError("API 响应处理 panic: %v", r)
-					}
-				}()
-
+			select {
+			case msgChan <- msg:
+				// Successfully pushed to worker pool
+			default:
+				utils.LogWarn("API Response queue is full, processing synchronously")
+				// Fallback to synchronous processing if queue is full
 				var resp APICallResponse
-				if err := json.Unmarshal(m.Data, &resp); err != nil {
+				if err := json.Unmarshal(msg.Data, &resp); err != nil {
 					utils.LogError("API 响应解析失败: %v", err)
-					return
+					continue
 				}
 				c.hub.handleAPIResponse(resp)
-			}(msg)
+			}
 		}
 	}
 }

@@ -13,6 +13,7 @@ type BrowseRecord struct {
 	Duration     int64     `json:"duration"`
 	Size         int64     `json:"size"`
 	Resolution   string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
+	FileFormat   string    `json:"fileFormat"` // 视频格式标识（例如 "xWT128", "xWT111"）
 	CoverURL     string    `json:"coverUrl"`
 	VideoURL     string    `json:"videoUrl"`
 	DecryptKey   string    `json:"decryptKey"` // 加密视频的解密密钥
@@ -156,4 +157,23 @@ func NewPagedResult[T any](items []T, total int64, page, pageSize int) *PagedRes
 		PageSize:   pageSize,
 		TotalPages: totalPages,
 	}
+}
+
+// RadarLog 表示雷达监控的单次执行记录
+type RadarLog struct {
+	ID           string    `json:"id"`
+	TargetID     string    `json:"target_id"`
+	CheckTime    time.Time `json:"check_time"`
+	FoundVideos  int       `json:"found_videos"`
+	NewVideos    int       `json:"new_videos"`
+	Status       string    `json:"status"` // success 或 error
+	ErrorMessage string    `json:"error_message"`
+	VideoList    string    `json:"video_list"` // JSON 数组，存储每个视频的详情摘要
+}
+
+// RadarVideoSummary 单次扫描中某个视频的摘要信息
+type RadarVideoSummary struct {
+	VideoID string `json:"video_id"`
+	Title   string `json:"title"`
+	IsNew   bool   `json:"is_new"` // true=新视频并已加入队列，false=已存在
 }

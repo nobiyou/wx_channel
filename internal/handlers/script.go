@@ -2152,10 +2152,18 @@ func (h *ScriptHandler) getLogPanelScript() string {
 	if h.getConfig().ShowLogButton {
 		showLogButton = "true"
 	}
+	
+	// 根据配置决定是否拦截日志（默认禁用以节省内存）
+	enableLogInterception := "false"
+	if h.getConfig().EnableLogInterception {
+		enableLogInterception = "true"
+	}
 
 	return `<script>
 // 日志按钮显示配置
 window.__wx_channels_show_log_button__ = ` + showLogButton + `;
+// 日志拦截配置（禁用可节省内存）
+window.__wx_channels_enable_log_interception__ = ` + enableLogInterception + `;
 </script>
 <script>
 (function() {
@@ -2167,16 +2175,21 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 	}
 	window.__wx_channels_log_panel_initialized__ = true;
 	
-	// 日志存储
+	// 日志存储（优化版 - 减少内存占用）
 	const logStore = {
 		logs: [],
-		maxLogs: 500, // 最多保存500条日志
+		maxLogs: 100, // 最多保存100条日志（从500降低）
+		updatePending: false,
+		lastCleanupTime: Date.now(),
+		cleanupInterval: 5 * 60 * 1000, // 每5分钟自动清理一次
+		
 		addLog: function(level, args) {
-			const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+			// 过滤掉过于频繁的日志（防止刷屏）
 			const message = Array.from(args).map(arg => {
 				if (typeof arg === 'object') {
 					try {
-						return JSON.stringify(arg, null, 2);
+						// 限制对象序列化深度，避免大对象占用过多内存
+						return JSON.stringify(arg, this.jsonReplacer, 2);
 					} catch (e) {
 						return String(arg);
 					}
@@ -2184,22 +2197,78 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 				return String(arg);
 			}).join(' ');
 			
+			// 跳过重复的日志（连续相同的日志只保留一条）
+			if (this.logs.length > 0) {
+				const lastLog = this.logs[this.logs.length - 1];
+				if (lastLog.level === level && lastLog.message === message) {
+					// 更新重复计数
+					lastLog.count = (lastLog.count || 1) + 1;
+					lastLog.timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+					this.scheduleUpdate();
+					return;
+				}
+			}
+			
+			const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
 			this.logs.push({
 				level: level,
 				message: message,
-				timestamp: timestamp
+				timestamp: timestamp,
+				count: 1
 			});
 			
-			// 限制日志数量
+			// 限制日志数量（移除最旧的日志）
 			if (this.logs.length > this.maxLogs) {
 				this.logs.shift();
 			}
 			
-			// 更新面板显示
-			if (window.__wx_channels_log_panel) {
-				window.__wx_channels_log_panel.updateDisplay();
+			// 定期自动清理（防止内存累积）
+			const now = Date.now();
+			if (now - this.lastCleanupTime > this.cleanupInterval) {
+				this.autoCleanup();
+				this.lastCleanupTime = now;
+			}
+			
+			// 批量更新显示（防止频繁DOM操作）
+			this.scheduleUpdate();
+		},
+		
+		// JSON序列化限制器（防止大对象）
+		jsonReplacer: function(key, value) {
+			// 限制字符串长度
+			if (typeof value === 'string' && value.length > 500) {
+				return value.substring(0, 500) + '... (truncated)';
+			}
+			// 限制数组长度
+			if (Array.isArray(value) && value.length > 10) {
+				return value.slice(0, 10).concat(['... (' + (value.length - 10) + ' more items)']);
+			}
+			return value;
+		},
+		
+		// 自动清理旧日志（保留最近50条）
+		autoCleanup: function() {
+			if (this.logs.length > 50) {
+				const removed = this.logs.length - 50;
+				this.logs = this.logs.slice(-50);
+				console.log('[日志面板] 自动清理了 ' + removed + ' 条旧日志');
 			}
 		},
+		
+		// 批量更新显示（防抖）
+		scheduleUpdate: function() {
+			if (this.updatePending) return;
+			this.updatePending = true;
+			
+			// 使用 requestAnimationFrame 批量更新
+			requestAnimationFrame(() => {
+				this.updatePending = false;
+				if (window.__wx_channels_log_panel) {
+					window.__wx_channels_log_panel.updateDisplay();
+				}
+			});
+		},
+		
 		clear: function() {
 			this.logs = [];
 			if (window.__wx_channels_log_panel) {
@@ -2473,9 +2542,11 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 		content.style.scrollbarWidth = 'thin';
 		content.style.scrollbarColor = '#555 #222';
 		
-		// 更新显示
+		// 更新显示（优化版 - 减少DOM操作）
 		function updateDisplay() {
-			content.innerHTML = '';
+			// 使用 DocumentFragment 批量更新DOM
+			const fragment = document.createDocumentFragment();
+			
 			logStore.logs.forEach(log => {
 				const logItem = document.createElement('div');
 				logItem.style.cssText = 'padding: 4px 8px;' +
@@ -2509,12 +2580,21 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 						levelPrefix = '[LOG]';
 				}
 				
+				// 显示重复计数
+				const countBadge = log.count > 1 ? 
+					'<span style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px; font-size: 10px; margin-left: 4px;">×' + log.count + '</span>' : '';
+				
 				logItem.innerHTML = '<span style="color: #888; font-size: 10px;">[' + log.timestamp + ']</span>' +
 					'<span style="color: ' + levelColor + '; font-weight: bold; margin: 0 4px;">' + levelPrefix + '</span>' +
+					countBadge +
 					'<span style="color: #fff;">' + escapeHtml(log.message) + '</span>';
 				
-				content.appendChild(logItem);
+				fragment.appendChild(logItem);
 			});
+			
+			// 一次性更新DOM
+			content.innerHTML = '';
+			content.appendChild(fragment);
 			
 			// 自动滚动到底部
 			content.scrollTop = content.scrollHeight;
@@ -2599,31 +2679,40 @@ window.__wx_channels_show_log_button__ = ` + showLogButton + `;
 		debug: console.debug.bind(console)
 	};
 	
-	// 重写console方法
-	console.log = function(...args) {
-		originalConsole.log.apply(console, args);
-		logStore.addLog('log', args);
-	};
+	// 重写console方法（可选 - 根据配置决定是否拦截）
+	// 如果不需要日志面板，可以完全禁用拦截以节省内存
+	const enableLogInterception = window.__wx_channels_enable_log_interception__ || false;
 	
-	console.info = function(...args) {
-		originalConsole.info.apply(console, args);
-		logStore.addLog('info', args);
-	};
-	
-	console.warn = function(...args) {
-		originalConsole.warn.apply(console, args);
-		logStore.addLog('warn', args);
-	};
-	
-	console.error = function(...args) {
-		originalConsole.error.apply(console, args);
-		logStore.addLog('error', args);
-	};
-	
-	console.debug = function(...args) {
-		originalConsole.debug.apply(console, args);
-		logStore.addLog('log', args);
-	};
+	if (enableLogInterception) {
+		console.log = function(...args) {
+			originalConsole.log.apply(console, args);
+			logStore.addLog('log', args);
+		};
+		
+		console.info = function(...args) {
+			originalConsole.info.apply(console, args);
+			logStore.addLog('info', args);
+		};
+		
+		console.warn = function(...args) {
+			originalConsole.warn.apply(console, args);
+			logStore.addLog('warn', args);
+		};
+		
+		console.error = function(...args) {
+			originalConsole.error.apply(console, args);
+			logStore.addLog('error', args);
+		};
+		
+		console.debug = function(...args) {
+			originalConsole.debug.apply(console, args);
+			logStore.addLog('log', args);
+		};
+		
+		console.log('[日志面板] 日志拦截已启用（可能占用内存）');
+	} else {
+		console.log('[日志面板] 日志拦截已禁用（节省内存模式）');
+	}
 	
 	// 创建浮动触发按钮（用于微信浏览器等无法使用快捷键的场景）
 	function createToggleButton() {

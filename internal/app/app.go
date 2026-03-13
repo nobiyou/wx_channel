@@ -61,6 +61,7 @@ type App struct {
 	// 服务
 	WSHub          *websocket.Hub
 	SearchService  *api.SearchService
+	RadarService   *services.RadarService  // 自动轮询雷达
 	GopeedService  *services.GopeedService // Add GopeedService
 	CloudConnector *cloud.Connector
 
@@ -318,6 +319,12 @@ func (app *App) Run() {
 
 	utils.Info("🔍 请打开需要下载的视频号页面进行下载")
 
+	// 启动对标雷达服务
+	queueService := services.NewQueueService()
+	radarRepo := database.NewRadarRepository()
+	app.RadarService = services.NewRadarService(radarRepo, queueService, app.WSHub)
+	app.RadarService.Start()
+
 	// 4. 【异步】处理 Windows 进程注入和连通性检查 (不阻塞主线程)
 	go func() {
 		// 如果是 Windows，尝试启动注入引擎
@@ -355,6 +362,11 @@ func (app *App) Run() {
 	// 启动时检查更新 - 已移动到 Run 函数开头
 
 	<-done
+
+	// 清理服务
+	if app.RadarService != nil {
+		app.RadarService.Stop()
+	}
 }
 
 // GlobalHttpCallback 桥接到单例 app 实例
@@ -445,10 +457,10 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 性能质变 - 数据库WAL模式 + 自动清理，拒绝膨胀")
-	color.Green("    • 体验升级 - 积分记录服务端分页，流畅加载海量数据")
-	color.Green("    • 界面重构 - 适配 PrimeVue，完美支持移动端访问")
-	color.Green("    • 底层优化 - 修复内存泄漏，提升长连接稳定性")
+	color.Green("    • 雷达重构 - 完全通过 feed_list 提取核心内容，告别超时")
+	color.Green("    • 后台捕获 - 自动无感探测最新视频，支持一键批量下载")
+	color.Green("    • 记录去重 - 修复同一视频下载记录出现多次的冗余 BUG")
+	color.Green("    • 下载优化 - 修复“全部恢复”对 pending 任务不生效的问题")
 	fmt.Println()
 }
 
