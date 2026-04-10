@@ -102,6 +102,9 @@ func (h *UploadHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	if h.HandleDownloadVideo(Conn) {
 		return true
 	}
+	if h.HandleSpecSizes(Conn) {
+		return true
+	}
 	return false
 }
 
@@ -1036,14 +1039,19 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 优先使用视频ID进行去重检查（如果提供了视频ID）
+	// 同一视频不同画质视为不同下载，允许并存
 	if !req.ForceSave && req.VideoID != "" && h.downloadService != nil {
-		if exists, err := h.downloadService.GetByID(req.VideoID); err == nil && exists != nil {
-			// DB记录中已存在该视频ID，说明已下载过，跳过下载
-			utils.Info("⏭️ [视频下载] 视频ID已存在记录中(DB)，跳过下载: ID=%s", req.VideoID)
+		// Construct the same composite key used for storage
+		lookupID := req.VideoID
+		if req.FileFormat != "" {
+			lookupID = req.VideoID + "_" + req.FileFormat
+		}
+		if exists, err := h.downloadService.GetByID(lookupID); err == nil && exists != nil {
+			utils.Info("⏭️ [视频下载] 视频ID+格式已存在(DB)，跳过: ID=%s format=%s", req.VideoID, req.FileFormat)
 			responseData := map[string]interface{}{
 				"success": true,
 				"skipped": true,
-				"message": "视频已下载（基于ID检查）",
+				"message": "视频已下载（基于ID+格式检查）",
 			}
 			responseBytes, _ := json.Marshal(responseData)
 			h.sendJSONResponse(Conn, 200, responseBytes)
@@ -1235,19 +1243,24 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	if needDecrypt {
 		statusMsg = " [已解密]"
 	}
-	utils.Info("✓ [视频下载] 视频已保存" + statusMsg)
+	utils.Info("✓ [视频下载] 视频已保存%s", statusMsg)
 
 	// 保存下载记录
 	if h.downloadService != nil {
+		// 多画质下载时，ID 需要包含 fileFormat 以区分不同画质记录
+		recordID := req.VideoID
+		if req.FileFormat != "" {
+			recordID = req.VideoID + "_" + req.FileFormat
+		}
 		record := &database.DownloadRecord{
-			ID:           req.VideoID,
+			ID:           recordID,
 			VideoID:      req.VideoID,
 			Title:        req.Title,
 			Author:       req.Author,
 			Duration:     0, // 暂时无法获取准确时长，除非前端传递
 			FileSize:     int64(stat.Size()),
 			FilePath:     videoPath,
-			Format:       "mp4",
+			Format:       req.FileFormat,
 			Resolution:   req.Resolution,
 			Status:       database.DownloadStatusCompleted,
 			DownloadTime: time.Now(),
@@ -1637,6 +1650,92 @@ func (h *UploadHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn) {
 		}
 	}
 	Conn.StopRequest(200, string(response.SuccessJSON(nil)), headers)
+}
+
+// HandleSpecSizes 并行 HEAD 请求获取各画质的真实文件大小
+func (h *UploadHandler) HandleSpecSizes(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/spec_sizes" {
+		return false
+	}
+	if Conn.Request.Method != "POST" {
+		h.sendErrorResponse(Conn, fmt.Errorf("method not allowed"))
+		return true
+	}
+	if Conn.Request.Body == nil {
+		h.sendErrorResponse(Conn, fmt.Errorf("request body is nil"))
+		return true
+	}
+
+	body, err := io.ReadAll(Conn.Request.Body)
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	defer Conn.Request.Body.Close()
+
+	var req struct {
+		BaseURL string   `json:"baseUrl"`
+		Formats []string `json:"formats"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	if req.BaseURL == "" || len(req.Formats) == 0 {
+		h.sendErrorResponse(Conn, fmt.Errorf("baseUrl and formats are required"))
+		return true
+	}
+	// Validate baseUrl against known WeChat CDN domains to prevent SSRF
+	if !strings.HasPrefix(req.BaseURL, "https://finder.video.qq.com/") &&
+		!strings.HasPrefix(req.BaseURL, "https://findermp.video.qq.com/") {
+		h.sendErrorResponse(Conn, fmt.Errorf("baseUrl must be a WeChat CDN domain"))
+		return true
+	}
+
+	type sizeResult struct {
+		Format string `json:"format"`
+		Size   int64  `json:"size"`
+	}
+
+	results := make([]sizeResult, len(req.Formats))
+	var wg sync.WaitGroup
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	for i, format := range req.Formats {
+		wg.Add(1)
+		go func(idx int, fmtStr string) {
+			defer wg.Done()
+			url := req.BaseURL + "&X-snsvideoflag=" + fmtStr
+			headReq, err := http.NewRequestWithContext(
+				context.Background(), "HEAD", url, nil,
+			)
+			if err != nil {
+				results[idx] = sizeResult{Format: fmtStr, Size: 0}
+				return
+			}
+			resp, err := client.Do(headReq)
+			if err != nil {
+				results[idx] = sizeResult{Format: fmtStr, Size: 0}
+				return
+			}
+			resp.Body.Close()
+			results[idx] = sizeResult{Format: fmtStr, Size: resp.ContentLength}
+		}(i, format)
+	}
+	wg.Wait()
+
+	sizeMap := make(map[string]int64, len(results))
+	for _, r := range results {
+		sizeMap[r.Format] = r.Size
+	}
+
+	h.sendJSONResponse(Conn, 200, map[string]interface{}{
+		"success": true,
+		"sizes":   sizeMap,
+	})
+	return true
 }
 
 // sendJSONResponse 发送JSON响应 (Assuming body is the Data part of standard response, or needs to be wrapped)

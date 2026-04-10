@@ -219,6 +219,115 @@ var WXU = (() => {
     return null;
   }
 
+  // ==================== 画质排序与真实大小获取 ====================
+
+  /**
+   * 按像素数降序排列 spec，返回排序后的副本（不修改原数组）。
+   * 标记 isBest，不做文件大小估算（由 HEAD 请求异步获取真实值）。
+   */
+  function __wx_sort_specs(specArr) {
+    if (!specArr || specArr.length === 0) return [];
+    var sorted = specArr.slice().map(function(s) {
+      return Object.assign({}, s, {
+        pixels: (s.width || 0) * (s.height || 0)
+      });
+    });
+    sorted.sort(function(a, b) { return b.pixels - a.pixels; });
+    sorted.forEach(function(s, i) { s.isBest = (i === 0); });
+    return sorted;
+  }
+
+  /**
+   * 选出最佳画质 spec（像素数最大），供 batch_download 使用
+   */
+  function __wx_pick_best_spec(specArr) {
+    if (!specArr || specArr.length === 0) return null;
+    var best = specArr[0];
+    var bestPixels = (best.width || 0) * (best.height || 0);
+    for (var i = 1; i < specArr.length; i++) {
+      var px = (specArr[i].width || 0) * (specArr[i].height || 0);
+      if (px > bestPixels) {
+        best = specArr[i];
+        bestPixels = px;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 格式化文件大小为可读字符串
+   */
+  function __wx_format_size(bytes) {
+    if (!bytes || bytes <= 0) return '';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + 'KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
+  }
+
+  /**
+   * 生成画质选项的显示标签（仅分辨率 + 推荐标记）
+   */
+  function __wx_spec_label(spec) {
+    var label = spec.fileFormat || '未知';
+    if (spec.width && spec.height) {
+      label += ' (' + spec.width + 'x' + spec.height + ')';
+    }
+    if (spec.isBest) label += ' ★';
+    return label;
+  }
+
+  /**
+   * 异步获取各画质的真实文件大小，通过后端 HEAD 请求。
+   * 拿到结果后更新 DOM 中对应选项的文字。
+   * @param {string} baseUrl - 视频基础 URL（含 urlToken）
+   * @param {Array} sortedSpecs - 排序后的 spec 数组
+   * @param {number} durationMs - 视频时长（ms），用于计算真实码率
+   * @param {string} menuId - 菜单容器的 DOM id，用于判断菜单是否还在
+   */
+  function __wx_fetch_spec_sizes(baseUrl, sortedSpecs, durationMs, menuId) {
+    if (!baseUrl || !sortedSpecs || sortedSpecs.length === 0) return;
+    var formats = sortedSpecs.map(function(s) { return s.fileFormat; });
+    var durationSec = (durationMs || 1) / 1000;
+
+    fetch('/__wx_channels_api/spec_sizes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: baseUrl, formats: formats })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(data) {
+      if (!data.success || !data.sizes) return;
+      // 确认菜单还在 DOM 中
+      var menu = document.getElementById(menuId);
+      if (!menu) return;
+
+      sortedSpecs.forEach(function(spec, index) {
+        var size = data.sizes[spec.fileFormat];
+        if (!size || size <= 0) return;
+        var el = menu.querySelector('[data-spec-index="' + index + '"] .spec-size-info');
+        if (!el) return;
+        var bitrate = Math.round(size * 8 / durationSec);
+        var sizeStr = __wx_format_size(size);
+        var brStr = '';
+        if (bitrate > 0) {
+          brStr = bitrate < 1000000
+            ? (bitrate / 1000).toFixed(0) + 'Kbps'
+            : (bitrate / 1000000).toFixed(1) + 'Mbps';
+        }
+        el.textContent = sizeStr + (brStr ? ' ' + brStr : '');
+      });
+    })
+    .catch(function(err) {
+      console.warn('[spec_sizes] HEAD request failed:', err);
+    });
+  }
+
+  // 暴露到全局
+  window.__wx_sort_specs = __wx_sort_specs;
+  window.__wx_pick_best_spec = __wx_pick_best_spec;
+  window.__wx_spec_label = __wx_spec_label;
+  window.__wx_format_size = __wx_format_size;
+  window.__wx_fetch_spec_sizes = __wx_fetch_spec_sizes;
+
   function __wx_channels_copy(text) {
     var textArea = document.createElement("textarea");
     textArea.value = text;

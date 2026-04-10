@@ -1,3 +1,5 @@
+//go:build darwin
+
 package proxy
 
 import (
@@ -36,6 +38,7 @@ type HardwarePort struct {
 	Interface string
 }
 
+// EnableProxyInMacOS sets system-wide HTTP/HTTPS proxy (legacy, affects all apps).
 func EnableProxyInMacOS(args ProxySettings) error {
 	args = args.WithDefaults()
 	cmd1 := exec.Command("networksetup", "-setwebproxy", args.Device, args.Hostname, args.Port)
@@ -51,18 +54,39 @@ func EnableProxyInMacOS(args ProxySettings) error {
 	return nil
 }
 
+// EnablePACProxyInMacOS sets auto proxy via PAC file (only routes specified domains).
+// This does NOT conflict with Clash TUN — non-matching domains go DIRECT.
+func EnablePACProxyInMacOS(args ProxySettings, pacURL string) error {
+	args = args.WithDefaults()
+	cmd := exec.Command("networksetup", "-setautoproxyurl", args.Device, pacURL)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("设置 PAC 代理失败: %v, %s", err, string(output))
+	}
+	return nil
+}
+
+// DisablePACProxyInMacOS disables the auto proxy configuration.
+func DisablePACProxyInMacOS(args ProxySettings) error {
+	args = args.WithDefaults()
+	cmd := exec.Command("networksetup", "-setautoproxystate", args.Device, "off")
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("禁用 PAC 代理失败: %v", err)
+	}
+	return nil
+}
+
 func DisableProxyInMacOS(args ProxySettings) error {
 	args = args.WithDefaults()
+	// Disable manual proxy
 	cmd1 := exec.Command("networksetup", "-setwebproxystate", args.Device, "off")
-	_, err1 := cmd1.Output()
-	if err1 != nil {
-		return fmt.Errorf("禁用 HTTP 代理失败，%v", err1.Error())
-	}
+	_, _ = cmd1.Output()
 	cmd2 := exec.Command("networksetup", "-setsecurewebproxystate", args.Device, "off")
-	_, err2 := cmd2.Output()
-	if err2 != nil {
-		return fmt.Errorf("禁用 HTTPS 代理失败，%v", err2.Error())
-	}
+	_, _ = cmd2.Output()
+	// Also disable PAC proxy
+	cmd3 := exec.Command("networksetup", "-setautoproxystate", args.Device, "off")
+	_, _ = cmd3.Output()
 	return nil
 }
 

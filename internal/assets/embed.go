@@ -7,6 +7,11 @@ import (
 //go:embed certs/SunnyRoot.cer
 var CertData []byte
 
+// MitmCACert and MitmCAKey are populated at runtime by certgen.EnsureCA()
+// instead of being embedded, so that private keys are never committed to the repo.
+var MitmCACert []byte
+var MitmCAKey []byte
+
 //go:embed lib/FileSaver.min.js
 var FileSaverJS []byte
 
@@ -51,3 +56,6 @@ var APIClientJS []byte
 
 //go:embed inject/keep_alive.js
 var KeepAliveJS []byte
+
+//go:embed proxy.pac
+var ProxyPAC []byte
