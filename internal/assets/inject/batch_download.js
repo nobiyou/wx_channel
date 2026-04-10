@@ -833,16 +833,24 @@ async function __batch_download_selected__() {
       var resolution = '';
       var width = 0, height = 0;
 
+      // 自动选择最佳画质
+      var bestSpec = null;
       if (video.spec && video.spec.length > 0) {
-        var firstSpec = video.spec[0];
-        width = firstSpec.width || 0;
-        height = firstSpec.height || 0;
+        bestSpec = window.__wx_pick_best_spec ? window.__wx_pick_best_spec(video.spec) : video.spec[0];
+        width = bestSpec.width || 0;
+        height = bestSpec.height || 0;
         resolution = width && height ? (width + 'x' + height) : '';
+      }
+
+      // 拼接画质参数到 URL（修复：原版未加 X-snsvideoflag，导致批量下载画质不确定）
+      var downloadUrl = video.url || '';
+      if (bestSpec && bestSpec.fileFormat && downloadUrl) {
+        downloadUrl += (downloadUrl.indexOf('?') >= 0 ? '&' : '?') + 'X-snsvideoflag=' + bestSpec.fileFormat;
       }
 
       return {
         id: video.id || '',
-        url: video.url || '',
+        url: downloadUrl,
         title: video.title || video.id || String(Date.now()),
         author: authorName,
         key: video.key || '',

@@ -219,6 +219,96 @@ var WXU = (() => {
     return null;
   }
 
+  // ==================== 画质排序与码率估算 ====================
+
+  /**
+   * 按像素数降序排列 spec，返回排序后的副本（不修改原数组）。
+   * 每个 spec 会被增强：添加 pixels, estSize, estBitrate, isBest 字段。
+   * @param {Array} specArr - 原始 spec 数组
+   * @param {number} totalSize - 视频总大小 (bytes)，来自 media.fileSize
+   * @param {number} durationMs - 视频时长 (ms)
+   * @returns {Array} 排序后的 spec 数组
+   */
+  function __wx_sort_specs(specArr, totalSize, durationMs) {
+    if (!specArr || specArr.length === 0) return [];
+    var sorted = specArr.slice().map(function(s) {
+      return Object.assign({}, s, {
+        pixels: (s.width || 0) * (s.height || 0)
+      });
+    });
+    sorted.sort(function(a, b) { return b.pixels - a.pixels; });
+
+    // 估算各画质文件大小和码率
+    var maxPixels = sorted[0].pixels || 1;
+    var durationSec = (durationMs || 1) / 1000;
+    sorted.forEach(function(s, i) {
+      var ratio = s.pixels > 0 ? s.pixels / maxPixels : 0.5;
+      // 粗估：按像素比例缩放总大小（实际编码不完全线性，但足够参考）
+      s.estSize = totalSize ? Math.round(totalSize * ratio) : 0;
+      s.estBitrate = s.estSize > 0 ? Math.round(s.estSize * 8 / durationSec) : 0;
+      s.isBest = (i === 0);
+    });
+    return sorted;
+  }
+
+  /**
+   * 选出最佳画质 spec（像素数最大）
+   */
+  function __wx_pick_best_spec(specArr) {
+    if (!specArr || specArr.length === 0) return null;
+    var best = specArr[0];
+    var bestPixels = (best.width || 0) * (best.height || 0);
+    for (var i = 1; i < specArr.length; i++) {
+      var px = (specArr[i].width || 0) * (specArr[i].height || 0);
+      if (px > bestPixels) {
+        best = specArr[i];
+        bestPixels = px;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 格式化文件大小为可读字符串
+   */
+  function __wx_format_size(bytes) {
+    if (!bytes || bytes <= 0) return '';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + 'KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
+  }
+
+  /**
+   * 格式化码率为可读字符串
+   */
+  function __wx_format_bitrate(bps) {
+    if (!bps || bps <= 0) return '';
+    if (bps < 1000000) return (bps / 1000).toFixed(0) + 'Kbps';
+    return (bps / 1000000).toFixed(1) + 'Mbps';
+  }
+
+  /**
+   * 生成画质选项的显示标签（含分辨率、估算大小、码率）
+   */
+  function __wx_spec_label(spec) {
+    var label = spec.fileFormat || '未知';
+    if (spec.width && spec.height) {
+      label += ' (' + spec.width + 'x' + spec.height + ')';
+    }
+    var extras = [];
+    if (spec.estSize > 0) extras.push('~' + __wx_format_size(spec.estSize));
+    if (spec.estBitrate > 0) extras.push(__wx_format_bitrate(spec.estBitrate));
+    if (extras.length > 0) label += ' ' + extras.join(' ');
+    if (spec.isBest) label += ' ★';
+    return label;
+  }
+
+  // 暴露到全局
+  window.__wx_sort_specs = __wx_sort_specs;
+  window.__wx_pick_best_spec = __wx_pick_best_spec;
+  window.__wx_spec_label = __wx_spec_label;
+  window.__wx_format_size = __wx_format_size;
+  window.__wx_format_bitrate = __wx_format_bitrate;
+
   function __wx_channels_copy(text) {
     var textArea = document.createElement("textarea");
     textArea.value = text;

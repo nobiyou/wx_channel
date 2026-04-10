@@ -545,15 +545,17 @@ function __show_feed_download_options(profile) {
   // 选项区域
   html += '<div style="padding:16px 20px;">';
 
-  // 视频下载选项
+  // 视频下载选项（按画质排序，标注码率和推荐）
   if (profile.spec && profile.spec.length > 0) {
+    var sortedSpecs = window.__wx_sort_specs ? window.__wx_sort_specs(profile.spec, profile.size, profile.duration) : profile.spec;
+    profile._sortedSpecs = sortedSpecs;
     html += '<div style="margin-bottom:12px;font-size:12px;color:#999;">选择画质:</div>';
-    profile.spec.forEach(function (spec, index) {
-      var label = spec.fileFormat || ('画质' + (index + 1));
-      if (spec.width && spec.height) {
-        label += ' (' + spec.width + 'x' + spec.height + ')';
-      }
-      html += '<div class="download-option" data-index="' + index + '" style="padding:10px 16px;margin:8px 0;background:rgba(255,255,255,0.08);border-radius:6px;cursor:pointer;text-align:center;transition:background 0.2s;font-size:13px;">' + label + '</div>';
+    sortedSpecs.forEach(function (spec, index) {
+      var label = window.__wx_spec_label ? window.__wx_spec_label(spec) : (spec.fileFormat || ('画质' + (index + 1)));
+      var bgColor = spec.isBest ? 'rgba(7,193,96,0.15)' : 'rgba(255,255,255,0.08)';
+      var textColor = spec.isBest ? '#07c160' : '#e5e5e5';
+      var extraStyle = spec.isBest ? 'border:1px solid rgba(7,193,96,0.3);font-weight:500;' : '';
+      html += '<div class="download-option" data-index="' + index + '" data-sorted="true" style="padding:10px 16px;margin:8px 0;background:' + bgColor + ';color:' + textColor + ';border-radius:6px;cursor:pointer;text-align:center;transition:background 0.2s;font-size:13px;' + extraStyle + '">' + label + '</div>';
     });
   } else {
     html += '<div class="download-option" data-index="-1" style="padding:10px 16px;margin:8px 0;background:rgba(255,255,255,0.08);border-radius:6px;cursor:pointer;text-align:center;font-size:13px;">下载视频</div>';
@@ -602,7 +604,9 @@ function __show_feed_download_options(profile) {
     el.onmouseout = function () { this.style.background = 'rgba(255,255,255,0.08)'; };
     el.onclick = function () {
       var index = parseInt(this.getAttribute('data-index'));
-      var spec = index >= 0 && profile.spec ? profile.spec[index] : null;
+      var isSorted = this.getAttribute('data-sorted') === 'true';
+      var specArr = isSorted && profile._sortedSpecs ? profile._sortedSpecs : profile.spec;
+      var spec = index >= 0 && specArr ? specArr[index] : null;
       closeMenu();
       __wx_channels_handle_click_download__(spec);
     };
