@@ -1,3 +1,5 @@
+//go:build darwin
+
 package SunnyNet
 
 import (
@@ -13,33 +15,6 @@ import (
 
 	"github.com/elazarl/goproxy"
 )
-
-// HttpConn represents a proxied HTTP connection.
-// Compatible with the original SunnyNet HttpConn type.
-type HttpConn struct {
-	Type     int
-	Request  *http.Request
-	Response *http.Response
-
-	// Internal: whether StopRequest was called
-	stopped    bool
-	stopCode   int
-	stopBody   string
-	stopHeader http.Header
-}
-
-// StopRequest halts further processing and sends a synthetic response.
-func (c *HttpConn) StopRequest(statusCode int, body string, headers http.Header) {
-	c.stopped = true
-	c.stopCode = statusCode
-	c.stopBody = body
-	c.stopHeader = headers
-}
-
-// IsStopped returns whether StopRequest was called.
-func (c *HttpConn) IsStopped() bool {
-	return c.stopped
-}
 
 // Sunny is the main MITM proxy engine.
 // On macOS, it uses goproxy for HTTPS interception.
@@ -85,8 +60,7 @@ func (s *Sunny) SetCACert(certPEM, keyPEM []byte) error {
 }
 
 // filteredWriter filters out noisy "Unsolicited response" log lines from Go's
-// net/http transport. These occur when WeChat CDN pushes data on idle keep-alive
-// connections — harmless but pollutes the console.
+// net/http transport.
 type filteredWriter struct {
 	out io.Writer
 }
@@ -136,7 +110,6 @@ func (s *Sunny) Start() *Sunny {
 		s.callback(conn)
 
 		if conn.IsStopped() {
-			// Handler wants to send a synthetic response
 			resp := &http.Response{
 				StatusCode: conn.stopCode,
 				Header:     conn.stopHeader,
@@ -168,7 +141,6 @@ func (s *Sunny) Start() *Sunny {
 		}
 		s.callback(conn)
 
-		// The handlers may have modified resp.Body or resp.Header in place
 		return conn.Response
 	})
 
@@ -197,21 +169,10 @@ func (s *Sunny) GetCallback() func(*HttpConn) {
 }
 
 // ProcessAddName is a Windows-only feature (process injection). No-op on macOS.
-func (s *Sunny) ProcessAddName(name string) {
-	// No-op: process injection is Windows-only.
-	// On macOS, system proxy is used instead.
-}
+func (s *Sunny) ProcessAddName(name string) {}
 
 // StartProcess is a Windows-only feature (process injection). No-op on macOS.
-func (s *Sunny) StartProcess() bool {
-	// No-op: process injection is Windows-only.
-	return false
-}
+func (s *Sunny) StartProcess() bool { return false }
 
 // OpenDrive is a Windows-only feature. No-op on macOS.
-func (s *Sunny) OpenDrive(flag bool) bool {
-	return true
-}
-
-// Ensure bytes import is used (for future use in response body handling)
-var _ = bytes.NewBuffer
+func (s *Sunny) OpenDrive(flag bool) bool { return true }

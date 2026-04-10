@@ -160,11 +160,24 @@ func removeCertificateInWindows(cert_name string) error {
 }
 
 func removeCertificateInMacOS(cert_name string) error {
-	cmd := fmt.Sprintf("security delete-certificate -c '%s' /Library/Keychains/System.keychain", cert_name)
-	ps := exec.Command("bash", "-c", cmd)
-	output, err := ps.CombinedOutput()
-	if err != nil {
-		return errors.New(fmt.Sprintf("删除证书时发生错误，%v\n", output))
+	// Delete from ALL keychains where the cert may exist (login + System)
+	homeDir, _ := os.UserHomeDir()
+	keychains := []string{
+		homeDir + "/Library/Keychains/login.keychain-db",
+		"/Library/Keychains/System.keychain",
+	}
+	var lastErr error
+	deleted := false
+	for _, kc := range keychains {
+		cmd := exec.Command("security", "delete-certificate", "-c", cert_name, kc)
+		if _, err := cmd.CombinedOutput(); err == nil {
+			deleted = true
+		} else {
+			lastErr = err
+		}
+	}
+	if !deleted && lastErr != nil {
+		return fmt.Errorf("删除证书时发生错误: %v", lastErr)
 	}
 	return nil
 }

@@ -10,10 +10,9 @@ var CertData []byte
 //go:embed certs/SunnyRoot.key
 var CertKey []byte
 
-//go:embed certs/mitm_ca.pem
+// MitmCACert and MitmCAKey are populated at runtime by certgen.EnsureCA()
+// instead of being embedded, so that private keys are never committed to the repo.
 var MitmCACert []byte
-
-//go:embed certs/mitm_ca.key
 var MitmCAKey []byte
 
 //go:embed lib/FileSaver.min.js

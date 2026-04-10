@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"runtime"
 
 	"wx_channel/internal/assets"
 	"wx_channel/internal/response"
@@ -9,6 +10,14 @@ import (
 
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
+
+// certNameAndData returns the platform-appropriate cert name and data.
+func certNameAndData() (string, []byte) {
+	if runtime.GOOS == "darwin" {
+		return "WxChannel macOS MITM CA", assets.MitmCACert
+	}
+	return "SunnyNet", assets.CertData
+}
 
 // CertificateService 证书服务
 type CertificateService struct {
@@ -24,8 +33,8 @@ func NewCertificateService(sunny *SunnyNet.Sunny) *CertificateService {
 
 // GetStatus 获取证书状态
 func (s *CertificateService) GetStatus(w http.ResponseWriter, r *http.Request) {
-	// 检查 "SunnyNet" 证书是否安装
-	installed, err := certificate.CheckCertificate("SunnyNet")
+	certName, _ := certNameAndData()
+	installed, err := certificate.CheckCertificate(certName)
 	if err != nil {
 		response.Error(w, 500, "Failed to check certificate: "+err.Error())
 		return
@@ -33,19 +42,16 @@ func (s *CertificateService) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	status := map[string]interface{}{
 		"installed": installed,
-		"name":      "SunnyNet",
+		"name":      certName,
 	}
 	response.Success(w, status)
 }
 
 // Install 安装证书
 func (s *CertificateService) Install(w http.ResponseWriter, r *http.Request) {
-	// 调用 pkg/certificate 进行安装
-	// 使用内置的证书数据
-	// 注意：assets.CertData 是 []byte 类型
-	err := certificate.InstallCertificate(assets.CertData)
+	_, certData := certNameAndData()
+	err := certificate.InstallCertificate(certData)
 	if err != nil {
-		// 证书安装可能因为用户取消或权限不足失败
 		response.Error(w, 500, "Failed to install certificate: "+err.Error())
 		return
 	}

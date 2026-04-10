@@ -1243,19 +1243,24 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	if needDecrypt {
 		statusMsg = " [已解密]"
 	}
-	utils.Info("✓ [视频下载] 视频已保存" + statusMsg)
+	utils.Info("✓ [视频下载] 视频已保存%s", statusMsg)
 
 	// 保存下载记录
 	if h.downloadService != nil {
+		// 多画质下载时，ID 需要包含 fileFormat 以区分不同画质记录
+		recordID := req.VideoID
+		if req.FileFormat != "" {
+			recordID = req.VideoID + "_" + req.FileFormat
+		}
 		record := &database.DownloadRecord{
-			ID:           req.VideoID,
+			ID:           recordID,
 			VideoID:      req.VideoID,
 			Title:        req.Title,
 			Author:       req.Author,
 			Duration:     0, // 暂时无法获取准确时长，除非前端传递
 			FileSize:     int64(stat.Size()),
 			FilePath:     videoPath,
-			Format:       "mp4",
+			Format:       req.FileFormat,
 			Resolution:   req.Resolution,
 			Status:       database.DownloadStatusCompleted,
 			DownloadTime: time.Now(),

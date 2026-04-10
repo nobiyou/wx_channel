@@ -30,6 +30,7 @@ import (
 	"wx_channel/internal/storage"
 	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
+	"wx_channel/pkg/certgen"
 	"wx_channel/pkg/certificate"
 	"wx_channel/pkg/proxy"
 
@@ -183,7 +184,7 @@ func (app *App) Run() {
 		utils.HandleError(err, "初始化下载记录系统")
 	} else {
 		if app.LogInitMsg != "" {
-			utils.Info(app.LogInitMsg)
+			utils.Info("%s", app.LogInitMsg)
 			app.LogInitMsg = ""
 		}
 	}
@@ -246,6 +247,20 @@ func (app *App) Run() {
 	}
 	app.responseInterceptors = []router.Interceptor{
 		app.ScriptHandler,
+	}
+
+	// On macOS, generate (or load) a per-machine MITM CA cert+key at runtime.
+	// Private key never leaves the local machine and is never committed to the repo.
+	if os_env == "darwin" {
+		homeDir, _ := os.UserHomeDir()
+		dataDir := filepath.Join(homeDir, ".wx_channel")
+		certPEM, keyPEM, err := certgen.EnsureCA(dataDir)
+		if err != nil {
+			utils.LogError("生成/加载 MITM CA 失败: %v", err)
+		} else {
+			assets.MitmCACert = certPEM
+			assets.MitmCAKey = keyPEM
+		}
 	}
 
 	// On macOS, use our own MITM CA cert; on Windows, use the original SunnyNet cert
