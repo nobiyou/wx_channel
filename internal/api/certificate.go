@@ -61,10 +61,11 @@ func (s *CertificateService) Install(w http.ResponseWriter, r *http.Request) {
 
 // Download 下载证书
 func (s *CertificateService) Download(w http.ResponseWriter, r *http.Request) {
-	// 提供证书下载，方便用户手动安装
-	w.Header().Set("Content-Disposition", "attachment; filename=SunnyRoot.cer")
+	certName, certData := certNameAndData()
+	filename := certName + ".cer"
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
-	w.Write(assets.CertData)
+	w.Write(certData)
 }
 
 // RegisterRoutes 注册路由

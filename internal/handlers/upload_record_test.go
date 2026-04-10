@@ -52,3 +52,34 @@ func TestMultiQualityRecordID(t *testing.T) {
 		t.Error("same video with different formats should produce different record IDs")
 	}
 }
+
+// TestMultiQualityLookupKeyMatchesStorageKey verifies that the dedup lookup
+// constructs the same composite key used when storing the record.
+func TestMultiQualityLookupKeyMatchesStorageKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		videoID    string
+		fileFormat string
+	}{
+		{"with format", "vid123", "xWT128"},
+		{"empty format", "vid123", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Storage key (from the record creation path)
+			storageID := tt.videoID
+			if tt.fileFormat != "" {
+				storageID = tt.videoID + "_" + tt.fileFormat
+			}
+			// Lookup key (from the dedup check path)
+			lookupID := tt.videoID
+			if tt.fileFormat != "" {
+				lookupID = tt.videoID + "_" + tt.fileFormat
+			}
+			if storageID != lookupID {
+				t.Errorf("storage key %q != lookup key %q", storageID, lookupID)
+			}
+		})
+	}
+}

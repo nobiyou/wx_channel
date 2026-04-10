@@ -7,9 +7,6 @@ import (
 //go:embed certs/SunnyRoot.cer
 var CertData []byte
 
-//go:embed certs/SunnyRoot.key
-var CertKey []byte
-
 // MitmCACert and MitmCAKey are populated at runtime by certgen.EnsureCA()
 // instead of being embedded, so that private keys are never committed to the repo.
 var MitmCACert []byte

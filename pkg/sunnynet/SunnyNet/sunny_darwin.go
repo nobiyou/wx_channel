@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -144,11 +145,17 @@ func (s *Sunny) Start() *Sunny {
 		return conn.Response
 	})
 
-	// Start the proxy server in a goroutine
+	// Start the proxy server — bind synchronously so port conflicts are caught immediately
 	addr := fmt.Sprintf(":%d", s.port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("[MITM] Proxy server error: %v", err)
+		s.Error = err
+		return s
+	}
+	log.Printf("[MITM] Starting proxy on %s", addr)
 	go func() {
-		log.Printf("[MITM] Starting proxy on %s", addr)
-		if err := http.ListenAndServe(addr, s.proxy); err != nil {
+		if err := http.Serve(ln, s.proxy); err != nil {
 			log.Printf("[MITM] Proxy server error: %v", err)
 			s.Error = err
 		}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -411,13 +412,25 @@ func (app *App) Run() {
 		// 执行连通性自检（通过代理访问微信视频号域名验证 MITM 链路）
 		time.Sleep(1 * time.Second)
 		proxy_server := fmt.Sprintf("127.0.0.1:%v", app.Port)
+
+		// Build a TLS config that verifies the MITM CA is trusted, not InsecureSkipVerify
+		tlsCfg := &tls.Config{}
+		if os_env == "darwin" && len(assets.MitmCACert) > 0 {
+			pool, _ := x509.SystemCertPool()
+			if pool == nil {
+				pool = x509.NewCertPool()
+			}
+			pool.AppendCertsFromPEM(assets.MitmCACert)
+			tlsCfg.RootCAs = pool
+		}
+
 		client := &http.Client{
 			Transport: &http.Transport{
 				Proxy: http.ProxyURL(&url.URL{
 					Scheme: "http",
 					Host:   proxy_server,
 				}),
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: tlsCfg,
 			},
 			Timeout: 5 * time.Second,
 		}

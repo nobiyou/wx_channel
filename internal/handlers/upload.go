@@ -1041,21 +1041,21 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	// 优先使用视频ID进行去重检查（如果提供了视频ID）
 	// 同一视频不同画质视为不同下载，允许并存
 	if !req.ForceSave && req.VideoID != "" && h.downloadService != nil {
-		if exists, err := h.downloadService.GetByID(req.VideoID); err == nil && exists != nil {
-			// fileFormat 相同才跳过（不同 fileFormat 即使同分辨率也是不同编码/码率）
-			existingFormat := exists.Format // 已下载的 fileFormat
-			if existingFormat != "" && existingFormat == req.FileFormat {
-				utils.Info("⏭️ [视频下载] 视频ID+格式已存在(DB)，跳过: ID=%s format=%s", req.VideoID, req.FileFormat)
-				responseData := map[string]interface{}{
-					"success": true,
-					"skipped": true,
-					"message": "视频已下载（基于ID+格式检查）",
-				}
-				responseBytes, _ := json.Marshal(responseData)
-				h.sendJSONResponse(Conn, 200, responseBytes)
-				return true
+		// Construct the same composite key used for storage
+		lookupID := req.VideoID
+		if req.FileFormat != "" {
+			lookupID = req.VideoID + "_" + req.FileFormat
+		}
+		if exists, err := h.downloadService.GetByID(lookupID); err == nil && exists != nil {
+			utils.Info("⏭️ [视频下载] 视频ID+格式已存在(DB)，跳过: ID=%s format=%s", req.VideoID, req.FileFormat)
+			responseData := map[string]interface{}{
+				"success": true,
+				"skipped": true,
+				"message": "视频已下载（基于ID+格式检查）",
 			}
-			utils.Info("📥 [视频下载] 同视频不同格式，允许下载: ID=%s old=%s new=%s", req.VideoID, existingFormat, req.FileFormat)
+			responseBytes, _ := json.Marshal(responseData)
+			h.sendJSONResponse(Conn, 200, responseBytes)
+			return true
 		}
 	}
 
@@ -1684,6 +1684,12 @@ func (h *UploadHandler) HandleSpecSizes(Conn *SunnyNet.HttpConn) bool {
 	}
 	if req.BaseURL == "" || len(req.Formats) == 0 {
 		h.sendErrorResponse(Conn, fmt.Errorf("baseUrl and formats are required"))
+		return true
+	}
+	// Validate baseUrl against known WeChat CDN domains to prevent SSRF
+	if !strings.HasPrefix(req.BaseURL, "https://finder.video.qq.com/") &&
+		!strings.HasPrefix(req.BaseURL, "https://findermp.video.qq.com/") {
+		h.sendErrorResponse(Conn, fmt.Errorf("baseUrl must be a WeChat CDN domain"))
 		return true
 	}
 
