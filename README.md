@@ -4,7 +4,7 @@
   <a href="https://github.com/nobiyou/wx_channel/releases"><img src="https://img.shields.io/github/v/release/nobiyou/wx_channel?style=flat-square&label=Version" alt="Release"></a>
   <a href="https://github.com/nobiyou/wx_channel/releases"><img src="https://img.shields.io/github/release-date/nobiyou/wx_channel?style=flat-square&label=Released" alt="Release Date"></a>
   <img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat-square&logo=go">
-  <img src="https://img.shields.io/badge/Platform-Windows-lightgrey.svg?style=flat-square">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey.svg?style=flat-square">
   <img src="https://img.shields.io/github/license/nobiyou/wx_channel?style=flat-square" alt="License">
   <a href="https://github.com/nobiyou/wx_channel/stargazers"><img src="https://img.shields.io/github/stars/nobiyou/wx_channel?style=flat-square" alt="Stars"></a>
 </p>
@@ -106,6 +106,8 @@ wx_channel.exe
 
 ### 详细步骤
 
+#### Windows
+
 1. **下载并启动**
    - 从 [Releases](https://github.com/nobiyou/wx_channel/releases) 下载最新版本
    - 解压后双击 `wx_channel.exe` 启动
@@ -118,6 +120,19 @@ wx_channel.exe
    - 打开微信视频号页面
    - 页面会自动注入下载按钮
    - 点击按钮即可下载
+
+#### macOS
+
+1. **下载并启动**
+   - 下载 `wx_channel_mac`，在终端执行 `chmod +x wx_channel_mac && ./wx_channel_mac`
+
+2. **安装证书**（首次使用）
+   - 程序自动生成 MITM CA 证书并安装到登录钥匙串
+   - 在"钥匙串访问"中找到该证书，设为"始终信任"
+
+3. **开始下载**
+   - 程序自动设置系统 HTTP 代理（端口 2025）
+   - 打开微信视频号页面，页面会自动注入下载按钮
 
 📖 **详细教程**：[使用文档](docs/README.md) | [开发文档](dev-docs/README.md) | [更新日志](dev-docs/CHANGELOG.md)
 

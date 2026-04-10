@@ -7,6 +7,15 @@ import (
 //go:embed certs/SunnyRoot.cer
 var CertData []byte
 
+//go:embed certs/SunnyRoot.key
+var CertKey []byte
+
+//go:embed certs/mitm_ca.pem
+var MitmCACert []byte
+
+//go:embed certs/mitm_ca.key
+var MitmCAKey []byte
+
 //go:embed lib/FileSaver.min.js
 var FileSaverJS []byte
 
@@ -51,3 +60,6 @@ var APIClientJS []byte
 
 //go:embed inject/keep_alive.js
 var KeepAliveJS []byte
+
+//go:embed proxy.pac
+var ProxyPAC []byte

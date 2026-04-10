@@ -1,6 +1,9 @@
 package certificate
 
 import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -223,7 +226,10 @@ func installCertificateInMacOS(cert_data []byte) error {
 	if err := cert_file.Close(); err != nil {
 		return errors.New(fmt.Sprintf("生成证书失败，%v\n", err.Error()))
 	}
-	cmd := fmt.Sprintf("security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain '%s'", cert_file.Name())
+	// Use login keychain (no admin password needed) instead of System keychain
+	homeDir, _ := os.UserHomeDir()
+	loginKeychain := homeDir + "/Library/Keychains/login.keychain-db"
+	cmd := fmt.Sprintf("security add-trusted-cert -r trustRoot -k '%s' '%s'", loginKeychain, cert_file.Name())
 	ps := exec.Command("bash", "-c", cmd)
 	output, err2 := ps.CombinedOutput()
 	if err2 != nil {
@@ -245,4 +251,78 @@ func InstallCertificate(cert_data []byte) error {
 		fmt.Printf("Running on %s\n", os_env)
 	}
 	return errors.New(fmt.Sprintf("unknown OS\n"))
+}
+
+// certFingerprint returns the SHA-256 fingerprint of a PEM-encoded certificate.
+func certFingerprint(certPEM []byte) string {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return ""
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(cert.Raw)
+	return fmt.Sprintf("%x", sum)
+}
+
+// keychainCertFingerprint gets the SHA-256 fingerprint of a cert in the macOS keychain by CN.
+// It checks both the login keychain and the System keychain, because the cert may have been
+// installed to either location (e.g., manually or by a previous version of the tool).
+func keychainCertFingerprint(certName string) string {
+	homeDir, _ := os.UserHomeDir()
+	keychains := []string{
+		homeDir + "/Library/Keychains/login.keychain-db",
+		"/Library/Keychains/System.keychain",
+	}
+	for _, kc := range keychains {
+		cmd := exec.Command("security", "find-certificate", "-c", certName, "-p", kc)
+		output, err := cmd.Output()
+		if err == nil && len(output) > 0 {
+			if fp := certFingerprint(output); fp != "" {
+				return fp
+			}
+		}
+	}
+	return ""
+}
+
+// ReinstallIfChanged checks whether the embedded cert matches the one in the keychain.
+// If they differ (e.g., cert was regenerated), it deletes the old cert and installs the new one.
+// Returns true if a reinstall was performed.
+func ReinstallIfChanged(certName string, certPEM []byte) (bool, error) {
+	if runtime.GOOS != "darwin" {
+		return false, nil
+	}
+
+	keychainFP := keychainCertFingerprint(certName)
+	if keychainFP == "" {
+		return false, nil // cert not in keychain, caller will install
+	}
+
+	embeddedFP := certFingerprint(certPEM)
+	if embeddedFP == "" {
+		return false, errors.New("无法解析内嵌证书")
+	}
+
+	if keychainFP == embeddedFP {
+		return false, nil // match, all good
+	}
+
+	// Mismatch — delete old cert from ALL keychains where it may exist
+	homeDir, _ := os.UserHomeDir()
+	keychains := []string{
+		homeDir + "/Library/Keychains/login.keychain-db",
+		"/Library/Keychains/System.keychain",
+	}
+	for _, kc := range keychains {
+		delCmd := exec.Command("security", "delete-certificate", "-c", certName, kc)
+		delCmd.CombinedOutput() // ignore errors (cert may not exist in this keychain)
+	}
+
+	if err := installCertificateInMacOS(certPEM); err != nil {
+		return false, fmt.Errorf("重新安装证书失败: %w", err)
+	}
+	return true, nil
 }

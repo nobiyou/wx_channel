@@ -102,6 +102,9 @@ func (h *UploadHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	if h.HandleDownloadVideo(Conn) {
 		return true
 	}
+	if h.HandleSpecSizes(Conn) {
+		return true
+	}
 	return false
 }
 
@@ -1036,18 +1039,23 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 优先使用视频ID进行去重检查（如果提供了视频ID）
+	// 同一视频不同画质视为不同下载，允许并存
 	if !req.ForceSave && req.VideoID != "" && h.downloadService != nil {
 		if exists, err := h.downloadService.GetByID(req.VideoID); err == nil && exists != nil {
-			// DB记录中已存在该视频ID，说明已下载过，跳过下载
-			utils.Info("⏭️ [视频下载] 视频ID已存在记录中(DB)，跳过下载: ID=%s", req.VideoID)
-			responseData := map[string]interface{}{
-				"success": true,
-				"skipped": true,
-				"message": "视频已下载（基于ID检查）",
+			// fileFormat 相同才跳过（不同 fileFormat 即使同分辨率也是不同编码/码率）
+			existingFormat := exists.Format // 已下载的 fileFormat
+			if existingFormat != "" && existingFormat == req.FileFormat {
+				utils.Info("⏭️ [视频下载] 视频ID+格式已存在(DB)，跳过: ID=%s format=%s", req.VideoID, req.FileFormat)
+				responseData := map[string]interface{}{
+					"success": true,
+					"skipped": true,
+					"message": "视频已下载（基于ID+格式检查）",
+				}
+				responseBytes, _ := json.Marshal(responseData)
+				h.sendJSONResponse(Conn, 200, responseBytes)
+				return true
 			}
-			responseBytes, _ := json.Marshal(responseData)
-			h.sendJSONResponse(Conn, 200, responseBytes)
-			return true
+			utils.Info("📥 [视频下载] 同视频不同格式，允许下载: ID=%s old=%s new=%s", req.VideoID, existingFormat, req.FileFormat)
 		}
 	}
 
@@ -1637,6 +1645,86 @@ func (h *UploadHandler) sendSuccessResponse(Conn *SunnyNet.HttpConn) {
 		}
 	}
 	Conn.StopRequest(200, string(response.SuccessJSON(nil)), headers)
+}
+
+// HandleSpecSizes 并行 HEAD 请求获取各画质的真实文件大小
+func (h *UploadHandler) HandleSpecSizes(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/spec_sizes" {
+		return false
+	}
+	if Conn.Request.Method != "POST" {
+		h.sendErrorResponse(Conn, fmt.Errorf("method not allowed"))
+		return true
+	}
+	if Conn.Request.Body == nil {
+		h.sendErrorResponse(Conn, fmt.Errorf("request body is nil"))
+		return true
+	}
+
+	body, err := io.ReadAll(Conn.Request.Body)
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	defer Conn.Request.Body.Close()
+
+	var req struct {
+		BaseURL string   `json:"baseUrl"`
+		Formats []string `json:"formats"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	if req.BaseURL == "" || len(req.Formats) == 0 {
+		h.sendErrorResponse(Conn, fmt.Errorf("baseUrl and formats are required"))
+		return true
+	}
+
+	type sizeResult struct {
+		Format string `json:"format"`
+		Size   int64  `json:"size"`
+	}
+
+	results := make([]sizeResult, len(req.Formats))
+	var wg sync.WaitGroup
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	for i, format := range req.Formats {
+		wg.Add(1)
+		go func(idx int, fmtStr string) {
+			defer wg.Done()
+			url := req.BaseURL + "&X-snsvideoflag=" + fmtStr
+			headReq, err := http.NewRequestWithContext(
+				context.Background(), "HEAD", url, nil,
+			)
+			if err != nil {
+				results[idx] = sizeResult{Format: fmtStr, Size: 0}
+				return
+			}
+			resp, err := client.Do(headReq)
+			if err != nil {
+				results[idx] = sizeResult{Format: fmtStr, Size: 0}
+				return
+			}
+			resp.Body.Close()
+			results[idx] = sizeResult{Format: fmtStr, Size: resp.ContentLength}
+		}(i, format)
+	}
+	wg.Wait()
+
+	sizeMap := make(map[string]int64, len(results))
+	for _, r := range results {
+		sizeMap[r.Format] = r.Size
+	}
+
+	h.sendJSONResponse(Conn, 200, map[string]interface{}{
+		"success": true,
+		"sizes":   sizeMap,
+	})
+	return true
 }
 
 // sendJSONResponse 发送JSON响应 (Assuming body is the Data part of standard response, or needs to be wrapped)

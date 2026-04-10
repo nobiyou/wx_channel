@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -247,14 +248,28 @@ func (app *App) Run() {
 		app.ScriptHandler,
 	}
 
-	existing, err1 := certificate.CheckCertificate("SunnyNet")
+	// On macOS, use our own MITM CA cert; on Windows, use the original SunnyNet cert
+	certName := "SunnyNet"
+	certToInstall := assets.CertData
+	if os_env == "darwin" {
+		certName = "WxChannel macOS MITM CA"
+		certToInstall = assets.MitmCACert
+	}
+	// Auto-replace keychain cert if embedded cert has changed (e.g., keys regenerated)
+	if reinstalled, err := certificate.ReinstallIfChanged(certName, certToInstall); err != nil {
+		utils.Warn("证书指纹校验失败: %v", err)
+	} else if reinstalled {
+		utils.Info("✓ 检测到证书变更，已自动更新钥匙串中的证书")
+	}
+
+	existing, err1 := certificate.CheckCertificate(certName)
 	if err1 != nil {
 		utils.HandleError(err1, "检查证书")
 		utils.Warn("程序将继续运行，但HTTPS功能可能受限...")
 		existing = false
 	} else if !existing {
 		utils.Info("正在安装证书...")
-		err := certificate.InstallCertificate(assets.CertData)
+		err := certificate.InstallCertificate(certToInstall)
 		time.Sleep(app.Cfg.CertInstallDelay)
 		if err != nil {
 			utils.HandleError(err, "证书安装")
@@ -279,13 +294,47 @@ func (app *App) Run() {
 	}
 
 	// 1. 立即启动核心驱动
+	// On macOS: load CA cert for MITM and set callback BEFORE Start
+	if os_env == "darwin" {
+		if err := app.Sunny.SetCACert(assets.MitmCACert, assets.MitmCAKey); err != nil {
+			utils.LogError("加载 CA 证书失败: %v", err)
+		} else {
+			utils.Info("✓ MITM CA 证书已加载")
+		}
+	}
+	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
 	sunnyErr := app.Sunny.Start().Error
 	if sunnyErr != nil {
 		utils.LogError("启动代理核心失败: %v", sunnyErr)
 		utils.Warn("请检查程序是否已被防火墙拦截，按 Ctrl+C 退出...")
 		select {}
 	}
-	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
+
+	// On macOS: use PAC file to only proxy WeChat domains (no Clash conflict)
+	if os_env == "darwin" {
+		// Write PAC file with actual port
+		pacContent := strings.Replace(string(assets.ProxyPAC), "__PORT__", strconv.Itoa(app.Port), -1)
+		downloadsDir, _ := utils.ResolveDownloadDir(app.Cfg.DownloadsDir)
+		pacPath := filepath.Join(downloadsDir, "wx_proxy.pac")
+		_ = os.MkdirAll(downloadsDir, 0755)
+		if err := os.WriteFile(pacPath, []byte(pacContent), 0644); err != nil {
+			utils.Warn("写入 PAC 文件失败: %v", err)
+		}
+		absPacPath, _ := filepath.Abs(pacPath)
+		pacURL := "file://" + absPacPath
+
+		err := proxy.EnablePACProxyInMacOS(proxy.ProxySettings{
+			Hostname: "127.0.0.1",
+			Port:     strconv.Itoa(app.Port),
+		}, pacURL)
+		if err != nil {
+			utils.Warn("设置 PAC 代理失败: %v", err)
+			utils.Warn("请手动设置自动代理 URL: %s", pacURL)
+		} else {
+			utils.Info("✓ PAC 代理已设置（仅微信域名走代理，不影响 Clash）")
+			utils.Info("  PAC 文件: %s", pacURL)
+		}
+	}
 
 	// 2. 立即渲染界面面板 (不再受网络连接阻塞)
 	utils.PrintSeparator()
@@ -344,7 +393,7 @@ func (app *App) Run() {
 			}
 		}
 
-		// 执行连通性自检
+		// 执行连通性自检（通过代理访问微信视频号域名验证 MITM 链路）
 		time.Sleep(1 * time.Second)
 		proxy_server := fmt.Sprintf("127.0.0.1:%v", app.Port)
 		client := &http.Client{
@@ -353,12 +402,13 @@ func (app *App) Run() {
 					Scheme: "http",
 					Host:   proxy_server,
 				}),
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			},
 			Timeout: 5 * time.Second,
 		}
 
-		if _, err := client.Get("https://sunny.io/"); err != nil {
-			utils.Warn("💡 注意：代理自检未通过")
+		if _, err := client.Get("https://channels.weixin.qq.com/"); err != nil {
+			utils.Warn("💡 注意：代理自检未通过: %v", err)
 		} else {
 			utils.Info("✓ 证书与网络链路正常")
 		}
