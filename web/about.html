@@ -1,1574 +1,3162 @@
 <!DOCTYPE html>
+
 <html lang="zh">
 
+
+
 <head>
+
     <meta charset="utf-8">
+
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-    <meta name="description" content="微信视频号下载工具">
-    <meta name="keywords" content="微信, 视频号, 下载工具, 微信视频号下载">
-    <meta name="author" content="微信视频号下载工具">
-    <title>微信视频号下载工具</title>
+
+    <meta name="description" content="微信视频号下载助手 - 基于GitHub开源项目的视频号内容下载工具，提供使用文档和技术说明">
+
+    <meta name="keywords" content="微信, 视频号, 下载工具, 微信视频号下载, 开源项目, GitHub">
+
+    <meta name="author" content="微信视频号下载助手">
+    <meta name="robots" content="index, follow">
+    <meta name="googlebot" content="index, follow">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+
+    <title>微信视频号下载助手 - 开源项目文档</title>
+
     <!-- Favicon Icon -->
+
     <link rel="icon" type="image/png" href="images/fav.png">
+
     <!-- Tailwind CSS -->
+
     <script src="https://cdn.tailwindcss.com"></script>
+
     <script>
+
         tailwind.config = {
+
             theme: {
+
                 container: {
+
                     center: true, // 自动居中
+
                     padding: '2rem', // 默认水平间距
+
                     screens: {
+
                         sm: '640px',   // 小屏断点
+
                         md: '768px',   // 中屏断点
+
                         lg: '1024px',  // 大屏断点
+
                         xl: '1280px',  // 超大屏断点
+
                     }
+
                 },
+
                 extend: {
+
                     colors: {
+
                         'primary': '#007bff',
+
                         'primary-dark': '#0069d9',
+
                         'secondary': '#6c757d',
+
                         'success': '#28a745',
+
                         'danger': '#dc3545',
+
                         'warning': '#ffc107',
+
                         'info': '#17a2b8',
+
                         'light': '#f8f9fa',
+
                         'dark': '#343a40',
+
                     },
+
                     animation: {
+
                         'fadeInUp': 'fadeInUp 1s ease-out',
+
                         'bounce-slow': 'bounce 2s infinite',
+
                     },
+
                     keyframes: {
+
                         fadeInUp: {
+
                             '0%': { opacity: '0', transform: 'translateY(30px)' },
+
                             '100%': { opacity: '1', transform: 'translateY(0)' }
+
                         }
+
                     }
+
                 }
+
             }
+
         }
+
     </script>
+
     <style>
+
         .particles-bg {
+
             position: absolute;
+
             top: 0;
+
             left: 0;
+
             width: 100%;
+
             height: 100%;
+
             z-index: 0;
+
         }
+
+
 
         .section-title-line {
+
             width: 60px;
+
             height: 3px;
+
             background: #007bff;
+
             margin: 0 auto;
+
             display: block;
+
         }
+
+
 
         .pt-4 .section-title-line {
+
             margin: auto 0 1.5rem 0;
+
         }
+
+
 
         .line-white {
+
             background: white;
+
         }
+
+
 
         .stat-icon {
+
             width: 80px;
+
             height: 80px;
+
             margin: 0 auto;
+
         }
+
+
 
         .animated-stat {
+
             animation: fadeInUp 1s ease-out;
+
         }
+
+
 
         .bg-wave {
+
             background-image: url('image/bg.svg');
+
             background-size: cover;
+
             background-position: center;
+
         }
+
+
 
         header::after {
+
             background-attachment: scroll;
+
             background-clip: border-box;
+
             background-image: url("image/bg-primary.png");
+
             background-origin: padding-box;
+
             background-position: 0 0;
+
             background-repeat: no-repeat;
+
             background-size: 100% auto;
+
             bottom: 0;
+
             content: "";
+
             position: absolute;
+
             top: 0;
+
             width: 100%;
+
             z-index: 0;
+
             opacity: 0.2;
+
         }
+
+
 
         .bg-primary {
+
             /* Permalink - use to edit and share this gradient: http://colorzilla.com/gradient-editor/#6247e5+0,42b7f5+100 */
+
             background: #6247e5;
+
             /* Old browsers */
+
             background: -moz-linear-gradient(-45deg, #6247e5 0%, #42b7f5 100%);
+
             /* FF3.6-15 */
+
             background: -webkit-linear-gradient(-45deg, #6247e5 0%, #42b7f5 100%);
+
             /* Chrome10-25,Safari5.1-6 */
+
             background: linear-gradient(135deg, #6247e5 0%, #42b7f5 100%);
+
             /* W3C, IE10+, FF16+, Chrome26+, Opera12+, Safari7+ */
+
             filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#6247e5', endColorstr='#42b7f5', GradientType=1);
+
             /* IE6-9 fallback on horizontal gradient */
+
         }
+
+
 
         /* 导航栏活动状态和hover效果样式 */
+
         nav a,
+
         #mobile-menu a {
+
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
             position: relative;
+
             border-radius: 6px;
+
             margin: 0 2px;
+
         }
+
+
 
         /* 增强的hover状态 */
+
         nav a:hover:not(.nav-active):not(.no-hover),
+
         #mobile-menu a:hover:not(.nav-active) {
+
             background-color: rgba(255, 255, 255, 0.15) !important;
+
             color: #007bff !important;
+
             transform: translateY(-1px);
+
             box-shadow: 0 2px 8px rgba(0, 123, 255, 0.2);
+
         }
+
+
 
         /* 活动状态样式 */
+
         .nav-active {
+
             background-color: #007bff !important;
+
             color: #ffffff !important;
+
             font-weight: 600;
+
             transform: translateY(-1px);
+
             box-shadow: 0 3px 12px rgba(0, 123, 255, 0.4);
+
             padding: 8px 16px;
+
         }
+
+
 
         /* 活动状态底部指示器 */
+
         .nav-active::after {
+
             content: '';
+
             position: absolute;
+
             bottom: -6px;
+
             left: 50%;
+
             transform: translateX(-50%);
+
             width: 20px;
+
             height: 2px;
+
             background-color: #ffffff;
+
             border-radius: 1px;
+
             opacity: 0.8;
+
         }
+
+
 
         /* 滚动后导航栏的活动状态适配 */
+
         nav.bg-primary .nav-active::after {
+
             background-color: #ffffff;
+
         }
+
+
 
         nav:not(.bg-primary) .nav-active::after {
+
             background-color: #007bff;
+
         }
+
+
 
         /* 移动端导航样式 */
+
         @media (max-width: 768px) {
+
             #mobile-menu a:hover:not(.nav-active) {
+
                 background-color: rgba(0, 123, 255, 0.1);
+
                 color: #007bff !important;
+
                 border-left: 3px solid #007bff;
+
                 padding-left: 15px;
+
                 transform: translateX(3px);
+
             }
+
+
 
             #mobile-menu .nav-active {
+
                 background-color: #007bff;
+
                 color: #ffffff !important;
+
                 border-left: 4px solid #ffffff;
+
                 padding-left: 16px;
+
                 font-weight: 600;
+
             }
+
+
 
             #mobile-menu .nav-active::after {
+
                 display: none;
+
             }
+
         }
+
+
 
         /* 导航项的基础样式重置 */
+
         nav a,
+
         #mobile-menu a {
+
             text-decoration: none;
+
             display: inline-block;
+
             padding: 8px 16px;
+
             /* 统一padding避免跳动 */
+
         }
+
+
 
         /* 确保在透明背景时的对比度 */
+
         nav:not(.bg-primary) a:hover:not(.nav-active) {
+
             background-color: rgba(255, 255, 255, 0.2);
+
             color: #ffffff !important;
+
             backdrop-filter: blur(10px);
+
         }
+
+
 
         nav:not(.bg-primary) .nav-active {
+
             background-color: rgba(255, 255, 255, 0.9);
+
             color: #fff !important;
+
             backdrop-filter: blur(10px);
+
         }
+
     </style>
+
 </head>
 
+
+
 <body id="page-top" class="font-sans">
+
     <!-- Header -->
+
     <header class="bg-primary text-white relative overflow-hidden">
+
         <div id="particles-js" class="particles-bg"></div>
 
+
+
         <!-- Navigation -->
+
         <nav class="fixed top-0 left-0 right-0 z-50 py-4 transition-all duration-300" id="main-nav">
+
             <div class="container mx-auto px-4">
+
                 <div class="flex items-center justify-between">
+
                     <a class="text-xl font-bold text-white hover:text-gray-200 transition-colors" href="/">
+
                         视频号下载助手
+
                     </a>
 
+
+
                     <!-- Mobile menu button -->
+
                     <button class="md:hidden text-white hover:text-gray-200" id="mobile-menu-btn">
+
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
                                 d="M4 6h16M4 12h16M4 18h16"></path>
+
                         </svg>
+
                     </button>
 
+
+
                     <!-- Desktop menu -->
+
                     <ul class="hidden md:flex space-x-6">
-                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#page-top">首页</a></li>
-                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#introduction">项目介绍</a>
+
+                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#page-top">文档首页</a></li>
+
+                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#introduction">项目说明</a>
+
                         </li>
-                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#features">主要功能</a></li>
-                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#guide">使用指南</a></li>
+
+                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#features">功能说明</a></li>
+
+                        <li><a class="text-white hover:text-gray-200 transition-colors" href="#guide">使用文档</a></li>
+
                         <li><a class="text-white hover:text-gray-200 transition-colors" href="#formats">视频格式</a></li>
+
                         <li><a class="text-white hover:text-gray-200 transition-colors" href="#versions">软件数据</a></li>
+
                         <li><a class="text-white hover:text-gray-200 transition-colors" href="#faq">常见问题</a></li>
+
                         <li><a class="text-white hover:text-gray-200 transition-colors" href="#development">开发指南</a>
+
                         </li>
+
                     </ul>
+
                 </div>
+
+
 
                 <!-- Mobile menu -->
+
                 <div class="md:hidden mt-4 hidden" id="mobile-menu">
+
                     <ul class="space-y-2">
-                        <li><a class="block text-white hover:text-gray-200 py-2" href="#page-top">首页</a></li>
-                        <li><a class="block text-white hover:text-gray-200 py-2" href="#introduction">项目介绍</a></li>
-                        <li><a class="block text-white hover:text-gray-200 py-2" href="#features">主要功能</a></li>
-                        <li><a class="block text-white hover:text-gray-200 py-2" href="#guide">使用指南</a></li>
+
+                        <li><a class="block text-white hover:text-gray-200 py-2" href="#page-top">文档首页</a></li>
+
+                        <li><a class="block text-white hover:text-gray-200 py-2" href="#introduction">项目说明</a></li>
+
+                        <li><a class="block text-white hover:text-gray-200 py-2" href="#features">功能说明</a></li>
+
+                        <li><a class="block text-white hover:text-gray-200 py-2" href="#guide">使用文档</a></li>
+
                         <li><a class="block text-white hover:text-gray-200 py-2" href="#formats">视频格式</a></li>
+
                         <li><a class="block text-white hover:text-gray-200 py-2" href="#versions">软件数据</a></li>
+
                         <li><a class="block text-white hover:text-gray-200 py-2" href="#faq">常见问题</a></li>
+
                         <li><a class="block text-white hover:text-gray-200 py-2" href="#development">开发指南</a></li>
+
                     </ul>
+
                 </div>
+
             </div>
+
         </nav>
 
+
+
         <!-- Hero Section -->
+
         <section class="relative z-10 py-20 pb-0 pt-32" id="banner">
+
             <div class="container mx-auto px-4">
+
                 <div class="text-center">
+
                     <h1 class="text-4xl md:text-5xl font-bold text-white mb-4">
-                        <strong>微信视频号下载助手</strong>
+
+                        <strong>微信视频号下载助手</strong><br><span class="text-lg opacity-80">开源项目文档</span>
+
                     </h1>
-                    <p class="text-xl text-white mb-8 opacity-90">自动为视频号详情页添加下载按钮，支持多种分辨率和视频质量，完全无水印，操作简便！</p>
+
+                    <p class="text-xl text-white mb-8 opacity-90">这是一个基于GitHub开源项目的视频号内容下载工具。本页面仅提供项目介绍和使用文档，请从GitHub获取最新版本。</p>
+
                     <div class="space-x-4">
+
                         <a class="bg-white text-primary px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
-                            href="#introduction">
-                            立即下载
+
+                            href="#introduction">查看文档
+
                         </a>
+
                         <a class="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-primary transition-colors"
+
                             href="#features">
+
                             了解更多
+
                         </a>
+
                     </div>
+
                     <div class="mt-12 animate-fadeInUp">
+
                         <img class="mx-auto max-w-full h-auto" src="image/hero2.png" alt="微信视频号下载工具">
+
                     </div>
+
                 </div>
+
             </div>
+
         </section>
 
+
+
         <!-- Wave Effect -->
+
         <div class="absolute bottom-0 left-0 w-full">
+
             <img class="w-full" src="image/bg.svg" alt="">
+
         </div>
+
     </header>
 
+
+
     <!-- 项目介绍 -->
+
     <section class="py-20" id="introduction">
+
         <div class="container mx-auto px-4">
+
             <div class="text-center mb-16">
-                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">项目介绍</span>
+
+                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">项目说明</span>
+
                 <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">微信视频号下载助手</h2>
+
                 <span class="section-title-line"></span>
+
             </div>
+
             <div class="grid md:grid-cols-2 gap-12 items-center">
+
                 <div class="pt-4">
-                    <h2 class="text-2xl font-bold mb-2">项目介绍</h2>
+
+                    <h2 class="text-2xl font-bold mb-2">项目说明</h2>
+
                     <span class="section-title-line mb-6"></span>
+
                     <p class="text-gray-600 mb-8 leading-relaxed">
-                        本项目是一个用于下载微信视频号内容的工具，基于
+
+                        本项目是一个基于
+
                         <a class="text-primary font-semibold hover:underline"
+
                             href="https://github.com/ltaoo/wx_channels_download">
+
                             ltaoo的开源项目
+
                         </a>
-                        进行功能扩展和界面优化。在此特别致敬原作者，感谢其开源贡献。
+
+                        的开源项目，进行功能扩展和界面优化。在此特别致敬原作者，感谢其开源贡献。本页面仅提供项目文档和使用说明。
+
                     </p>
 
-                    <!-- 下载地址 -->
+
+
+                    <!-- 项目地址 -->
+
                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+
                         <h4 class="text-lg font-semibold text-blue-800 mb-3 flex items-center">
+
                             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
                                     d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+
                                 </path>
+
                             </svg>
-                            下载地址
+
+                            项目地址
+
                         </h4>
+
                         <div class="space-y-2">
+
                             <p class="text-blue-700">
-                                <strong>GitHub Releases：</strong>
+
+                                <strong>GitHub 仓库：</strong>
+
                                 <a class="text-primary hover:underline font-medium"
-                                    href="https://github.com/nobiyou/wx_channel/releases" target="_blank">
+
+                                    href="https://github.com/nobiyou/wx_channel/releases" target="_blank" rel="noopener noreferrer">
+
                                     https://github.com/nobiyou/wx_channel/releases
+
                                 </a>
+
                             </p>
-                            <p class="text-blue-700">
-                                <strong>蓝奏云网盘：</strong>
-                                <a class="text-primary hover:underline font-medium"
-                                    href="https://wwyp.lanzoul.com/b00zxv524h" target="_blank">
-                                    https://wwyp.lanzoul.com/b00zxv524h
-                                </a>
-                                <span class="ml-2">提取密码：<span class="bg-blue-100 px-2 py-1 rounded font-mono text-sm">fton</span></span>
-                            </p>
+
                             <p class="text-blue-700 text-sm mt-2">
+
                                 <strong>当前版本：</strong>v5.6.2 |
+
                                 <strong>更新时间：</strong>2026-04-26
+
                             </p>
+
                         </div>
+
                     </div>
+
+
 
                     <!-- 开源地址 -->
+
                     <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+
                         <h4 class="text-lg font-semibold text-green-800 mb-3 flex items-center">
+
                             <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+
                                 <path fill-rule="evenodd"
+
                                     d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z"
+
                                     clip-rule="evenodd"></path>
+
                             </svg>
+
                             开源地址
+
                         </h4>
+
                         <div class="space-y-2">
+
                             <p class="text-green-700">
+
                                 <strong>GitHub：</strong>
+
                                 <a class="text-primary hover:underline font-medium"
-                                    href="https://github.com/nobiyou/wx_channel" target="_blank">
+
+                                    href="https://github.com/nobiyou/wx_channel" target="_blank" rel="noopener noreferrer">
+
                                     https://github.com/nobiyou/wx_channel
+
                                 </a>
+
                             </p>
+
                             <p class="text-green-700 text-sm">
+
                                 欢迎Star和贡献代码，一起让这个工具更加完善！
+
                             </p>
+
                         </div>
+
                     </div>
+
+
 
                     <div class="flex flex-wrap gap-3">
-                        <a href="https://wwyp.lanzoul.com/b00zxv524h" target="_blank"
+
+                        <a href="https://github.com/nobiyou/wx_channel/releases" target="_blank" rel="noopener noreferrer"
+
                             class="bg-primary text-white px-6 py-3 rounded-lg hover:bg-primary-dark transition-colors flex items-center">
+
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
                                     d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+
                                 </path>
+
                             </svg>
-                            立即下载
+
+                            查看仓库
+
                         </a>
-                        <a href="https://github.com/nobiyou/wx_channel" target="_blank"
+
+                        <a href="https://github.com/nobiyou/wx_channel" target="_blank" rel="noopener noreferrer"
+
                             class="bg-gray-800 text-white px-6 py-3 rounded-lg hover:bg-gray-700 transition-colors flex items-center">
+
                             <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+
+                                <path fill-rule="evenodd"
+
+                                    d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z"
+
+                                    clip-rule="evenodd"></path>
+
+                            </svg>
+
+                            查看源码
+
+                        </a>
+
+                    </div>
+
+                </div>
+
+                <div class="text-center">
+
+                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block.png" alt="软件启动画面">
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- 主要功能 -->
+
+    <section class="py-20" id="features">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">功能说明</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">功能说明</h2>
+
+                <span class="section-title-line"></span>
+
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f1.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">便捷下载</h5>
+
+                    <p class="text-gray-600">在视频详情页提供下载功能入口，支持单个和批量下载操作</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f2.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">多种格式</h5>
+
+                    <p class="text-gray-600">支持多种分辨率和质量的视频下载，包括1024x576、1280x720及原始1920x1080高清格式</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f3.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">加密解密</h5>
+
+                    <p class="text-gray-600">支持加密视频的识别和解密处理</p>
+
+                </div>
+
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8 mt-12">
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f4.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">Web控制台</h5>
+
+                    <p class="text-gray-600">提供Web控制台界面，支持浏览记录管理和数据导出功能</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f5.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">批量下载</h5>
+
+                    <p class="text-gray-600">支持批量下载功能，具备断点续传能力</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f6.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">数据导出</h5>
+
+                    <p class="text-gray-600">支持导出下载记录为CSV、JSON等格式</p>
+
+                </div>
+
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8 mt-12">
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f1.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">高速下载</h5>
+
+                    <p class="text-gray-600">支持多线程并发下载功能</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f2.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">智能去重</h5>
+
+                    <p class="text-gray-600">基于视频ID自动识别已下载的视频，避免重复下载</p>
+
+                </div>
+
+                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
+
+                    <img class="mx-auto mb-6 w-20 h-20" src="image/f3.png" alt="">
+
+                    <h5 class="text-xl font-semibold mb-4">数据库管理</h5>
+
+                    <p class="text-gray-600">使用SQLite数据库存储浏览和下载记录</p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- 使用指南 -->
+
+    <section class="py-20" id="guide">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-danger text-white px-4 py-2 rounded-full text-sm font-semibold">使用文档</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">如何使用</h2>
+
+                <span class="section-title-line"></span>
+
+            </div>
+
+
+
+            <!-- 下载视频 -->
+
+            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
+
+                <div class="pt-4">
+
+                    <h2 class="text-2xl font-bold mb-2">下载视频</h2>
+
+                    <span class="section-title-line mb-6"></span>
+
+                    <div class="space-y-4 text-gray-600">
+
+                        <p>1. 打开微信视频号中的视频详情页</p>
+
+                        <p>2. 在视频下方操作栏中点击下载按钮</p>
+
+                        <p class="font-semibold">
+
+                            <strong>注意：</strong>如果没有看到下载按钮，请检查「更多」选项中是否有「下载视频」。下载功能仅在视频详情页可用。
+
+                        </p>
+
+                    </div>
+
+                </div>
+
+                <div class="text-center">
+
+                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block1.png" alt="视频下载按钮">
+
+                </div>
+
+            </div>
+
+
+
+            <!-- 长视频下载 -->
+
+            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
+
+                <div class="text-center md:order-1">
+
+                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block2.png" alt="视频缓存进度">
+
+                </div>
+
+                <div class="pt-4 md:order-2">
+
+                    <h2 class="text-2xl font-bold mb-2">长视频下载</h2>
+
+                    <span class="section-title-line mb-6"></span>
+
+                    <div class="space-y-4 text-gray-600">
+
+                        <p>对于较长的视频，软件提供了缓存进度显示功能：</p>
+
+                        <p>1. 视频加载过程中会显示缓存进度</p>
+
+                        <p>2. 缓存完成后会有明显提示，此时可以进行下载</p>
+
+                        <p class="font-semibold">
+
+                            <strong>提示：</strong>长视频需要完整缓存后才能下载，建议按顺序缓存（不要跳着点进度条）
+
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- Web控制台使用 -->
+
+            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
+
+                <div class="pt-4">
+
+                    <h2 class="text-2xl font-bold mb-2">Web控制台</h2>
+
+                    <span class="section-title-line mb-6"></span>
+
+                    <div class="space-y-4 text-gray-600">
+
+                        <p>软件提供了现代化的Web控制台界面，功能强大：</p>
+
+                        <p>1. <strong>浏览记录</strong>：查看和管理所有浏览过的视频信息</p>
+
+                        <p>2. <strong>下载记录</strong>：查看历史下载记录和统计信息</p>
+
+                        <p>3. <strong>下载队列</strong>：实时管理下载任务，查看下载进度</p>
+
+                        <p>4. <strong>批量下载</strong>：批量提交下载任务，支持JSON格式导入</p>
+
+                        <p>5. <strong>数据导出</strong>：导出CSV、JSON格式数据，方便分析</p>
+
+                        <p class="font-semibold">
+
+                            <strong>访问方式：</strong>启动程序后，在浏览器中访问 <code class="bg-gray-100 px-2 py-1 rounded">http://127.0.0.1:2025/console</code>
+
+                        </p>
+
+                    </div>
+
+                </div>
+
+                <div class="text-center">
+
+                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block.png" alt="Web控制台界面">
+
+                </div>
+
+            </div>
+
+
+
+            <!-- 批量下载 -->
+
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+
+                <div class="text-center md:order-1">
+
+                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block1.png" alt="批量下载">
+
+                </div>
+
+                <div class="pt-4 md:order-2">
+
+                    <h2 class="text-2xl font-bold mb-2">批量下载</h2>
+
+                    <span class="section-title-line mb-6"></span>
+
+                    <div class="space-y-4 text-gray-600">
+
+                        <p>支持批量下载功能，可以一次下载多个视频：</p>
+
+                        <p>1. 在Web控制台的批量下载页面提交JSON格式的视频列表</p>
+
+                        <p>2. 支持账户导出格式自动转换，直接粘贴即可使用</p>
+
+                        <p>3. 支持断点续传，下载中断后可继续下载</p>
+
+                        <p>4. 自动去重，已下载的视频不会重复下载</p>
+
+                        <p class="font-semibold">
+
+                            <strong>提示：</strong>批量下载支持加密视频自动解密，无需额外操作
+
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+    <!-- 视频格式参数对比 -->
+
+    <section class="py-20 bg-gray-50" id="formats">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">视频格式</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">视频格式参数对比</h2>
+
+                <span class="section-title-line"></span>
+
+                <p class="mt-4 text-gray-600">下表展示了不同视频格式的参数对比，可根据需求选择合适的格式：</p>
+
+            </div>
+
+            <div class="overflow-x-auto">
+
+                <table class="w-full bg-white rounded-lg shadow-lg overflow-hidden">
+
+                    <thead class="bg-gray-100">
+
+                        <tr>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">文件名</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">分辨率</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">标识符</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">大小(MB)</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">总比特率</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">帧速率</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">音频采样率</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">音频比特率</th>
+
+                            <th class="px-4 py-3 text-left font-semibold text-gray-700">时长</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody class="divide-y divide-gray-200">
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT112_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT112</td>
+
+                            <td class="px-4 py-3 text-sm">18.07</td>
+
+                            <td class="px-4 py-3 text-sm">2116 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT113_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT113</td>
+
+                            <td class="px-4 py-3 text-sm">14.13</td>
+
+                            <td class="px-4 py-3 text-sm">1655 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT114_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT114</td>
+
+                            <td class="px-4 py-3 text-sm">11.08</td>
+
+                            <td class="px-4 py-3 text-sm">1298 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT157_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT157</td>
+
+                            <td class="px-4 py-3 text-sm">14.37</td>
+
+                            <td class="px-4 py-3 text-sm">1683 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT158_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT158</td>
+
+                            <td class="px-4 py-3 text-sm">11.68</td>
+
+                            <td class="px-4 py-3 text-sm">1368 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT159_1024x576.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1024x576</td>
+
+                            <td class="px-4 py-3 text-sm">WT159</td>
+
+                            <td class="px-4 py-3 text-sm">9.44</td>
+
+                            <td class="px-4 py-3 text-sm">1105 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT111_1280x720.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1280x720</td>
+
+                            <td class="px-4 py-3 text-sm">WT111</td>
+
+                            <td class="px-4 py-3 text-sm">23.39</td>
+
+                            <td class="px-4 py-3 text-sm">2740 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50">
+
+                            <td class="px-4 py-3 text-sm">..._WT156_1280x720.mp4</td>
+
+                            <td class="px-4 py-3 text-sm">1280x720</td>
+
+                            <td class="px-4 py-3 text-sm">WT156</td>
+
+                            <td class="px-4 py-3 text-sm">18.44</td>
+
+                            <td class="px-4 py-3 text-sm">2160 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">30.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm">71.61 秒</td>
+
+                        </tr>
+
+                        <tr class="hover:bg-gray-50 bg-yellow-50">
+
+                            <td class="px-4 py-3 text-sm font-semibold">原始视频</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">1920x1080</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">原始视频</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">130.04</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">15232 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">60.000 fps</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">44100 Hz</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">128 Kbps</td>
+
+                            <td class="px-4 py-3 text-sm font-semibold">71.61 秒</td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- 软件特色数据统计 -->
+
+    <section class="py-20 bg-primary text-white" id="versions">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-white text-primary px-4 py-2 rounded-full text-sm font-semibold">软件特色</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4 text-white">项目信息</h2>
+
+                <span class="section-title-line line-white"></span>
+
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-8">
+
+                <div class="text-center animated-stat">
+
+                    <div class="stat-icon mx-auto mb-4">
+
+                        <img src="image/stats-download.svg" alt="下载量" class="w-full h-full"
+
+                            onerror="this.onerror=null; this.src='image/f1.png';">
+
+                    </div>
+
+                    
+
+                    <p class="text-white opacity-90"></p>
+
+                </div>
+
+                <div class="text-center animated-stat">
+
+                    <div class="stat-icon mx-auto mb-4">
+
+                        <img src="image/stats-video.svg" alt="视频格式" class="w-full h-full"
+
+                            onerror="this.onerror=null; this.src='image/f2.png';">
+
+                    </div>
+
+                    
+
+                    <p class="text-white opacity-90"></p>
+
+                </div>
+
+                <div class="text-center animated-stat">
+
+                    <div class="stat-icon mx-auto mb-4">
+
+                        <img src="image/stats-speed.svg" alt="成功率" class="w-full h-full"
+
+                            onerror="this.onerror=null; this.src='image/f3.png';">
+
+                    </div>
+
+                    
+
+                    <p class="text-white opacity-90"></p>
+
+                </div>
+
+                <div class="text-center animated-stat">
+
+                    <div class="stat-icon mx-auto mb-4">
+
+                        <img src="image/stats-users.svg" alt="用户数" class="w-full h-full"
+
+                            onerror="this.onerror=null; this.src='image/f4.png';">
+
+                    </div>
+
+                    
+
+                    <p class="text-white opacity-90"></p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- 常见问题解答 -->
+
+    <section class="py-20" id="faq">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-danger text-white px-4 py-2 rounded-full text-sm font-semibold">常见问题</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">常见问题解答</h2>
+
+                <span class="section-title-line"></span>
+
+            </div>
+
+            <div class="max-w-4xl mx-auto">
+
+                <div class="space-y-4">
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq1">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>如何下载视频号内容？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq1">
+
+                            <p class="text-gray-600">
+
+                                启动软件后，打开微信视频号中的视频详情页，在视频下方操作栏中会出现下载功能入口。如果没有看到下载选项，请检查"更多"菜单中是否有相关选项。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq2">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>如何下载长视频？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq2">
+
+                            <p class="text-gray-600">
+
+                                对于较长的视频，需要完整缓存后才能下载。视频加载过程中会显示缓存进度，缓存完成后会有明显提示，此时才能进行下载。建议按顺序缓存，不要跳着点进度条。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq3">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>支持哪些视频格式和质量？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq3">
+
+                            <p class="text-gray-600">
+
+                                软件支持多种分辨率和质量的视频下载，包括不同码率选择。每种分辨率还有不同的码率选择，可以根据自己的需求选择合适的格式。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq4">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>遇到服务启动后视频详情一直在加载怎么办？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq4">
+
+                            <p class="text-gray-600">
+
+                                如果服务启动后视频详情一直在加载，终端无日志，在终端中按一次Ctrl+C即可恢复正常。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq5">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>如何解决解密失败，停止下载的问题？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq5">
+
+                            <p class="text-gray-600">
+
+                                遇到解密失败，停止下载的情况，请关闭所有视频页面和窗口，然后重新打开尝试下载。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq6">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>如何使用Web控制台？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq6">
+
+                            <p class="text-gray-600">
+
+                                启动程序后，在浏览器中访问 <code class="bg-gray-100 px-2 py-1 rounded">http://127.0.0.1:2025/console</code> 即可使用Web控制台。控制台提供了浏览记录、下载记录、下载队列、批量下载等功能，界面友好，操作简便。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq7">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>如何批量下载视频？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq7">
+
+                            <p class="text-gray-600">
+
+                                在Web控制台的批量下载页面，可以提交JSON格式的视频列表。支持两种格式：批量下载格式和账户导出格式。账户导出格式会自动转换为批量下载格式，直接粘贴账户导出的数据即可使用。批量下载支持断点续传和智能去重。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <div class="bg-white rounded-lg shadow-md">
+
+                        <button
+
+                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
+
+                            data-target="faq8">
+
+                            <div class="flex justify-between items-center">
+
+                                <span>下载的视频保存在哪里？</span>
+
+                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
+
+                                    stroke="currentColor" viewBox="0 0 24 24">
+
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+
+                                        d="M19 9l-7 7-7-7"></path>
+
+                                </svg>
+
+                            </div>
+
+                        </button>
+
+                        <div class="px-6 pb-4 hidden faq-content" id="faq8">
+
+                            <p class="text-gray-600">
+
+                                下载的视频默认保存在程序目录下的 <code class="bg-gray-100 px-2 py-1 rounded">downloads</code> 文件夹中，按作者名称自动分类保存。可以通过环境变量 <code class="bg-gray-100 px-2 py-1 rounded">WX_CHANNEL_DOWNLOADS_DIR</code> 自定义下载目录。
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+
+    <!-- 开发指南 -->
+
+    <section class="py-20" id="development">
+
+        <div class="container mx-auto px-4">
+
+            <div class="text-center mb-16">
+
+                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">开发指南</span>
+
+                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">开发指南</h2>
+
+                <span class="section-title-line"></span>
+
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+
+                <!-- 第一栏：环境要求和运行方式 -->
+
+                <div class="pt-4">
+
+                    <h3 class="text-xl font-bold mb-4">环境要求</h3>
+
+                    <ul class="space-y-2 text-gray-600 mb-8">
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            Go语言环境
+
+                        </li>
+
+                    </ul>
+
+
+
+                    <h3 class="text-xl font-bold mb-4">运行方式</h3>
+
+
+                    <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto"><code>go run main.go</code></pre>
+
+
+
+                    <h3 class="text-xl font-bold mb-4 mt-8">打包发布</h3>
+
+                    <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto"><code># 基本打包
+
+go build -o wx_channel.exe
+
+
+
+# 优化体积的打包
+
+go build -ldflags="-s -w" -o wx_channel_mini.exe
+
+
+
+# 使用upx压缩
+
+upx --best wx_channel.exe</code></pre>
+
+                </div>
+
+
+
+                <!-- 第二栏：技术实现和参考项目 -->
+
+                <div class="pt-4">
+
+                    <h3 class="text-xl font-bold mb-4">技术实现</h3>
+
+                    <p class="text-gray-600 mb-4">本项目的核心实现基于以下技术：</p>
+
+                    <ol class="space-y-2 text-gray-600 mb-8">
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">1</span>
+
+                            网络请求拦截：使用SunnyNet实现HTTP/HTTPS代理，拦截微信浏览器流量
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">2</span>
+
+                            脚本注入：自动在视频号页面注入JavaScript，添加下载按钮和功能
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">3</span>
+
+                            视频解密：自动识别并解密加密视频，支持多种加密格式
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">4</span>
+
+                            Web控制台：提供现代化的Web界面，支持浏览记录、下载管理等功能
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">5</span>
+
+                            批量下载：支持批量任务管理，断点续传，智能去重
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span
+
+                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">6</span>
+
+                            数据导出：支持CSV、JSON、Markdown格式导出，便于数据分析
+
+                        </li>
+
+                    </ol>
+
+
+
+                    <h3 class="text-xl font-bold mb-4">参考项目</h3>
+
+                    <ul class="space-y-2 text-gray-600 mb-8">
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            <a href="https://github.com/kanadeblisst00/WechatVideoSniffer2.0"
+
+                                class="text-primary hover:underline">WechatVideoSniffer2.0</a>
+
+                        </li>
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            <a href="https://github.com/ltaoo/wx_channels_download"
+
+                                class="text-primary hover:underline">wx_channels_download</a>
+
+                        </li>
+
+                    </ul>
+
+
+
+                    <h3 class="text-xl font-bold mb-4">核心依赖</h3>
+
+                    <ul class="space-y-2 text-gray-600">
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            <a href="https://github.com/qtgolang/SunnyNet"
+
+                                class="text-primary hover:underline">SunnyNet</a> - 网络请求拦截库
+
+                        </li>
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            Go 1.23+ - 后端开发语言
+
+                        </li>
+
+                        <li class="flex items-center">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
+
+                            JavaScript - 前端脚本注入
+
+                        </li>
+
+                    </ul>
+
+
+
+                    <h3 class="text-xl font-bold mb-4 mt-8">技术架构</h3>
+
+                    <ul class="space-y-2 text-gray-600">
+
+                        <li class="flex items-start">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
+
+                            <div>
+
+                                <strong>后端服务</strong>：Go语言开发，提供HTTP API和WebSocket服务
+
+                            </div>
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
+
+                            <div>
+
+                                <strong>代理服务</strong>：基于SunnyNet实现本地HTTP/HTTPS代理
+
+                            </div>
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
+
+                            <div>
+
+                                <strong>前端界面</strong>：JavaScript注入脚本 + Web控制台界面
+
+                            </div>
+
+                        </li>
+
+                        <li class="flex items-start">
+
+                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
+
+                            <div>
+
+                                <strong>数据存储</strong>：本地文件系统 + CSV记录文件
+
+                            </div>
+
+                        </li>
+
+                    </ul>
+
+                </div>
+
+
+
+                <!-- 第三栏：版本更新历史 -->
+
+                <div class="pt-4">
+
+                    <h3 class="text-xl font-bold mb-4">版本更新历史</h3>
+
+                    <div class="space-y-6">
+
+                        <!-- v5.6.2版本 - 最新版本 -->
+
+                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.2 最新版本</span>
+
+                                <span class="ml-2 text-xs text-gray-500">2026-04-26</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-700 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    <strong>搜索页清理</strong>：移除已下线的视频号搜索页面相关代码和文档说明
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    <strong>API搜索保留</strong>：保留控制台和接口侧搜索能力，不影响现有搜索调用
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    <strong>提交范围整理</strong>：放开 `web/` 目录提交限制，允许站点资源纳入版本管理
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    <strong>链接结构兼容</strong>：兼容 `oid/nid`、`context_id`、`fromSubPage=profile`、`tabId=flow + feed_lab` 等多种直达视频链接
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    <strong>逻辑分流优化</strong>：对“URL 是 Home、实际是详情页”的场景自动切换到 Feed 逻辑处理
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    延续 v5.6.0 对新版首页、Feed、Profile、赞和收藏页面的适配成果
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    延续新版评论侧栏兼容、自动打开评论区与完整采集能力
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    延续 Hub / WebSocket 页面能力识别与智能选设备优化
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    雷达功能默认关闭，并支持控制台设置页即时启停
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    持续优化新版页面下的下载、评论、Hub 调用与整体稳定性
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.2.11版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.11版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    修复Windows文件名规范，优化符号.的异常处理
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    优化文件夹命名，自动移除尾随点号
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.2.10版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.10版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    新增Web控制台访问Token验证功能
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    优化简单版和完整版控制台UI统一
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    增强防剽窃保护功能
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.2.9版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.9版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    新增Web控制台批量下载功能
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    支持账户导出格式自动转换
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    优化批量下载进度显示
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 8.4版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">08.04版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    修复视频缓存功能及优化
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    修复下载按钮显示问题
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    新增保存页面代码功能（未开启，测试用）
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 6.23版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">6.23版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    增加程序图标，小部件美化
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    优化小功能
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 6.9版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">6.9版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    增加缓存提醒功能，长视频需要完整缓存才能下载
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    优化缓存进度显示
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.25版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.25版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    增加保存运营数据功能
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    支持导出公众号信息、视频发布IP、点赞、收藏、转发等数据
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.19版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.19版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    增加保存下载视频记录为表格功能
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+
+
+                        <!-- 5.18版本 -->
+
+                        <div class="bg-gray-50 rounded-lg p-4">
+
+                            <div class="flex items-center mb-2">
+
+                                <span
+
+                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.18版本</span>
+
+                            </div>
+
+                            <ul class="space-y-1 text-gray-600 text-sm">
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-yellow-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    更改顶部文字"ltaoo v5"，致敬原作者
+
+                                </li>
+
+                                <li class="flex items-start">
+
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+
+                                    添加下载保存记录表格功能
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                </ul>
+
+            </div>
+
+        </div>
+
+        </div>
+
+    </section>
+
+
+
+    
+    <!-- 安全声明 -->
+    <section class="py-12 bg-gray-50">
+        <div class="container mx-auto px-4">
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                        <svg class="w-6 h-6 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                            </path>
+                        </svg>
+                        安全声明
+                    </h3>
+                    <div class="space-y-3 text-gray-600">
+                        <p>1. 本工具为开源项目，源代码完全公开透明，可自由审查。</p>
+                        <p>2. 所有下载链接均指向 GitHub 官方平台，确保软件来源安全可靠。</p>
+                        <p>3. 本工具不收集任何用户个人信息，不包含任何恶意代码或广告。</p>
+                        <p>4. 软件仅用于个人学习和研究目的，请遵守相关法律法规。</p>
+                        <p>5. 如有任何安全疑问，欢迎查阅源代码或联系开发者。</p>
+                    </div>
+                    <div class="mt-4 flex flex-wrap gap-3">
+                        <a href="https://github.com/nobiyou/wx_channel" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium">
+                            <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd"
                                     d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z"
                                     clip-rule="evenodd"></path>
                             </svg>
-                            查看源码
+                            查看源代码
                         </a>
                     </div>
                 </div>
-                <div class="text-center">
-                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block.png" alt="软件启动画面">
-                </div>
             </div>
         </div>
     </section>
+<!-- Footer -->
 
-    <!-- 主要功能 -->
-    <section class="py-20" id="features">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">功能特点</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">主要功能</h2>
-                <span class="section-title-line"></span>
-            </div>
-            <div class="grid md:grid-cols-3 gap-8">
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f1.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">便捷下载</h5>
-                    <p class="text-gray-600">在视频详情页自动添加下载按钮，一键下载视频号内容，支持单个和批量下载</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f2.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">多种格式</h5>
-                    <p class="text-gray-600">支持多种分辨率和质量的视频下载，包括1024x576、1280x720及原始1920x1080高清格式</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f3.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">加密解密</h5>
-                    <p class="text-gray-600">自动识别并解密加密视频，下载后即可直接播放，无需额外处理</p>
-                </div>
-            </div>
-            <div class="grid md:grid-cols-3 gap-8 mt-12">
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f4.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">Web控制台</h5>
-                    <p class="text-gray-600">提供现代化的Web控制台界面，支持浏览记录、下载管理、批量操作、数据导出等功能</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f5.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">批量下载</h5>
-                    <p class="text-gray-600">支持批量下载功能，使用Gopeed引擎，支持多线程下载、断点续传和智能去重</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f6.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">数据导出</h5>
-                    <p class="text-gray-600">支持导出下载记录和运营数据为CSV、JSON、Markdown格式，方便数据分析和备份</p>
-                </div>
-            </div>
-            <div class="grid md:grid-cols-3 gap-8 mt-12">
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f1.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">高速下载</h5>
-                    <p class="text-gray-600">集成Gopeed下载引擎，支持多线程并发下载，下载速度提升10倍以上</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f2.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">智能去重</h5>
-                    <p class="text-gray-600">基于视频ID自动识别已下载的视频，避免重复下载，节省存储空间和下载时间</p>
-                </div>
-                <div class="text-center p-6 rounded-lg hover:shadow-lg transition-shadow">
-                    <img class="mx-auto mb-6 w-20 h-20" src="image/f3.png" alt="">
-                    <h5 class="text-xl font-semibold mb-4">数据库管理</h5>
-                    <p class="text-gray-600">使用SQLite数据库存储浏览记录和下载记录，支持高效查询和数据导出</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 使用指南 -->
-    <section class="py-20" id="guide">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-danger text-white px-4 py-2 rounded-full text-sm font-semibold">使用指南</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">如何使用</h2>
-                <span class="section-title-line"></span>
-            </div>
-
-            <!-- 下载视频 -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
-                <div class="pt-4">
-                    <h2 class="text-2xl font-bold mb-2">下载视频</h2>
-                    <span class="section-title-line mb-6"></span>
-                    <div class="space-y-4 text-gray-600">
-                        <p>1. 打开微信视频号中的视频详情页</p>
-                        <p>2. 在视频下方操作栏中点击下载按钮</p>
-                        <p class="font-semibold">
-                            <strong>注意：</strong>如果没有看到下载按钮，请检查「更多」选项中是否有「下载视频」。下载功能仅在视频详情页可用。
-                        </p>
-                    </div>
-                </div>
-                <div class="text-center">
-                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block1.png" alt="视频下载按钮">
-                </div>
-            </div>
-
-            <!-- 长视频下载 -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
-                <div class="text-center md:order-1">
-                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block2.png" alt="视频缓存进度">
-                </div>
-                <div class="pt-4 md:order-2">
-                    <h2 class="text-2xl font-bold mb-2">长视频下载</h2>
-                    <span class="section-title-line mb-6"></span>
-                    <div class="space-y-4 text-gray-600">
-                        <p>对于较长的视频，软件提供了缓存进度显示功能：</p>
-                        <p>1. 视频加载过程中会显示缓存进度</p>
-                        <p>2. 缓存完成后会有明显提示，此时可以进行下载</p>
-                        <p class="font-semibold">
-                            <strong>提示：</strong>长视频需要完整缓存后才能下载，建议按顺序缓存（不要跳着点进度条）
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Web控制台使用 -->
-            <div class="grid md:grid-cols-2 gap-12 items-center mb-20">
-                <div class="pt-4">
-                    <h2 class="text-2xl font-bold mb-2">Web控制台</h2>
-                    <span class="section-title-line mb-6"></span>
-                    <div class="space-y-4 text-gray-600">
-                        <p>软件提供了现代化的Web控制台界面，功能强大：</p>
-                        <p>1. <strong>浏览记录</strong>：查看和管理所有浏览过的视频信息</p>
-                        <p>2. <strong>下载记录</strong>：查看历史下载记录和统计信息</p>
-                        <p>3. <strong>下载队列</strong>：实时管理下载任务，查看下载进度</p>
-                        <p>4. <strong>批量下载</strong>：批量提交下载任务，支持JSON格式导入</p>
-                        <p>5. <strong>数据导出</strong>：导出CSV、JSON格式数据，方便分析</p>
-                        <p class="font-semibold">
-                            <strong>访问方式：</strong>启动程序后，在浏览器中访问 <code class="bg-gray-100 px-2 py-1 rounded">http://127.0.0.1:2025/console</code>
-                        </p>
-                    </div>
-                </div>
-                <div class="text-center">
-                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block.png" alt="Web控制台界面">
-                </div>
-            </div>
-
-            <!-- 批量下载 -->
-            <div class="grid md:grid-cols-2 gap-12 items-center">
-                <div class="text-center md:order-1">
-                    <img class="mx-auto max-w-full h-auto" src="image/features-mid-block1.png" alt="批量下载">
-                </div>
-                <div class="pt-4 md:order-2">
-                    <h2 class="text-2xl font-bold mb-2">批量下载</h2>
-                    <span class="section-title-line mb-6"></span>
-                    <div class="space-y-4 text-gray-600">
-                        <p>支持批量下载功能，可以一次下载多个视频：</p>
-                        <p>1. 在Web控制台的批量下载页面提交JSON格式的视频列表</p>
-                        <p>2. 支持账户导出格式自动转换，直接粘贴即可使用</p>
-                        <p>3. 支持断点续传，下载中断后可继续下载</p>
-                        <p>4. 自动去重，已下载的视频不会重复下载</p>
-                        <p class="font-semibold">
-                            <strong>提示：</strong>批量下载支持加密视频自动解密，无需额外操作
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-    <!-- 视频格式参数对比 -->
-    <section class="py-20 bg-gray-50" id="formats">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">视频格式</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">视频格式参数对比</h2>
-                <span class="section-title-line"></span>
-                <p class="mt-4 text-gray-600">下表展示了不同视频格式的参数对比，可根据需求选择合适的格式：</p>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full bg-white rounded-lg shadow-lg overflow-hidden">
-                    <thead class="bg-gray-100">
-                        <tr>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">文件名</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">分辨率</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">标识符</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">大小(MB)</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">总比特率</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">帧速率</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">音频采样率</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">音频比特率</th>
-                            <th class="px-4 py-3 text-left font-semibold text-gray-700">时长</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200">
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT112_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT112</td>
-                            <td class="px-4 py-3 text-sm">18.07</td>
-                            <td class="px-4 py-3 text-sm">2116 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT113_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT113</td>
-                            <td class="px-4 py-3 text-sm">14.13</td>
-                            <td class="px-4 py-3 text-sm">1655 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT114_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT114</td>
-                            <td class="px-4 py-3 text-sm">11.08</td>
-                            <td class="px-4 py-3 text-sm">1298 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT157_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT157</td>
-                            <td class="px-4 py-3 text-sm">14.37</td>
-                            <td class="px-4 py-3 text-sm">1683 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT158_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT158</td>
-                            <td class="px-4 py-3 text-sm">11.68</td>
-                            <td class="px-4 py-3 text-sm">1368 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT159_1024x576.mp4</td>
-                            <td class="px-4 py-3 text-sm">1024x576</td>
-                            <td class="px-4 py-3 text-sm">WT159</td>
-                            <td class="px-4 py-3 text-sm">9.44</td>
-                            <td class="px-4 py-3 text-sm">1105 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT111_1280x720.mp4</td>
-                            <td class="px-4 py-3 text-sm">1280x720</td>
-                            <td class="px-4 py-3 text-sm">WT111</td>
-                            <td class="px-4 py-3 text-sm">23.39</td>
-                            <td class="px-4 py-3 text-sm">2740 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm">..._WT156_1280x720.mp4</td>
-                            <td class="px-4 py-3 text-sm">1280x720</td>
-                            <td class="px-4 py-3 text-sm">WT156</td>
-                            <td class="px-4 py-3 text-sm">18.44</td>
-                            <td class="px-4 py-3 text-sm">2160 Kbps</td>
-                            <td class="px-4 py-3 text-sm">30.000 fps</td>
-                            <td class="px-4 py-3 text-sm">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm">71.61 秒</td>
-                        </tr>
-                        <tr class="hover:bg-gray-50 bg-yellow-50">
-                            <td class="px-4 py-3 text-sm font-semibold">原始视频</td>
-                            <td class="px-4 py-3 text-sm font-semibold">1920x1080</td>
-                            <td class="px-4 py-3 text-sm font-semibold">原始视频</td>
-                            <td class="px-4 py-3 text-sm font-semibold">130.04</td>
-                            <td class="px-4 py-3 text-sm font-semibold">15232 Kbps</td>
-                            <td class="px-4 py-3 text-sm font-semibold">60.000 fps</td>
-                            <td class="px-4 py-3 text-sm font-semibold">44100 Hz</td>
-                            <td class="px-4 py-3 text-sm font-semibold">128 Kbps</td>
-                            <td class="px-4 py-3 text-sm font-semibold">71.61 秒</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </section>
-
-    <!-- 软件特色数据统计 -->
-    <section class="py-20 bg-primary text-white" id="versions">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-white text-primary px-4 py-2 rounded-full text-sm font-semibold">软件特色</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4 text-white">核心数据统计</h2>
-                <span class="section-title-line line-white"></span>
-            </div>
-            <div class="grid md:grid-cols-4 gap-8">
-                <div class="text-center animated-stat">
-                    <div class="stat-icon mx-auto mb-4">
-                        <img src="image/stats-download.svg" alt="下载量" class="w-full h-full"
-                            onerror="this.onerror=null; this.src='image/f1.png';">
-                    </div>
-                    <h1 class="text-4xl font-bold mb-2 text-white">30K+</h1>
-                    <p class="text-white opacity-90">累计下载量</p>
-                </div>
-                <div class="text-center animated-stat">
-                    <div class="stat-icon mx-auto mb-4">
-                        <img src="image/stats-video.svg" alt="视频格式" class="w-full h-full"
-                            onerror="this.onerror=null; this.src='image/f2.png';">
-                    </div>
-                    <h1 class="text-4xl font-bold mb-2 text-white">9种</h1>
-                    <p class="text-white opacity-90">支持视频格式</p>
-                </div>
-                <div class="text-center animated-stat">
-                    <div class="stat-icon mx-auto mb-4">
-                        <img src="image/stats-speed.svg" alt="成功率" class="w-full h-full"
-                            onerror="this.onerror=null; this.src='image/f3.png';">
-                    </div>
-                    <h1 class="text-4xl font-bold mb-2 text-white">99.5%</h1>
-                    <p class="text-white opacity-90">下载成功率</p>
-                </div>
-                <div class="text-center animated-stat">
-                    <div class="stat-icon mx-auto mb-4">
-                        <img src="image/stats-users.svg" alt="用户数" class="w-full h-full"
-                            onerror="this.onerror=null; this.src='image/f4.png';">
-                    </div>
-                    <h1 class="text-4xl font-bold mb-2 text-white">8K+</h1>
-                    <p class="text-white opacity-90">活跃用户数</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 常见问题解答 -->
-    <section class="py-20" id="faq">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-danger text-white px-4 py-2 rounded-full text-sm font-semibold">常见问题</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">常见问题解答</h2>
-                <span class="section-title-line"></span>
-            </div>
-            <div class="max-w-4xl mx-auto">
-                <div class="space-y-4">
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq1">
-                            <div class="flex justify-between items-center">
-                                <span>如何下载视频号内容？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq1">
-                            <p class="text-gray-600">
-                                启动软件后，打开微信视频号中的视频详情页，在视频下方操作栏中会自动添加下载按钮，点击即可下载。如果没有看到下载按钮，请检查"更多"选项中是否有"下载视频"。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq2">
-                            <div class="flex justify-between items-center">
-                                <span>如何下载长视频？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq2">
-                            <p class="text-gray-600">
-                                对于较长的视频，需要完整缓存后才能下载。视频加载过程中会显示缓存进度，缓存完成后会有明显提示，此时才能进行下载。建议按顺序缓存，不要跳着点进度条。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq3">
-                            <div class="flex justify-between items-center">
-                                <span>支持哪些视频格式和质量？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq3">
-                            <p class="text-gray-600">
-                                软件支持多种分辨率和质量的视频下载，包括1024x576、1280x720以及原始1920x1080高清格式。每种分辨率还有不同的码率选择，可以根据自己的需求选择合适的格式。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq4">
-                            <div class="flex justify-between items-center">
-                                <span>遇到服务启动后视频详情一直在加载怎么办？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq4">
-                            <p class="text-gray-600">
-                                如果服务启动后视频详情一直在加载，终端无日志，在终端中按一次Ctrl+C即可恢复正常。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq5">
-                            <div class="flex justify-between items-center">
-                                <span>如何解决解密失败，停止下载的问题？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq5">
-                            <p class="text-gray-600">
-                                遇到解密失败，停止下载的情况，请关闭所有视频页面和窗口，然后重新打开尝试下载。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq6">
-                            <div class="flex justify-between items-center">
-                                <span>如何使用Web控制台？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq6">
-                            <p class="text-gray-600">
-                                启动程序后，在浏览器中访问 <code class="bg-gray-100 px-2 py-1 rounded">http://127.0.0.1:2025/console</code> 即可使用Web控制台。控制台提供了浏览记录、下载记录、下载队列、批量下载等功能，界面友好，操作简便。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq7">
-                            <div class="flex justify-between items-center">
-                                <span>如何批量下载视频？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq7">
-                            <p class="text-gray-600">
-                                在Web控制台的批量下载页面，可以提交JSON格式的视频列表。支持两种格式：批量下载格式和账户导出格式。账户导出格式会自动转换为批量下载格式，直接粘贴账户导出的数据即可使用。批量下载支持断点续传和智能去重。
-                            </p>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-lg shadow-md">
-                        <button
-                            class="w-full px-6 py-4 text-left font-semibold text-gray-800 hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors rounded-lg faq-toggle"
-                            data-target="faq8">
-                            <div class="flex justify-between items-center">
-                                <span>下载的视频保存在哪里？</span>
-                                <svg class="w-5 h-5 transform transition-transform faq-icon" fill="none"
-                                    stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </div>
-                        </button>
-                        <div class="px-6 pb-4 hidden faq-content" id="faq8">
-                            <p class="text-gray-600">
-                                下载的视频默认保存在程序目录下的 <code class="bg-gray-100 px-2 py-1 rounded">downloads</code> 文件夹中，按作者名称自动分类保存。可以通过环境变量 <code class="bg-gray-100 px-2 py-1 rounded">WX_CHANNEL_DOWNLOADS_DIR</code> 自定义下载目录。
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 开发指南 -->
-    <section class="py-20" id="development">
-        <div class="container mx-auto px-4">
-            <div class="text-center mb-16">
-                <span class="bg-primary text-white px-4 py-2 rounded-full text-sm font-semibold">开发指南</span>
-                <h2 class="text-3xl md:text-4xl font-bold mt-4 mb-4">开发指南</h2>
-                <span class="section-title-line"></span>
-            </div>
-            <div class="grid md:grid-cols-3 gap-8">
-                <!-- 第一栏：环境要求和运行方式 -->
-                <div class="pt-4">
-                    <h3 class="text-xl font-bold mb-4">环境要求</h3>
-                    <ul class="space-y-2 text-gray-600 mb-8">
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            Go语言环境
-                        </li>
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            管理员权限（用于网络请求拦截）
-                        </li>
-                    </ul>
-
-                    <h3 class="text-xl font-bold mb-4">运行方式</h3>
-                    <p class="text-gray-600 mb-4">以管理员身份启动终端，然后执行：</p>
-                    <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto"><code>go run main.go</code></pre>
-
-                    <h3 class="text-xl font-bold mb-4 mt-8">打包发布</h3>
-                    <pre class="bg-gray-100 p-4 rounded-lg text-sm overflow-x-auto"><code># 基本打包
-go build -o wx_channel.exe
-
-# 优化体积的打包
-go build -ldflags="-s -w" -o wx_channel_mini.exe
-
-# 使用upx压缩
-upx --best wx_channel.exe</code></pre>
-                </div>
-
-                <!-- 第二栏：技术实现和参考项目 -->
-                <div class="pt-4">
-                    <h3 class="text-xl font-bold mb-4">技术实现</h3>
-                    <p class="text-gray-600 mb-4">本项目的核心实现基于以下技术：</p>
-                    <ol class="space-y-2 text-gray-600 mb-8">
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">1</span>
-                            网络请求拦截：使用SunnyNet实现HTTP/HTTPS代理，拦截微信浏览器流量
-                        </li>
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">2</span>
-                            脚本注入：自动在视频号页面注入JavaScript，添加下载按钮和功能
-                        </li>
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">3</span>
-                            视频解密：自动识别并解密加密视频，支持多种加密格式
-                        </li>
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">4</span>
-                            Web控制台：提供现代化的Web界面，支持浏览记录、下载管理等功能
-                        </li>
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">5</span>
-                            批量下载：支持批量任务管理，断点续传，智能去重
-                        </li>
-                        <li class="flex items-start">
-                            <span
-                                class="bg-primary text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 mt-0.5 flex-shrink-0">6</span>
-                            数据导出：支持CSV、JSON、Markdown格式导出，便于数据分析
-                        </li>
-                    </ol>
-
-                    <h3 class="text-xl font-bold mb-4">参考项目</h3>
-                    <ul class="space-y-2 text-gray-600 mb-8">
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            <a href="https://github.com/kanadeblisst00/WechatVideoSniffer2.0"
-                                class="text-primary hover:underline">WechatVideoSniffer2.0</a>
-                        </li>
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            <a href="https://github.com/ltaoo/wx_channels_download"
-                                class="text-primary hover:underline">wx_channels_download</a>
-                        </li>
-                    </ul>
-
-                    <h3 class="text-xl font-bold mb-4">核心依赖</h3>
-                    <ul class="space-y-2 text-gray-600">
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            <a href="https://github.com/qtgolang/SunnyNet"
-                                class="text-primary hover:underline">SunnyNet</a> - 网络请求拦截库
-                        </li>
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            Go 1.23+ - 后端开发语言
-                        </li>
-                        <li class="flex items-center">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3"></span>
-                            JavaScript - 前端脚本注入
-                        </li>
-                    </ul>
-
-                    <h3 class="text-xl font-bold mb-4 mt-8">技术架构</h3>
-                    <ul class="space-y-2 text-gray-600">
-                        <li class="flex items-start">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
-                            <div>
-                                <strong>后端服务</strong>：Go语言开发，提供HTTP API和WebSocket服务
-                            </div>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
-                            <div>
-                                <strong>代理服务</strong>：基于SunnyNet实现本地HTTP/HTTPS代理
-                            </div>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
-                            <div>
-                                <strong>前端界面</strong>：JavaScript注入脚本 + Web控制台界面
-                            </div>
-                        </li>
-                        <li class="flex items-start">
-                            <span class="w-2 h-2 bg-primary rounded-full mr-3 mt-2"></span>
-                            <div>
-                                <strong>数据存储</strong>：本地文件系统 + CSV记录文件
-                            </div>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- 第三栏：版本更新历史 -->
-                <div class="pt-4">
-                    <h3 class="text-xl font-bold mb-4">版本更新历史</h3>
-                    <div class="space-y-6">
-                        <!-- v5.6.2版本 - 最新版本 -->
-                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.2 最新版本</span>
-                                <span class="ml-2 text-xs text-gray-500">2026-04-26</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-700 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    <strong>搜索页清理</strong>：移除已下线的视频号搜索页面相关代码和文档说明
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    <strong>API搜索保留</strong>：保留控制台和接口侧搜索能力，不影响现有搜索调用
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    <strong>提交范围整理</strong>：放开 `web/` 目录提交限制，允许站点资源纳入版本管理
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    <strong>链接结构兼容</strong>：兼容 `oid/nid`、`context_id`、`fromSubPage=profile`、`tabId=flow + feed_lab` 等多种直达视频链接
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    <strong>逻辑分流优化</strong>：对“URL 是 Home、实际是详情页”的场景自动切换到 Feed 逻辑处理
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    延续 v5.6.0 对新版首页、Feed、Profile、赞和收藏页面的适配成果
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    延续新版评论侧栏兼容、自动打开评论区与完整采集能力
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    延续 Hub / WebSocket 页面能力识别与智能选设备优化
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    雷达功能默认关闭，并支持控制台设置页即时启停
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    持续优化新版页面下的下载、评论、Hub 调用与整体稳定性
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.2.11版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.11版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    修复Windows文件名规范，优化符号.的异常处理
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    优化文件夹命名，自动移除尾随点号
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.2.10版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.10版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    新增Web控制台访问Token验证功能
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    优化简单版和完整版控制台UI统一
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    增强防剽窃保护功能
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.2.9版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.2.9版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    新增Web控制台批量下载功能
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    支持账户导出格式自动转换
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    优化批量下载进度显示
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 8.4版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">08.04版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    修复视频缓存功能及优化
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    修复下载按钮显示问题
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    新增保存页面代码功能（未开启，测试用）
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 6.23版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">6.23版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    增加程序图标，小部件美化
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    优化小功能
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 6.9版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">6.9版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    增加缓存提醒功能，长视频需要完整缓存才能下载
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    优化缓存进度显示
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.25版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.25版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    增加保存运营数据功能
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    支持导出公众号信息、视频发布IP、点赞、收藏、转发等数据
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.19版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.19版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    增加保存下载视频记录为表格功能
-                                </li>
-                            </ul>
-                        </div>
-
-                        <!-- 5.18版本 -->
-                        <div class="bg-gray-50 rounded-lg p-4">
-                            <div class="flex items-center mb-2">
-                                <span
-                                    class="bg-primary text-white px-2 py-1 rounded text-sm font-semibold">5.18版本</span>
-                            </div>
-                            <ul class="space-y-1 text-gray-600 text-sm">
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-yellow-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    更改顶部文字"ltaoo v5"，致敬原作者
-                                </li>
-                                <li class="flex items-start">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-                                    添加下载保存记录表格功能
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-                </ul>
-            </div>
-        </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
     <footer class="py-16 bg-gray-900 text-white" id="support">
+
         <div class="container mx-auto px-4">
+
             <!-- 许可证和版权信息 -->
+
             <div class="grid md:grid-cols-2 gap-8 items-center mb-12">
+
                 <div class="text-center md:text-left">
+
                     <h4 class="text-lg font-bold mb-2">许可证</h4>
+
                     <p class="text-gray-300">本项目遵循与原项目相同的开源许可证条款。</p>
+
                 </div>
+
                 <div class="text-center md:text-right">
+
                     <p class="text-gray-400">微信视频号下载工具 &copy; 2025 by Nobiyou</p>
+
                     <p class="text-gray-500 text-sm mt-1">感谢所有贡献者的支持</p>
+
                 </div>
+
             </div>
+
+
 
             <!-- 分割线 -->
+
             <div class="border-t border-gray-700 my-8"></div>
 
+
+
             <!-- 赞赏支持 -->
+
             <div class="text-center">
+
                 <h3 class="text-2xl font-bold mb-4">赞赏支持</h3>
+
                 <p class="text-gray-300 mb-6">如果本项目对您有所帮助，欢迎请作者喝杯咖啡 ☕️</p>
+
                 <img class="mx-auto max-w-xs rounded-lg shadow-lg" src="image/zanshang.png" alt="赞赏码">
+
             </div>
+
         </div>
+
     </footer>
 
+
+
     <!-- JavaScript -->
+
     <script>
+
         // 节流函数 - 优化滚动性能
+
         function throttle(func, delay) {
+
             let timeoutId;
+
             let lastExecTime = 0;
 
+
+
             return function (...args) {
+
                 const currentTime = Date.now();
 
+
+
                 if (currentTime - lastExecTime > delay) {
+
                     func.apply(this, args);
+
                     lastExecTime = currentTime;
+
                 } else {
+
                     clearTimeout(timeoutId);
+
                     timeoutId = setTimeout(() => {
+
                         func.apply(this, args);
+
                         lastExecTime = Date.now();
+
                     }, delay - (currentTime - lastExecTime));
+
                 }
+
             };
+
         }
+
+
 
         // 导航状态管理器
+
         class NavigationStateManager {
+
             constructor() {
+
                 this.activeClass = 'nav-active';
+
                 this.currentActive = null;
+
                 this.sections = [
+
                      'introduction', 'features', 'guide',
+
                     'formats', 'versions', 'faq', 'development', 'support'
+
                 ];
+
             }
+
+
 
             // 设置活动导航项
+
             setActive(targetId) {
+
                 // 移除所有活动状态
+
                 this.clearAllActive();
 
+
+
                 // 设置新的活动状态
+
                 const desktopNavItem = document.querySelector(`nav a[href="#${targetId}"]`);
+
                 const mobileNavItem = document.querySelector(`#mobile-menu a[href="#${targetId}"]`);
 
+
+
                 if (desktopNavItem) {
+
                     desktopNavItem.classList.add(this.activeClass);
+
                     this.currentActive = desktopNavItem;
+
                 }
+
+
 
                 if (mobileNavItem) {
+
                     mobileNavItem.classList.add(this.activeClass);
+
                 }
+
             }
+
+
 
             // 清除所有活动状态
+
             clearAllActive() {
+
                 const allNavItems = document.querySelectorAll('nav a, #mobile-menu a');
+
                 allNavItems.forEach(item => {
+
                     item.classList.remove(this.activeClass);
+
                 });
+
                 this.currentActive = null;
+
             }
+
         }
+
+
 
         // ScrollSpy 滚动监听器
+
         class ScrollSpy {
+
             constructor(navManager) {
+
                 this.navManager = navManager;
+
                 this.offset = 100; // 偏移量
+
                 this.sections = [];
+
                 this.isScrolling = false;
+
             }
+
+
 
             // 初始化
+
             init() {
+
                 this.collectSections();
+
                 this.bindEvents();
+
                 // 设置初始状态
+
                 setTimeout(() => this.updateActiveSection(), 100);
+
             }
+
+
 
             // 收集所有区域元素
+
             collectSections() {
+
                 this.navManager.sections.forEach(sectionId => {
+
                     const element = document.getElementById(sectionId);
+
                     if (element) {
+
                         this.sections.push({
+
                             id: sectionId,
+
                             element: element,
+
                             offsetTop: element.offsetTop
+
                         });
+
                     }
+
                 });
+
             }
+
+
 
             // 绑定事件
+
             bindEvents() {
+
                 window.addEventListener('scroll', throttle(() => {
+
                     if (!this.isScrolling) {
+
                         this.updateActiveSection();
+
                     }
+
                 }, 100));
 
+
+
                 window.addEventListener('resize', throttle(() => {
+
                     this.collectSections(); // 重新收集位置信息
+
                     this.updateActiveSection();
+
                 }, 200));
+
             }
+
+
 
             // 更新活动区域
+
             updateActiveSection() {
+
                 const scrollPosition = window.scrollY + this.offset;
+
                 let activeSection = null;
+
                 const isAtTop = window.scrollY < 50;
 
+
+
                 // 特殊处理：如果在页面顶部，激活首页
+
                 if (isAtTop) {
+
                     activeSection = { id: '' };
+
                 } else {
+
                     // 找到当前活动的区域
+
                     for (let i = this.sections.length - 1; i >= 0; i--) {
+
                         const section = this.sections[i];
+
                         if (section.offsetTop <= scrollPosition) {
+
                             activeSection = section;
+
                             break;
+
                         }
+
                     }
+
                 }
+
+
 
                 // 控制首页hover状态
+
                 const homeLink = document.querySelector('nav a[href="#page-top"]');
+
                 if (homeLink) {
+
                         homeLink.classList.remove('active');
+
                 }
+
+
 
                 // 更新导航状态
+
                 if (activeSection && activeSection.id !== this.currentActiveId) {
+
                     this.currentActiveId = activeSection.id;
+
                     this.navManager.setActive(activeSection.id);
+
                 }
+
             }
+
+
 
             // 设置滚动状态（用于点击跳转时暂停自动更新）
+
             setScrolling(isScrolling) {
+
                 this.isScrolling = isScrolling;
+
             }
+
         }
+
+
 
         // 初始化导航系统
+
         const navManager = new NavigationStateManager();
+
         const scrollSpy = new ScrollSpy(navManager);
 
+
+
         // Mobile menu toggle
+
         document.getElementById('mobile-menu-btn').addEventListener('click', function () {
+
             const mobileMenu = document.getElementById('mobile-menu');
+
             mobileMenu.classList.toggle('hidden');
+
         });
+
+
 
         // Enhanced smooth scrolling with navigation state update
+
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+
             anchor.addEventListener('click', function (e) {
+
                 e.preventDefault();
+
                 const targetId = this.getAttribute('href').substring(1);
+
                 const target = document.querySelector(`#${targetId}`);
 
+
+
                 if (target) {
+
                     // 暂停ScrollSpy自动更新
+
                     scrollSpy.setScrolling(true);
 
+
+
                     // 立即更新导航状态
+
                     navManager.setActive(targetId);
+
+
 
                     // 关闭移动端菜单
+
                     const mobileMenu = document.getElementById('mobile-menu');
+
                     if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
+
                         mobileMenu.classList.add('hidden');
+
                     }
+
+
 
                     // 平滑滚动
+
                     target.scrollIntoView({
+
                         behavior: 'smooth',
+
                         block: 'start'
+
                     });
 
+
+
                     // 滚动完成后恢复ScrollSpy
+
                     setTimeout(() => {
+
                         scrollSpy.setScrolling(false);
+
                         // 确保状态正确
+
                         scrollSpy.updateActiveSection();
+
                     }, 1000);
+
                 }
+
             });
+
         });
+
+
 
         // FAQ accordion
+
         document.querySelectorAll('.faq-toggle').forEach(button => {
+
             button.addEventListener('click', function () {
+
                 const targetId = this.getAttribute('data-target');
+
                 const content = document.getElementById(targetId);
+
                 const icon = this.querySelector('.faq-icon');
 
+
+
                 // Toggle content visibility
+
                 content.classList.toggle('hidden');
 
+
+
                 // Rotate icon
+
                 icon.classList.toggle('rotate-180');
 
+
+
                 // Close other FAQ items
+
                 document.querySelectorAll('.faq-content').forEach(otherContent => {
+
                     if (otherContent !== content && !otherContent.classList.contains('hidden')) {
+
                         otherContent.classList.add('hidden');
+
                         const otherButton = document.querySelector(`[data-target="${otherContent.id}"]`);
+
                         const otherIcon = otherButton.querySelector('.faq-icon');
+
                         otherIcon.classList.remove('rotate-180');
+
                     }
+
                 });
+
             });
+
         });
+
+
 
         // Particles JS Config (simplified version)
+
         function createParticles() {
+
             const particlesContainer = document.getElementById('particles-js');
+
             if (!particlesContainer) return;
 
+
+
             // Create simple animated background
+
             particlesContainer.innerHTML = `
+
                 <div class="absolute inset-0 opacity-20">
+
                     <div class="absolute top-10 left-10 w-2 h-2 bg-white rounded-full animate-bounce"></div>
+
                     <div class="absolute top-20 right-20 w-1 h-1 bg-white rounded-full animate-pulse"></div>
+
                     <div class="absolute bottom-20 left-20 w-1.5 h-1.5 bg-white rounded-full animate-bounce" style="animation-delay: 1s;"></div>
+
                     <div class="absolute bottom-10 right-10 w-1 h-1 bg-white rounded-full animate-pulse" style="animation-delay: 2s;"></div>
+
                     <div class="absolute top-1/2 left-1/4 w-1 h-1 bg-white rounded-full animate-bounce" style="animation-delay: 0.5s;"></div>
+
                     <div class="absolute top-1/3 right-1/3 w-1.5 h-1.5 bg-white rounded-full animate-pulse" style="animation-delay: 1.5s;"></div>
+
                 </div>
+
             `;
+
         }
 
+
+
         // Initialize particles on page load
+
         document.addEventListener('DOMContentLoaded', createParticles);
 
+
+
         // Initialize navigation system
+
         document.addEventListener('DOMContentLoaded', function () {
+
             // 初始化ScrollSpy系统
+
             scrollSpy.init();
 
+
+
             // 处理页面直接访问锚点的情况
+
             if (window.location.hash) {
+
                 const targetId = window.location.hash.substring(1);
+
                 setTimeout(() => {
+
                     navManager.setActive(targetId);
+
                 }, 500);
+
             }
+
         });
+
+
 
         // Add scroll effect to navbar
+
         window.addEventListener('scroll', function () {
+
             const nav = document.getElementById('main-nav');
+
             if (window.scrollY > 50) {
+
                 nav.classList.add('bg-primary', 'bg-opacity-95', 'backdrop-blur-sm', 'shadow-lg');
+
                 nav.classList.remove('bg-transparent');
+
             } else {
+
                 nav.classList.remove('bg-primary', 'bg-opacity-95', 'backdrop-blur-sm', 'shadow-lg');
+
                 nav.classList.add('bg-transparent');
+
             }
+
         });
+
     </script>
+
 </body>
 
+
+
 </html>
+
