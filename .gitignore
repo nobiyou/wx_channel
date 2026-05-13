@@ -42,6 +42,7 @@ hub_server/docs/
 /bin/
 /build/
 /dist/
+.worktrees/
 
 # ==================== 临时文件 ====================
 # 临时文件
