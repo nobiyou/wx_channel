@@ -266,6 +266,77 @@ function __wx_channels_primary_download_label__(profile) {
   return __wx_channels_has_true_original__(profile) ? '原始视频' : '默认视频';
 }
 
+function __wx_channels_append_query_param__(url, key, value) {
+  if (!url || !key) return url || '';
+
+  var separator = url.indexOf('?') >= 0 ? '&' : '?';
+  return url + separator + key + '=' + encodeURIComponent(value);
+}
+
+function __wx_channels_get_profile_video_dimensions__(profile) {
+  var media = profile && profile.media ? profile.media : {};
+  var width = Number((profile && profile.width) || media.width || 0);
+  var height = Number((profile && profile.height) || media.height || 0);
+
+  return {
+    width: width > 0 ? width : 0,
+    height: height > 0 ? height : 0
+  };
+}
+
+function __wx_channels_normalize_video_download__(profile, spec) {
+  var normalized = {
+    mode: 'original',
+    url: '',
+    resolution: '',
+    width: 0,
+    height: 0,
+    fileFormat: '',
+    qualityInfo: '',
+    useDirectDownload: true,
+    spec: spec || null
+  };
+
+  if (!profile) {
+    return normalized;
+  }
+
+  var originalUrl = profile.url || ((profile.originalUrl || '') + (profile.urlToken || '')) || profile.originalUrl || '';
+  normalized.url = originalUrl;
+
+  var explicitSpec = spec && spec.fileFormat ? spec : null;
+  if (explicitSpec) {
+    normalized.mode = 'specific';
+    normalized.fileFormat = explicitSpec.fileFormat || '';
+    normalized.width = Number(explicitSpec.width || 0);
+    normalized.height = Number(explicitSpec.height || 0);
+    normalized.qualityInfo = normalized.fileFormat;
+
+    if (normalized.width > 0 && normalized.height > 0) {
+      normalized.resolution = normalized.width + 'x' + normalized.height;
+      normalized.qualityInfo += '_' + normalized.resolution;
+    }
+
+    var specBaseUrl = profile.originalUrl || profile.url || '';
+    var specUrl = specBaseUrl;
+    if (specBaseUrl === (profile.originalUrl || '') && profile.urlToken) {
+      specUrl += profile.urlToken;
+    }
+    normalized.url = __wx_channels_append_query_param__(specUrl, 'X-snsvideoflag', normalized.fileFormat);
+    normalized.useDirectDownload = false;
+    return normalized;
+  }
+
+  var originalDimensions = __wx_channels_get_profile_video_dimensions__(profile);
+  normalized.width = originalDimensions.width;
+  normalized.height = originalDimensions.height;
+  if (normalized.width > 0 && normalized.height > 0) {
+    normalized.resolution = normalized.width + 'x' + normalized.height;
+  }
+
+  return normalized;
+}
+
 // ==================== 点击下载处理 ====================
 async function __wx_channels_handle_click_download__(spec) {
   var profile = __wx_channels_store__.profile;
@@ -276,21 +347,14 @@ async function __wx_channels_handle_click_download__(spec) {
 
   var filename = profile.title || profile.id || String(new Date().valueOf());
   var _profile = Object.assign({}, profile);
+  var normalized = __wx_channels_normalize_video_download__(profile, spec);
+  _profile.url = normalized.url;
 
-  if (spec) {
-    var specBaseUrl = profile.originalUrl || profile.url || '';
-    var specToken = profile.urlToken || '';
-    _profile.url = specBaseUrl + specToken + "&X-snsvideoflag=" + spec.fileFormat;
-    var qualityInfo = spec.fileFormat;
-    if (spec.width && spec.height) {
-      qualityInfo += '_' + spec.width + 'x' + spec.height;
-    }
-    filename = filename + "_" + qualityInfo;
-  } else {
-    var primaryUrl = profile.url || ((profile.originalUrl || '') + (profile.urlToken || ''));
-    _profile.url = primaryUrl;
+  if (normalized.qualityInfo) {
+    filename = filename + "_" + normalized.qualityInfo;
   }
 
+  __wx_log({ msg: '下载模式<' + normalized.mode + '>' });
   __wx_log({ msg: '下载文件名<' + filename + '>' });
   __wx_log({ msg: '视频链接<' + _profile.url + '>' });
 
@@ -306,7 +370,7 @@ async function __wx_channels_handle_click_download__(spec) {
 
   // 兼容 old 分支的默认下载链：首项下载直接在页面会话里抓流并前端解密，
   // 避免后端/Gopeed 请求同一链接时拿到缩水流。
-    if (!spec) {
+    if (normalized.useDirectDownload) {
       __wx_log({ msg: '📎 默认视频使用页面直连下载' });
       try {
         if (!_profile.key) {
@@ -324,15 +388,6 @@ async function __wx_channels_handle_click_download__(spec) {
   var hasKey = !!(_profile.key && _profile.key.length > 0);
 
   // 获取分辨率信息
-  var resolution = '';
-  var width = 0, height = 0, fileFormat = '';
-  if (spec && spec.width && spec.height) {
-    width = spec.width;
-    height = spec.height;
-    resolution = spec.width + 'x' + spec.height;
-    fileFormat = spec.fileFormat || '';
-  }
-
   var requestData = {
     videoUrl: _profile.url,
     videoId: _profile.id || '',
@@ -346,10 +401,10 @@ async function __wx_channels_handle_click_download__(spec) {
     },
     key: _profile.key || '',
     forceSave: false,
-    resolution: resolution,
-    width: width,
-    height: height,
-    fileFormat: fileFormat,
+    resolution: normalized.resolution,
+    width: normalized.width,
+    height: normalized.height,
+    fileFormat: normalized.fileFormat,
     likeCount: _profile.likeCount || 0,
     commentCount: _profile.commentCount || 0,
     forwardCount: _profile.forwardCount || 0,

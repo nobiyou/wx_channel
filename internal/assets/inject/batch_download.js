@@ -816,23 +816,27 @@ async function __batch_download_selected__() {
     // 构建批量下载请求数据
     var batchVideos = formattedVideos.map(function(video) {
       var authorName = video.nickname || (video.contact && video.contact.nickname) || '未知作者';
-      var resolution = '';
-      var width = 0, height = 0;
-
-      if (video.spec && video.spec.length > 0) {
-        var firstSpec = video.spec[0];
-        width = firstSpec.width || 0;
-        height = firstSpec.height || 0;
-        resolution = width && height ? (width + 'x' + height) : '';
-      }
+      var normalizedDownload = typeof __wx_channels_normalize_video_download__ === 'function'
+        ? __wx_channels_normalize_video_download__(video, null)
+        : {
+          mode: 'original',
+          url: video.url || '',
+          resolution: '',
+          width: 0,
+          height: 0,
+          fileFormat: ''
+        };
 
       return {
         id: video.id || '',
-        url: video.url || '',
+        url: normalizedDownload.url || video.url || '',
         title: video.title || video.id || String(Date.now()),
         author: authorName,
         key: video.key || '',
-        resolution: resolution
+        resolution: normalizedDownload.resolution || '',
+        width: normalizedDownload.width || 0,
+        height: normalizedDownload.height || 0,
+        fileFormat: normalizedDownload.fileFormat || ''
       };
     });
 
