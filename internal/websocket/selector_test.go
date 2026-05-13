@@ -50,6 +50,28 @@ func TestRoundRobinSelector(t *testing.T) {
 	}
 }
 
+func TestRoundRobinSelectorStableAcrossFreshMaps(t *testing.T) {
+	selector := NewRoundRobinSelector()
+
+	for i := 0; i < 60; i++ {
+		clients := map[*Client]bool{
+			createTestClient("client1", 0): true,
+			createTestClient("client2", 0): true,
+			createTestClient("client3", 0): true,
+		}
+
+		selected, err := selector.Select(clients)
+		if err != nil {
+			t.Fatalf("Select failed: %v", err)
+		}
+
+		expected := "client" + string('1'+rune(i%3))
+		if selected.ID != expected {
+			t.Fatalf("iteration %d: expected %s, got %s", i, expected, selected.ID)
+		}
+	}
+}
+
 // TestLeastConnectionSelector 测试最少连接选择器
 func TestLeastConnectionSelector(t *testing.T) {
 	selector := NewLeastConnectionSelector()

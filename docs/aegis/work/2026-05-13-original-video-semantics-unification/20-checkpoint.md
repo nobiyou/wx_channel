@@ -7,8 +7,7 @@ State: in_progress
 
 Current todo:
 
-1. Keep wrapper orchestration semantics-neutral
-2. Run full verification
+1. Run full verification
 
 Completed todos:
 
@@ -25,15 +24,18 @@ Completed todos:
 - passed JS syntax checks for `download.js` and `batch_download.js`
 - passed deterministic JS helper semantics check for original vs specific spec
 - passed `go test ./internal/handlers ./internal/models ./internal/config`
+- fixed stale JWT init test to match current auto-generated-secret behavior
+- fixed `RoundRobinSelector` nondeterminism by sorting clients before round-robin selection and starting from the first slot
+- passed targeted `hub_server/middleware` and `internal/websocket` regression tests
 
 Active slice:
 
-- collect remaining regression evidence and decide commit boundaries
+- run final full-repo regression after targeted fixes
 
 Next step:
 
-- rerun broader verification with bounded commands
-- commit front-end normalization changes if no new blocker appears
+- run `go test ./...`
+- if green, commit verification fixes and close out
 
 ## Evidence
 
@@ -48,17 +50,21 @@ Next step:
 - `node` syntax/evaluation checks passed for `internal/assets/inject/download.js` and `internal/assets/inject/batch_download.js`
 - deterministic helper check passed for canonical original mode vs `X-snsvideoflag=<fileFormat>` specific mode
 - `go test ./internal/handlers ./internal/models ./internal/config` passed
-- `go test ./...` and `go build ./...` have only timeout evidence so far; no pass/fail conclusion yet
+- `go build ./...` passed
+- `go test ./...` initially failed in `hub_server/middleware` because `TestInitJWTSecretFromEnv` still expected a missing-env error while `InitJWTSecretFromEnv` now generates a random secret by design
+- `go test ./...` initially failed in `internal/websocket` because `RoundRobinSelector` depended on Go map iteration order and started from the second slot due to pre-modulo increment
+- `go test ./hub_server/middleware -run TestInitJWTSecretFromEnv -count=1` passed after aligning the stale test with current design
+- `go test ./internal/websocket -run "TestRoundRobinSelector|TestRoundRobinSelectorStableAcrossFreshMaps|TestConcurrentAccess" -count=1` passed after stabilizing round-robin ordering
 
 ## DriftCheckDraft
 
-- scope: still matches approved original-video unification plan; Tasks 1-4 are now implemented without expanding beyond approved scope
+- scope: still matches approved original-video unification plan; verification follow-up only repaired pre-existing full-suite failures needed to close the branch cleanly
 - compatibility: feed/home still pass `spec/null`; script wrapper still only pauses/resumes and forwards one argument
-- retirement: browser-side ad hoc default-stream semantics are now folded into a canonical original-mode helper; legacy `original` marker remains compatibility-only on the server
+- retirement: browser-side ad hoc default-stream semantics are now folded into a canonical original-mode helper; legacy `original` marker remains compatibility-only on the server; unstable map-order round-robin behavior is retired
 - decision: continue
 
 ## ResumeStateHint
 
 - do not implement on `main`
-- Tasks 1-4 implemented in worktree
-- remaining work is broader verification and commit slicing
+- implementation complete in worktree
+- remaining work is final full-suite verification and commit of verification repairs

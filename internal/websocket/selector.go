@@ -3,6 +3,7 @@ package websocket
 import (
 	"errors"
 	"math/rand"
+	"sort"
 	"sync/atomic"
 )
 
@@ -32,9 +33,12 @@ func (s *RoundRobinSelector) Select(clients map[*Client]bool) (*Client, error) {
 	for c := range clients {
 		clientList = append(clientList, c)
 	}
+	sort.Slice(clientList, func(i, j int) bool {
+		return clientList[i].ID < clientList[j].ID
+	})
 
 	// 原子递增计数器并取模
-	idx := atomic.AddUint64(&s.counter, 1)
+	idx := atomic.AddUint64(&s.counter, 1) - 1
 	return clientList[idx%uint64(len(clientList))], nil
 }
 

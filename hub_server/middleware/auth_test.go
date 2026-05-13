@@ -4,9 +4,16 @@ import "testing"
 
 func TestInitJWTSecretFromEnv(t *testing.T) {
 	t.Run("missing env", func(t *testing.T) {
+		oldSecret := JWTSecret
+		defer func() { JWTSecret = oldSecret }()
+
 		t.Setenv("HUB_JWT_SECRET", "")
-		if err := InitJWTSecretFromEnv(); err == nil {
-			t.Fatalf("expected error for missing HUB_JWT_SECRET")
+		JWTSecret = nil
+		if err := InitJWTSecretFromEnv(); err != nil {
+			t.Fatalf("unexpected error for missing HUB_JWT_SECRET: %v", err)
+		}
+		if len(JWTSecret) != 32 {
+			t.Fatalf("expected generated JWTSecret length 32, got %d", len(JWTSecret))
 		}
 	})
 
