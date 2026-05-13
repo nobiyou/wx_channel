@@ -59,8 +59,24 @@ type DownloadVideoRequest struct {
 	FavCount     int64             `json:"favCount"`
 }
 
+type downloadVideoMode string
+
+const (
+	downloadVideoModeOriginal downloadVideoMode = "original"
+	downloadVideoModeSpecific downloadVideoMode = "specific"
+)
+
 func isOriginalVideoURL(url string) bool {
 	return strings.Contains(url, "X-snsvideoflag=original")
+}
+
+func hasSpecificVideoSpec(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	spec := strings.TrimSpace(parsed.Query().Get("X-snsvideoflag"))
+	return spec != "" && !strings.EqualFold(spec, "original")
 }
 
 func normalizeOriginalVideoURL(raw string) string {
@@ -77,6 +93,33 @@ func normalizeOriginalVideoURL(raw string) string {
 		parsed.RawQuery = query.Encode()
 	}
 	return parsed.String()
+}
+
+func downloadModeFromRequest(req DownloadVideoRequest) downloadVideoMode {
+	if isOriginalVideoURL(req.VideoURL) {
+		return downloadVideoModeOriginal
+	}
+	if strings.TrimSpace(req.FileFormat) != "" {
+		return downloadVideoModeSpecific
+	}
+	if hasSpecificVideoSpec(req.VideoURL) {
+		return downloadVideoModeSpecific
+	}
+	return downloadVideoModeOriginal
+}
+
+func normalizeDownloadVideoURL(req DownloadVideoRequest) string {
+	if downloadModeFromRequest(req) != downloadVideoModeOriginal {
+		return req.VideoURL
+	}
+	return normalizeOriginalVideoURL(req.VideoURL)
+}
+
+func downloadConnectionCountFromMode(base int, mode downloadVideoMode) int {
+	if mode == downloadVideoModeOriginal {
+		return 1
+	}
+	return base
 }
 
 func (h *UploadHandler) downloadWithHeaders(ctx context.Context, url, targetPath string, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) error {
@@ -1322,16 +1365,14 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		if cfg != nil && cfg.DownloadConnections > 0 {
 			connections = cfg.DownloadConnections
 		}
-		originalDownload := isOriginalVideoURL(req.VideoURL)
-		if originalDownload {
-			normalizedURL := normalizeOriginalVideoURL(req.VideoURL)
-			if normalizedURL != req.VideoURL {
-				utils.Info("🩹 [视频下载] 检测到旧版 original 参数，已回退为默认视频直链")
-				req.VideoURL = normalizedURL
-			}
+		mode := downloadModeFromRequest(req)
+		normalizedURL := normalizeDownloadVideoURL(req)
+		if normalizedURL != req.VideoURL {
+			utils.Info("🩹 [视频下载] 检测到旧版 original 参数，已回退为默认视频直链")
+			req.VideoURL = normalizedURL
 		}
-		if originalDownload {
-			connections = 1
+		connections = downloadConnectionCountFromMode(connections, mode)
+		if mode == downloadVideoModeOriginal {
 			utils.Info("🎯 [视频下载] 原始视频使用单连接模式")
 		}
 
