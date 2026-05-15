@@ -73,8 +73,8 @@ var WXU = (() => {
       (() => {
         const variable = keys[i];
         const methods = variables[variable];
-        // 检查是否包含 finderGetCommentDetail 函数（API 组）
-        if (typeof methods.finderGetCommentDetail === "function") {
+        // 检查是否包含评论/详情 API 函数（API 组）
+        if (typeof methods.finderGetCommentDetail === "function" || typeof methods.finderGetCommentList === "function") {
           WXAPI = methods;
           console.log('[WXU] ✅ WXAPI 已初始化，包含函数:', Object.keys(methods).slice(0, 10));
           return;

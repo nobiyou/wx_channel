@@ -322,6 +322,8 @@ func (c *Client) SupportsKey(key string) bool {
 		return c.methods["finderUserPage"]
 	case "key:channels:feed_profile":
 		return c.methods["finderGetCommentDetail"]
+	case "key:channels:fetch_feed_comment_list":
+		return c.methods["finderGetCommentList"]
 	default:
 		return true
 	}
@@ -357,6 +359,7 @@ func (c *Client) Status() ClientStatus {
 		SupportsSearch:  c.apiReady && methods["finderSearch"],
 		SupportsFeed:    c.apiReady && methods["finderUserPage"],
 		SupportsProfile: c.apiReady && methods["finderGetCommentDetail"],
+		SupportsComment: c.apiReady && methods["finderGetCommentList"],
 	}
 }
 

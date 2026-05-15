@@ -145,22 +145,22 @@ func GenerateUniqueFilename(dir, filename string, maxAttempts int) string {
 }
 
 // GenerateVideoFilename 根据视频标题和ID生成文件名
-// 优先使用视频ID确保唯一性，如果标题相同但ID不同，文件名会包含ID
-// 格式：标题_ID.mp4 或 标题.mp4（如果没有ID）
-func GenerateVideoFilename(title, videoID string) string {
+// 默认仅使用标题；如果启用 includeVideoID，则追加视频ID。
+func GenerateVideoFilename(title, videoID string, includeVideoID bool) string {
 	// 清理标题
 	var filename string
 	if title != "" {
 		filename = CleanFilename(title)
-	} else if videoID != "" {
+	} else if includeVideoID && videoID != "" {
 		filename = "video_" + videoID
+	} else if videoID != "" {
+		filename = "video"
 	} else {
-		filename = "video_" + time.Now().Format("20060102_150405")
+		filename = "video"
 	}
 
-	// 如果有视频ID，在文件名中包含ID以确保唯一性
-	// 格式：标题_ID.mp4
-	if videoID != "" {
+	// 如果启用，才在文件名中包含ID
+	if includeVideoID && videoID != "" {
 		// 检查文件名中是否已包含ID（避免重复添加）
 		idPattern := "_" + videoID
 		if !strings.Contains(filename, idPattern) {
@@ -176,4 +176,27 @@ func GenerateVideoFilename(title, videoID string) string {
 	}
 
 	return filename
+}
+
+// GenerateUniquePath 生成不冲突的完整文件路径。
+func GenerateUniquePath(dir, filename string) string {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		ext = ".mp4"
+	}
+
+	candidate := filepath.Join(dir, filename)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+
+	for i := 1; i < 1000; i++ {
+		next := filepath.Join(dir, fmt.Sprintf("%s(%d)%s", base, i, ext))
+		if _, err := os.Stat(next); os.IsNotExist(err) {
+			return next
+		}
+	}
+
+	return filepath.Join(dir, fmt.Sprintf("%s_%s%s", base, time.Now().Format("20060102_150405"), ext))
 }

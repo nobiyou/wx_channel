@@ -233,7 +233,7 @@ func LogDownload(videoID, title, author, url string, size int64, success bool) {
 		Msgf("[下载] %s | %s", title, status)
 }
 
-// LogComment 记录评论采集操作
+// LogComment 记录评论导出操作
 func LogComment(videoID, title string, commentCount int, success bool) {
 	event := GetLogger().zLogger.Info()
 	if !success {
@@ -243,12 +243,12 @@ func LogComment(videoID, title string, commentCount int, success bool) {
 	if !success {
 		status = "失败"
 	}
-	event.Str("type", "评论采集").
+	event.Str("type", "评论导出").
 		Str("status", status).
 		Str("id", videoID).
 		Str("title", title).
 		Int("count", commentCount).
-		Msgf("[评论] %s | %d条", title, commentCount)
+		Msgf("[评论导出] %s | %d条", title, commentCount)
 }
 
 // LogBatchDownload 记录批量下载操作

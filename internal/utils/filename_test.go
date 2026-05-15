@@ -1,9 +1,41 @@
 package utils
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestGenerateVideoFilename_WithVideoIDByDefault(t *testing.T) {
+	filename := GenerateVideoFilename("测试标题", "123456789", true)
+	if filename != "测试标题_123456789.mp4" {
+		t.Fatalf("filename = %s, want 测试标题_123456789.mp4", filename)
+	}
+}
+
+func TestGenerateVideoFilename_WithoutVideoIDWhenDisabled(t *testing.T) {
+	filename := GenerateVideoFilename("测试标题", "123456789", false)
+	if filename != "测试标题" {
+		t.Fatalf("filename = %s, want 测试标题", filename)
+	}
+}
+
+func TestGenerateUniquePath_AppendsSequenceWhenFileExists(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "测试标题.mp4")
+	if err := os.WriteFile(base, []byte("x"), 0644); err != nil {
+		t.Fatalf("prepare file failed: %v", err)
+	}
+
+	path := GenerateUniquePath(dir, "测试标题.mp4")
+	if path == base {
+		t.Fatalf("expected unique path, got %s", path)
+	}
+	if !strings.Contains(path, "测试标题(1).mp4") {
+		t.Fatalf("path = %s, want suffix (1)", path)
+	}
+}
 
 func TestCleanFilename_LongTitle(t *testing.T) {
 	// 测试超长的中文标题（构造一个超过100字符的标题）

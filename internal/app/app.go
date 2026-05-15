@@ -53,7 +53,6 @@ type App struct {
 	RecordHandler     *handlers.RecordHandler
 	ScriptHandler     *handlers.ScriptHandler
 	BatchHandler      *handlers.BatchHandler
-	CommentHandler    *handlers.CommentHandler
 	ConsoleAPIHandler *handlers.ConsoleAPIHandler
 	WebSocketHandler  *handlers.WebSocketHandler
 	StaticFileHandler *handlers.StaticFileHandler
@@ -207,7 +206,6 @@ func (app *App) Run() {
 	app.APIHandler = handlers.NewAPIHandler(app.Cfg)
 	app.UploadHandler = handlers.NewUploadHandler(app.Cfg, app.WSHub, app.GopeedService)
 	app.RecordHandler = handlers.NewRecordHandler(app.Cfg)
-	app.CommentHandler = handlers.NewCommentHandler(app.Cfg)
 
 	// BatchHandler (Injecting GopeedService)
 	app.BatchHandler = handlers.NewBatchHandler(app.Cfg, app.GopeedService)
@@ -240,7 +238,6 @@ func (app *App) Run() {
 		app.UploadHandler,
 		app.RecordHandler,
 		app.BatchHandler,
-		app.CommentHandler,
 	}
 	app.responseInterceptors = []router.Interceptor{
 		app.ScriptHandler,
@@ -462,8 +459,9 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 搜索页清理 - 清理对应的脚本挂载、事件总线联动和无效入口")
-	color.Green("    • 开放web控制台 - 未修复完，先放开使用，后续再完善功能")
+	color.Green("    • 原始视频下载 - 完善原始视频下载链路，修复获取不到原始视频链接的问题")
+	color.Green("    • 评论导出优化 - 新增评论列表API，支持获取视频评论列表和回复分页")
+	color.Green("    • 下载命名优化 - 默认不再附带视频 ID，同名自动追加序号")
 	fmt.Println()
 }
 

@@ -837,26 +837,6 @@ func (h *ConsoleAPIHandler) HandleStatsGet(w http.ResponseWriter, r *http.Reques
 	h.sendSuccess(w, r, stats)
 }
 
-// HandleStartCommentCollection 处理 POST /api/control/comment/start - 触发评论采集
-// Requirements: 用户请求 - 通过 API 触发评论采集
-func (h *ConsoleAPIHandler) HandleStartCommentCollection(w http.ResponseWriter, r *http.Request) {
-	if h.HandleCORS(w, r) {
-		return
-	}
-
-	// 广播开始采集指令
-	// 使用 action: start_comment_collection
-	// NOTE: 使用 injected wsHub (internal/websocket) 而不是 singleton hub (internal/handlers)
-	// 因为 api_client.js 连接的是 /ws/api (internal/websocket)
-	err := h.wsHub.BroadcastCommand("start_comment_collection", nil)
-	if err != nil {
-		h.sendError(w, r, http.StatusInternalServerError, "failed to broadcast command: "+err.Error())
-		return
-	}
-
-	h.sendSuccessMessage(w, r, "comment collection triggered")
-}
-
 // HandleStatsChart 处理 GET /api/stats/chart - 获取图表数据
 func (h *ConsoleAPIHandler) HandleStatsChart(w http.ResponseWriter, r *http.Request) {
 	if h.HandleCORS(w, r) {

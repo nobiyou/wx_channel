@@ -18,7 +18,7 @@
 
 ### 功能使用
 - [批量下载指南](BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整功能说明
-- [评论采集](COMMENT_CAPTURE.md) - 评论采集功能使用
+- [评论列表 API](COMMENT_CAPTURE.md) - 评论列表接口与使用方式
 - [Web 控制台](WEB_CONSOLE.md) - 浏览器控制台使用
 
 ### 开发文档
@@ -42,4 +42,4 @@
 
 ---
 
-当前版本：v5.6.2
+当前版本：v5.6.5

@@ -1,158 +1,133 @@
-# Feed页面评论抓取功能
+# Feed 页面评论列表 API
 
 ## 功能概述
 
-本功能可以自动抓取微信视频号Feed页面的评论数据，并保存为JSON格式文件。
+当前版本不再使用页面 DOM / Store 评论采集。
 
-## 工作原理
+评论能力已经切换为统一的评论列表 API 链路：
 
-1. **前端采集**：通过注入的JavaScript代码监控页面中的评论数据
-2. **数据传输**：将采集到的评论数据通过API发送到后端
-3. **后端保存**：后端接收数据并保存到本地文件系统
+1. 前端通过注入脚本调用微信页面内的 `finderGetCommentList`
+2. 本地 WebSocket Hub 转发请求
+3. 本地 HTTP API 返回评论列表结果
 
-## 数据存储
+这条链路支持：
+- 获取视频一级评论列表
+- 按 `comment_id` 获取某条评论的回复列表
+- 使用 `next_marker` 分页
 
-### 存储位置
-```
-downloads/
-  └── comment_data/
-      └── 2025-11-17/
-          ├── 222803__video_20251117_222804.json
-          ├── 224833__video_20251117_224833.json
-          └── 224924_14252099709604468798_一位老表给老大南寄了一堆老表.json
-```
+## API 端点
 
-### 文件命名规则
-- 格式：`{时间}_{视频ID}_{视频标题}.json`
-- 时间格式：`HHMMSS`（时分秒）
-- 视频标题会被清理，移除特殊字符，最多保留50个字符
+### 获取评论列表
 
-### 数据格式
+- 路径：`/api/channels/feed/comment/list`
+- 方法：`GET` / `POST`
+
+查询参数或请求体字段：
 
 ```json
 {
-  "videoId": "14252099709604468798",
-  "videoTitle": "一位老表给老大南寄了一堆老表，来看看能提炼出多少黄金！",
-  "comments": [
-    {
-      "id": "comment_id_1",
-      "content": "评论内容",
-      "nickname": "用户昵称",
-      "createTime": 1700000000,
-      "likeCount": 10,
-      "replyCount": 2
+  "object_id": "视频 object_id",
+  "nonce_id": "视频 nonce_id",
+  "comment_id": "",
+  "next_marker": ""
+}
+```
+
+字段说明：
+- `object_id`：必填，视频 ID
+- `nonce_id`：获取一级评论时必填
+- `comment_id`：获取某条评论回复列表时使用
+- `next_marker`：分页标记，使用上一次返回的 `lastBuffer`
+
+### 响应示例
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "errCode": 0,
+    "errMsg": "ok",
+    "data": {
+      "commentInfo": [
+        {
+          "username": "v2_xxx@finder",
+          "nickname": "示例用户",
+          "content": "评论内容",
+          "commentId": "14901879320262215928",
+          "replyCommentId": "0",
+          "headUrl": "https://wx.qlogo.cn/...",
+          "levelTwoComment": [],
+          "createtime": "1776442446",
+          "likeCount": 131,
+          "expandCommentCount": 7
+        }
+      ],
+      "countInfo": {
+        "commentCount": 128
+      },
+      "lastBuffer": "分页标记"
     }
-  ],
-  "commentCount": 31,
-  "saved_at": "2025-11-17T22:49:24+08:00",
-  "timestamp": 1700000000000
+  }
 }
 ```
 
-## API端点
+## 使用方式
 
-### 保存评论数据
-- **路径**：`/__wx_channels_api/save_comment_data`
-- **方法**：POST
-- **请求体**：
-```json
-{
-  "comments": [...],
-  "videoId": "视频ID",
-  "videoTitle": "视频标题",
-  "timestamp": 1700000000000
-}
-```
-- **响应**：
-```json
-{
-  "success": true
-}
+### 1. 获取一级评论
+
+```http
+GET /api/channels/feed/comment/list?object_id=14885640628103354450&nonce_id=16708144249542964913
 ```
 
-## 配置选项
+### 2. 获取下一页评论
 
-在 `config.json` 中可以配置以下选项：
-
-```json
-{
-  "downloads_dir": "downloads",
-  "secret_token": "your_secret_token",
-  "allowed_origins": ["https://channels.weixin.qq.com"]
-}
+```http
+GET /api/channels/feed/comment/list?object_id=14885640628103354450&nonce_id=16708144249542964913&next_marker=xxx
 ```
 
-## 使用方法
+### 3. 获取某条评论的回复
 
-1. **启动程序**：运行 `wx_channel.exe`
-2. **打开视频号**：在微信中打开视频号Feed页面
-3. **自动采集**：程序会自动监控并采集评论数据
-   - 评论采集系统会在页面加载5秒后自动启动
-   - 每3秒检查一次评论数据的变化
-   - 当检测到新评论时，自动保存到本地
-4. **查看结果**：在 `downloads/comment_data/` 目录下查看保存的JSON文件
-5. **查看日志**：
-   - 查看详细的采集日志
-   - 日志前缀为 `[评论采集]`，便于筛选
+```http
+GET /api/channels/feed/comment/list?object_id=14885640628103354450&comment_id=14901879320262215928
+```
 
-## 注意事项
+## 页面按钮行为
 
-1. **隐私保护**：评论数据包含用户信息，请妥善保管，不要泄露
-2. **存储空间**：评论数据会占用磁盘空间，建议定期清理旧数据
-3. **网络请求**：评论采集依赖于页面加载，网络不稳定可能影响采集效果
-4. **数据完整性**：由于微信的加载机制，可能无法一次性采集所有评论
+Feed 页面顶部按钮已经从“采集评论”改为“获取评论”。
 
-## 故障排查
-
-### 评论数据未保存
-1. **检查日志**：打开日志面板，查看是否有 `[评论采集]` 相关的日志
-2. **确认Store**：查看日志中是否显示"从Pinia store获取到评论"或"从Vuex store获取到评论"
-3. **检查目录**：确认 `downloads/comment_data/` 目录是否存在且有写入权限
-4. **验证API**：检查是否有"评论数据已保存到后端"的成功日志
-
-### 评论数据不完整
-1. **等待加载**：评论采集系统会在执行加载5秒后启动，请耐心等待
-2. **滚动加载**：如果评论较多，尝试滚动到评论区域触发加载
-3. **检查频率**：系统每3秒检查一次，可能需要等待几秒才能检测到新评论
-4. **查看日志**：如果日志显示"未找到评论Store"，说明页面结构可能发生变化
-
-### 一直显示"未找到评论Store"
-1. **页面类型**：确认当前是Feed页面（URL包含 `/pages/feed`）
-2. **等待初始化**：Vue应用可能需要时间初始化，建议等待10-15秒
-3. **刷新页面**：尝试刷新页面重新加载
-4. **检查版本**：微信可能更新了页面结构，请反馈问题
+该按钮会直接调用评论列表 API，不再：
+- 自动打开评论侧栏
+- 监听页面 Store
+- 解析 DOM
+- 保存评论 JSON 到本地
 
 ## 技术实现
 
-### 后端实现
-- **文件**：`internal/handlers/comment.go`
-- **主要功能**：
-  - 接收前端发送的评论数据
-  - 验证请求授权和来源
-  - 按日期组织存储目录
-  - 生成唯一文件名避免冲突
-  - 保存JSON格式数据
+### 后端
 
-### 前端实现
-- **注入位置**：通过 `internal/handlers/script.go` 注入到页面
-- **采集方式**：
-  - **主要方式**：从Vue Store（Pinia/Vuex）获取评论数据
-    - 支持Pinia store的多种数据结构
-    - 支持Vuex store的评论模块
-    - 自动验证数据是否为真实评论（检查特征字段）
-  - **数据验证**：检查评论对象是否包含 `content`、`nickname`、`userName` 等特征字段
-  - **去重机制**：使用评论签名（数量+首尾ID）避免重复保存
-  - **智能频率**：前20次每3秒检查，之后降低到每30秒
-- **主要功能**：
-  - 监控Store中的评论数据变化
-  - 提取评论内容、用户信息、互动数据
-  - 通过API发送到后端保存
-  - 避免DOM抓取，确保数据准确性
+- HTTP 入口：`internal/api/search.go`
+- WebSocket 协议：`internal/websocket/types.go`
+- 客户端能力选择：`internal/websocket/client.go`
 
-## 未来改进
+### 前端注入
 
-1. **增量更新**：支持只保存新增的评论，避免重复存储
-2. **数据导出**：支持导出为CSV、Excel等格式
-3. **评论分析**：添加评论情感分析、关键词提取等功能
-4. **实时监控**：支持实时监控评论变化并推送通知
-5. **批量处理**：支持批量处理多个视频的评论数据
+- API 调用入口：`internal/assets/inject/api_client.js`
+- Feed 页面按钮：`internal/assets/inject/feed.js`
+- 页面 API 拦截：`internal/handlers/script.go`
+
+## 不再支持的旧能力
+
+以下旧评论采集路径已退役：
+- `POST /__wx_channels_api/save_comment_data`
+- `/api/control/comment/start`
+- 基于 DOM / Pinia / Vuex 的自动评论采集
+- 自动滚动评论区和自动展开回复
+- 本地 `comment_data/` JSON 保存链路
+
+## 注意事项
+
+1. 获取一级评论需要 `object_id + nonce_id`
+2. 获取某条评论的回复时可以只提供 `object_id + comment_id`
+3. 分页依赖响应中的 `lastBuffer`
+4. 该接口要求存在可用的微信页面，并且页面内 API 已初始化

@@ -44,77 +44,58 @@ function __get_visible_feed_op_items() {
   return [];
 }
 
-function __try_open_feed_comment_panel() {
-  var commentPanel = document.querySelector(
-    '.comment-list, .comment-panel, .comment-drawer, [class*="comment-panel"], [class*="comment-drawer"], [class*="comment-list"]'
-  );
-  if (commentPanel) return true;
+function __fetch_feed_comments__() {
+  var profile = __sync_feed_profile_with_runtime(false);
 
-  var actionCandidates = __get_visible_feed_op_items();
-  if (actionCandidates.length) {
-    var commentAction = actionCandidates[actionCandidates.length - 1];
-    try {
-      commentAction.click();
-      return true;
-    } catch (e) {
-      console.warn('[feed.js] 点击原生评论按钮失败:', e);
-    }
+  if (!profile || !profile.id) {
+    __wx_log({ msg: '❌ 当前视频信息未就绪，无法获取评论' });
+    return;
   }
 
-  try {
-    var app = document.querySelector('[data-v-app]') || document.getElementById('app');
-    var vue = app && (app.__vue__ || app.__vueParentComponent || (app._vnode && app._vnode.component));
-    var pinia = vue && vue.appContext && vue.appContext.config && vue.appContext.config.globalProperties && vue.appContext.config.globalProperties.$pinia;
-    if (pinia && pinia._s && typeof pinia._s.forEach === 'function') {
-      var methodNames = ['openComment', 'openCommentPanel', 'showCommentPanel', 'toggleCommentPanel', 'onClickComment', 'handleCommentClick'];
-      var opened = false;
-      pinia._s.forEach(function (store) {
-        if (opened || !store) return;
-        for (var i = 0; i < methodNames.length; i++) {
-          var methodName = methodNames[i];
-          if (typeof store[methodName] === 'function') {
-            try {
-              store[methodName]();
-              opened = true;
-              break;
-            } catch (_) {}
-          }
+  var nonceId = profile.nonce_id || profile.nonceId || profile.objectNonceId || '';
+  if (!nonceId && profile.objectNonceId) {
+    nonceId = profile.objectNonceId;
+  }
+
+  if (!nonceId) {
+    __wx_log({ msg: '❌ 缺少 nonce_id，无法获取评论列表' });
+    return;
+  }
+
+  var headers = { 'Content-Type': 'application/json' };
+  if (window.__WX_LOCAL_TOKEN__) {
+    headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+  }
+
+  __wx_log({ msg: '💬 正在获取评论并保存...' });
+  fetch('/api/channels/feed/comment/export', {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify({
+      object_id: profile.id,
+      nonce_id: nonceId,
+      title: profile.description || profile.title || '',
+      author: (profile.contact && (profile.contact.nickname || profile.contact.username)) || profile.nickname || ''
+    })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (result) {
+      if (result && result.code === 0 && result.data) {
+        var exported = result.data;
+        var total = exported.total_count || 0;
+        var reported = exported.reported_count || total;
+        __wx_log({ msg: '💬 评论导出成功：' + total + '/' + reported });
+        if (exported.relative_path) {
+          __wx_log({ msg: '💾 已保存：' + exported.relative_path });
         }
-      });
-      if (opened) return true;
-    }
-  } catch (e) {
-    console.warn('[feed.js] 调用评论面板方法失败:', e);
-  }
-
-  return false;
-}
-
-function __start_feed_comment_collection_with_open_panel() {
-  var opened = __try_open_feed_comment_panel();
-  if (opened) {
-    __wx_log({ msg: '💬 正在打开评论区...' });
-  } else {
-    __wx_log({ msg: '💬 未定位到原生评论按钮，尝试直接采集...' });
-  }
-
-  var attempts = 0;
-  var maxAttempts = 16;
-  var timer = setInterval(function () {
-    attempts++;
-    if (typeof window.__wx_channels_start_comment_collection === 'function') {
-      try {
-        window.__wx_channels_start_comment_collection();
-      } finally {
-        clearInterval(timer);
+        window.__wx_channels_last_comment_list__ = result.data;
+      } else {
+        __wx_log({ msg: '❌ 获取评论列表失败' + (result && result.message ? '：' + result.message : '') });
       }
-      return;
-    }
-    if (attempts >= maxAttempts) {
-      clearInterval(timer);
-      __wx_log({ msg: '❌ 评论采集功能尚未就绪，请稍后重试' });
-    }
-  }, opened ? 350 : 120);
+    })
+    .catch(function (err) {
+      __wx_log({ msg: '❌ 获取评论列表失败<' + (err && err.message ? err.message : err) + '>' });
+    });
 }
 
 var __wx_feed_runtime_state = {
@@ -431,12 +412,12 @@ async function __insert_download_btn_to_feed_toolbar() {
     // 创建评论图标
     var commentIconWrapper = __build_feed_header_icon(
       'wx-feed-comment-icon',
-      '采集评论',
+      '获取评论',
       '<svg class="h-full w-full" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6.85 18.825L3 20.1l1.275-3.85A7.95 7.95 0 0 1 4 14.15c0-4.28 3.57-7.75 8-7.75s8 3.47 8 7.75-3.57 7.75-8 7.75c-.73 0-1.44-.1-2.1-.3a8.23 8.23 0 0 1-3.05-1.775Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
     );
 
     commentIconWrapper.onclick = function () {
-      __start_feed_comment_collection_with_open_panel();
+      __fetch_feed_comments__();
     };
 
     // 创建下载图标
@@ -467,7 +448,7 @@ async function __insert_download_btn_to_feed_toolbar() {
     container.insertBefore(commentIconWrapper, container.firstChild);
 
     console.log('[feed.js] ✅ 工具栏按钮注入成功');
-    __wx_log({ msg: "注入评论和下载按钮成功!" });
+    __wx_log({ msg: "注入评论获取和下载按钮成功!" });
     return true;
   };
 

@@ -1078,6 +1078,18 @@
                                     onblur="validateConcurrentLimit()" style="width: 100%; text-align: center;">
                             </div>
                         </div>
+                        <div class="settings-item">
+                            <div class="settings-item-info">
+                                <div class="settings-item-label">文件名附带视频 ID</div>
+                                <div class="settings-item-desc">默认开启。关闭后文件名只保留标题，可能出现同标题重名并追加 (1)(2)</div>
+                            </div>
+                            <div class="settings-item-control">
+                                <input type="checkbox" id="settingDownloadFilenameWithVideoId" style="display: none;">
+                                <div class="toggle-switch" id="downloadFilenameWithVideoIdToggle" onclick="toggleDownloadFilenameWithVideoId()">
+                                    <div class="toggle-slider"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-error" id="downloadDirError"></div>
                     <div class="form-error" id="chunkSizeError"></div>

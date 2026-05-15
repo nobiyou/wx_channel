@@ -263,7 +263,7 @@ function __wx_channels_has_true_original__(profile) {
 }
 
 function __wx_channels_primary_download_label__(profile) {
-  return __wx_channels_has_true_original__(profile) ? '原始视频' : '默认视频';
+  return '原始视频';
 }
 
 function __wx_channels_append_query_param__(url, key, value) {
@@ -273,10 +273,32 @@ function __wx_channels_append_query_param__(url, key, value) {
   return url + separator + key + '=' + encodeURIComponent(value);
 }
 
+function __wx_channels_build_original_video_url__(rawUrl) {
+  var source = String(rawUrl || '').trim();
+  if (!source) return '';
+
+  try {
+    var parsed = new URL(source);
+    var filekey = (parsed.searchParams.get('encfilekey') || '').trim();
+    var token = (parsed.searchParams.get('token') || '').trim();
+    if (!filekey || !token) {
+      return source;
+    }
+
+    var cleaned = new URL(parsed.origin + parsed.pathname);
+    cleaned.searchParams.set('encfilekey', filekey);
+    cleaned.searchParams.set('token', token);
+    return cleaned.toString();
+  } catch (err) {
+    __wx_log({ msg: '⚠️ 原始视频链接归一化失败<' + (err && err.message ? err.message : err) + '>' });
+    return source;
+  }
+}
+
 function __wx_channels_get_profile_video_dimensions__(profile) {
   var media = profile && profile.media ? profile.media : {};
-  var width = Number((profile && profile.width) || media.width || 0);
-  var height = Number((profile && profile.height) || media.height || 0);
+  var width = Number((profile && profile.width) || media.fullWidth || media.width || 0);
+  var height = Number((profile && profile.height) || media.fullHeight || media.height || 0);
 
   return {
     width: width > 0 ? width : 0,
@@ -293,7 +315,7 @@ function __wx_channels_normalize_video_download__(profile, spec) {
     height: 0,
     fileFormat: '',
     qualityInfo: '',
-    useDirectDownload: true,
+    useDirectDownload: false,
     spec: spec || null
   };
 
@@ -301,8 +323,20 @@ function __wx_channels_normalize_video_download__(profile, spec) {
     return normalized;
   }
 
-  var originalUrl = profile.url || ((profile.originalUrl || '') + (profile.urlToken || '')) || profile.originalUrl || '';
-  normalized.url = originalUrl;
+  var media = profile.media || {};
+  var originalCandidate = '';
+  if (profile.url && String(profile.url).trim()) {
+    originalCandidate = String(profile.url).trim();
+  } else if (profile.originalUrl && profile.urlToken) {
+    originalCandidate = String(profile.originalUrl) + String(profile.urlToken);
+  } else if (profile.originalUrl && String(profile.originalUrl).trim()) {
+    originalCandidate = String(profile.originalUrl).trim();
+  } else if (media.url && media.urlToken) {
+    originalCandidate = String(media.url) + String(media.urlToken);
+  } else if (media.url && String(media.url).trim()) {
+    originalCandidate = String(media.url).trim();
+  }
+  normalized.url = __wx_channels_build_original_video_url__(originalCandidate);
 
   var explicitSpec = spec && spec.fileFormat ? spec : null;
   if (explicitSpec) {
@@ -317,10 +351,17 @@ function __wx_channels_normalize_video_download__(profile, spec) {
       normalized.qualityInfo += '_' + normalized.resolution;
     }
 
-    var specBaseUrl = profile.originalUrl || profile.url || '';
-    var specUrl = specBaseUrl;
-    if (specBaseUrl === (profile.originalUrl || '') && profile.urlToken) {
-      specUrl += profile.urlToken;
+    var specUrl = '';
+    if (profile.url && String(profile.url).trim()) {
+      specUrl = String(profile.url).trim();
+    } else if (profile.originalUrl && profile.urlToken) {
+      specUrl = String(profile.originalUrl) + String(profile.urlToken);
+    } else if (profile.originalUrl && String(profile.originalUrl).trim()) {
+      specUrl = String(profile.originalUrl).trim();
+    } else if (media.url && media.urlToken) {
+      specUrl = String(media.url) + String(media.urlToken);
+    } else if (media.url && String(media.url).trim()) {
+      specUrl = String(media.url).trim();
     }
     normalized.url = __wx_channels_append_query_param__(specUrl, 'X-snsvideoflag', normalized.fileFormat);
     normalized.useDirectDownload = false;
@@ -367,22 +408,6 @@ async function __wx_channels_handle_click_download__(spec) {
     alert("视频URL为空，无法下载");
     return;
   }
-
-  // 兼容 old 分支的默认下载链：首项下载直接在页面会话里抓流并前端解密，
-  // 避免后端/Gopeed 请求同一链接时拿到缩水流。
-    if (normalized.useDirectDownload) {
-      __wx_log({ msg: '📎 默认视频使用页面直连下载' });
-      try {
-        if (!_profile.key) {
-          await __wx_channels_download2(_profile, filename);
-        } else {
-          await __wx_channels_download4(_profile, filename);
-        }
-      } catch (err) {
-        console.error('默认视频页面直连下载失败:', err);
-      }
-      return;
-    }
 
   var authorName = _profile.nickname || (_profile.contact && _profile.contact.nickname) || '未知作者';
   var hasKey = !!(_profile.key && _profile.key.length > 0);

@@ -20,6 +20,7 @@ func NewSettingsRepository() *SettingsRepository {
 // 设置键
 const (
 	SettingKeyDownloadDir        = "download_dir"
+	SettingKeyDownloadFilenameWithVideoID = "download_filename_with_video_id"
 	SettingKeyChunkSize          = "chunk_size"
 	SettingKeyConcurrentLimit    = "concurrent_limit"
 	SettingKeyAutoCleanupEnabled = "auto_cleanup_enabled"
@@ -98,6 +99,9 @@ func (r *SettingsRepository) Load() (*Settings, error) {
 	if v, ok := settingsMap[SettingKeyDownloadDir]; ok && v != "" {
 		settings.DownloadDir = v
 	}
+	if v, ok := settingsMap[SettingKeyDownloadFilenameWithVideoID]; ok {
+		settings.DownloadFilenameWithVideoID = v == "true"
+	}
 	if v, ok := settingsMap[SettingKeyChunkSize]; ok && v != "" {
 		if size, err := strconv.ParseInt(v, 10, 64); err == nil {
 			settings.ChunkSize = size
@@ -149,6 +153,7 @@ func (r *SettingsRepository) Save(settings *Settings) error {
 	// Save each setting
 	settingsMap := map[string]string{
 		SettingKeyDownloadDir:        settings.DownloadDir,
+		SettingKeyDownloadFilenameWithVideoID: strconv.FormatBool(settings.DownloadFilenameWithVideoID),
 		SettingKeyChunkSize:          strconv.FormatInt(settings.ChunkSize, 10),
 		SettingKeyConcurrentLimit:    strconv.Itoa(settings.ConcurrentLimit),
 		SettingKeyAutoCleanupEnabled: strconv.FormatBool(settings.AutoCleanupEnabled),

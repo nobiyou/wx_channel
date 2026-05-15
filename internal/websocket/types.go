@@ -56,6 +56,14 @@ type FeedProfileBody struct {
 	URL      string `json:"url"`
 }
 
+// 获取视频评论列表请求体
+type FeedCommentListBody struct {
+	ObjectID   string `json:"object_id"`
+	NonceID    string `json:"nonce_id"`
+	CommentID  string `json:"comment_id"`
+	NextMarker string `json:"next_marker"`
+}
+
 // ClientStateBody 前端客户端状态
 type ClientStateBody struct {
 	PagePath   string          `json:"pagePath"`
@@ -79,4 +87,5 @@ type ClientStatus struct {
 	SupportsSearch  bool            `json:"supports_search"`
 	SupportsFeed    bool            `json:"supports_feed"`
 	SupportsProfile bool            `json:"supports_profile"`
+	SupportsComment bool            `json:"supports_comment"`
 }

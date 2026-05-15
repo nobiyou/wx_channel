@@ -127,9 +127,6 @@ func (r *APIRouter) registerRoutes() {
 	r.mux.HandleFunc("/api/video/stream", r.consoleHandler.HandleVideoStream)
 	r.mux.HandleFunc("/api/video/play", r.consoleHandler.HandleVideoPlay)
 
-	// 控制台 API - 触发评论采集
-	r.mux.HandleFunc("/api/control/comment/start", r.consoleHandler.HandleStartCommentCollection)
-
 	// v1 版本化路由（别名）
 	r.mux.HandleFunc("/api/v1/browse", r.consoleHandler.HandleBrowseAPI)
 	r.mux.HandleFunc("/api/v1/browse/", r.consoleHandler.HandleBrowseAPI)

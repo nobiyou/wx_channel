@@ -280,6 +280,7 @@ func TestSettingsRepository(t *testing.T) {
 
 	// 测试保存
 	settings.DownloadDir = "/custom/downloads"
+	settings.DownloadFilenameWithVideoID = false
 	settings.ConcurrentLimit = 5
 	err = repo.Save(settings)
 	if err != nil {
@@ -293,6 +294,9 @@ func TestSettingsRepository(t *testing.T) {
 	}
 	if loaded.DownloadDir != "/custom/downloads" {
 		t.Errorf("Expected download dir '/custom/downloads', got '%s'", loaded.DownloadDir)
+	}
+	if loaded.DownloadFilenameWithVideoID {
+		t.Errorf("Expected downloadFilenameWithVideoId false, got true")
 	}
 	if loaded.ConcurrentLimit != 5 {
 		t.Errorf("Expected concurrent limit 5, got %d", loaded.ConcurrentLimit)

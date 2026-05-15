@@ -96,27 +96,29 @@ const (
 
 // Settings 表示应用程序设置
 type Settings struct {
-	DownloadDir        string `json:"downloadDir"`
-	ChunkSize          int64  `json:"chunkSize"`
-	ConcurrentLimit    int    `json:"concurrentLimit"`
-	AutoCleanupEnabled bool   `json:"autoCleanupEnabled"`
-	AutoCleanupDays    int    `json:"autoCleanupDays"`
-	MaxRetries         int    `json:"maxRetries"`
-	RadarEnabled       bool   `json:"radarEnabled"`
-	Theme              string `json:"theme"`
+	DownloadDir                 string `json:"downloadDir"`
+	DownloadFilenameWithVideoID bool `json:"downloadFilenameWithVideoId"`
+	ChunkSize                   int64  `json:"chunkSize"`
+	ConcurrentLimit             int    `json:"concurrentLimit"`
+	AutoCleanupEnabled          bool   `json:"autoCleanupEnabled"`
+	AutoCleanupDays             int    `json:"autoCleanupDays"`
+	MaxRetries                  int    `json:"maxRetries"`
+	RadarEnabled                bool   `json:"radarEnabled"`
+	Theme                       string `json:"theme"`
 }
 
 // DefaultSettings 返回默认设置
 func DefaultSettings() *Settings {
 	return &Settings{
-		DownloadDir:        "downloads",
-		ChunkSize:          10 * 1024 * 1024, // 10MB
-		ConcurrentLimit:    3,
-		AutoCleanupEnabled: false,
-		AutoCleanupDays:    30,
-		MaxRetries:         3,
-		RadarEnabled:       false,
-		Theme:              "light",
+		DownloadDir:                 "downloads",
+		DownloadFilenameWithVideoID: false,
+		ChunkSize:                   10 * 1024 * 1024, // 10MB
+		ConcurrentLimit:             3,
+		AutoCleanupEnabled:          false,
+		AutoCleanupDays:             30,
+		MaxRetries:                  3,
+		RadarEnabled:                false,
+		Theme:                       "light",
 	}
 }
 

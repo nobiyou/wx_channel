@@ -9,7 +9,7 @@
 ## 📖 使用指南
 - [配置说明](CONFIGURATION.md) - 所有配置选项说明
 - [批量下载指南](BATCH_DOWNLOAD_GUIDE.md) - 批量下载完整功能说明
-- [评论采集](COMMENT_CAPTURE.md) - 评论采集功能使用
+- [评论列表 API](COMMENT_CAPTURE.md) - 评论列表接口与使用方式
 - [Web 控制台](WEB_CONSOLE.md) - 浏览器控制台使用指南
 
 ## 🔧 开发指南
@@ -31,7 +31,7 @@ docs/
 ├── BUILD.md              # 构建指南
 ├── API.md                # API 文档
 ├── BATCH_DOWNLOAD_GUIDE.md  # 批量下载指南
-├── COMMENT_CAPTURE.md    # 评论采集
+├── COMMENT_CAPTURE.md    # 评论列表 API
 ├── WEB_CONSOLE.md        # Web 控制台
 ├── TROUBLESHOOTING.md    # 故障排除
 ├── RELEASE_NOTES.md      # 版本说明

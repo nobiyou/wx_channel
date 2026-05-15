@@ -32,6 +32,7 @@ import (
 // UploadHandler 文件上传处理器
 type UploadHandler struct {
 	downloadService *services.DownloadRecordService
+	settingsRepo    *database.SettingsRepository
 	gopeedService   *services.GopeedService // Injected Gopeed Service
 	chunkSem        chan struct{}
 	mergeSem        chan struct{}
@@ -95,6 +96,33 @@ func normalizeOriginalVideoURL(raw string) string {
 	return parsed.String()
 }
 
+func compactOriginalVideoURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	query := parsed.Query()
+	if query.Get("X-snsvideoflag") == "original" {
+		query.Del("X-snsvideoflag")
+	}
+	filekey := strings.TrimSpace(query.Get("encfilekey"))
+	token := strings.TrimSpace(query.Get("token"))
+	if filekey == "" || token == "" {
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+	cleaned := url.URL{
+		Scheme: parsed.Scheme,
+		Host:   parsed.Host,
+		Path:   parsed.Path,
+	}
+	cleanQuery := url.Values{}
+	cleanQuery.Set("encfilekey", filekey)
+	cleanQuery.Set("token", token)
+	cleaned.RawQuery = cleanQuery.Encode()
+	return cleaned.String()
+}
+
 func downloadModeFromRequest(req DownloadVideoRequest) downloadVideoMode {
 	if isOriginalVideoURL(req.VideoURL) {
 		return downloadVideoModeOriginal
@@ -112,7 +140,7 @@ func normalizeDownloadVideoURL(req DownloadVideoRequest) string {
 	if downloadModeFromRequest(req) != downloadVideoModeOriginal {
 		return req.VideoURL
 	}
-	return normalizeOriginalVideoURL(req.VideoURL)
+	return compactOriginalVideoURL(req.VideoURL)
 }
 
 func downloadConnectionCountFromMode(base int, mode downloadVideoMode) int {
@@ -215,6 +243,7 @@ func NewUploadHandler(cfg *config.Config, wsHub *websocket.Hub, gopeedService *s
 	}
 	return &UploadHandler{
 		downloadService: services.NewDownloadRecordService(),
+		settingsRepo:    database.NewSettingsRepository(),
 		gopeedService:   gopeedService,
 		chunkSem:        make(chan struct{}, ch),
 		mergeSem:        make(chan struct{}, mg),
@@ -1217,8 +1246,17 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	// 生成文件名：优先使用视频ID确保唯一性
-	filename := utils.GenerateVideoFilename(req.Title, req.VideoID)
+	settings, err := h.settingsRepo.Load()
+	if err != nil {
+		utils.Warn("加载下载命名设置失败，继续使用默认命名策略: %v", err)
+	}
+	includeVideoID := true
+	if settings != nil {
+		includeVideoID = settings.DownloadFilenameWithVideoID
+	}
+
+	// 生成文件名：默认仅使用标题；如需避免同名冲突则在落盘前追加序号
+	filename := utils.GenerateVideoFilename(req.Title, req.VideoID, includeVideoID)
 
 	// 检查文件名中是否已经包含分辨率信息（避免重复添加）
 	hasResolutionInFilename := false
@@ -1268,29 +1306,29 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	filename = utils.EnsureExtension(filename, ".mp4")
 	videoPath := filepath.Join(savePath, filename)
 
-	// 检查文件是否已存在（作为备用检查，主要检查已通过ID完成）
 	if !req.ForceSave {
-		if stat, err := os.Stat(videoPath); err == nil {
-			// 文件已存在，返回成功但不重新下载
-			fileSize := float64(stat.Size()) / (1024 * 1024)
-			relativePath, _ := filepath.Rel(downloadsDir, videoPath)
-			utils.Info("⏭️ [视频下载] 文件已存在，跳过: %s", relativePath)
+		if req.VideoID != "" && h.downloadService != nil {
+			if existing, err := h.downloadService.GetByID(req.VideoID); err == nil && existing != nil && existing.FilePath != "" {
+				if stat, statErr := os.Stat(existing.FilePath); statErr == nil {
+					fileSize := float64(stat.Size()) / (1024 * 1024)
+					relativePath, _ := filepath.Rel(downloadsDir, existing.FilePath)
+					utils.Info("⏭️ [视频下载] 视频已存在，跳过: %s", relativePath)
 
-			// 注意：不再手动保存下载记录，因为队列系统已经处理了记录保存
-			// 移除重复的记录调用以避免数据库中出现重复记录
-
-			responseData := map[string]interface{}{
-				"success":      true,
-				"path":         videoPath,
-				"relativePath": relativePath,
-				"size":         fileSize,
-				"skipped":      true,
-				"message":      "文件已存在，跳过下载",
+					responseData := map[string]interface{}{
+						"success":      true,
+						"path":         existing.FilePath,
+						"relativePath": relativePath,
+						"size":         fileSize,
+						"skipped":      true,
+						"message":      "视频已存在，跳过下载",
+					}
+					responseBytes, _ := json.Marshal(responseData)
+					h.sendJSONResponse(Conn, 200, responseBytes)
+					return true
+				}
 			}
-			responseBytes, _ := json.Marshal(responseData)
-			h.sendJSONResponse(Conn, 200, responseBytes)
-			return true
 		}
+		videoPath = utils.GenerateUniquePath(savePath, filename)
 	}
 
 	if req.VideoID != "" {
@@ -1368,7 +1406,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		mode := downloadModeFromRequest(req)
 		normalizedURL := normalizeDownloadVideoURL(req)
 		if normalizedURL != req.VideoURL {
-			utils.Info("🩹 [视频下载] 检测到旧版 original 参数，已回退为默认视频直链")
+			utils.Info("🩹 [视频下载] 原始视频链接已归一化为 encfilekey+token 直链")
 			req.VideoURL = normalizedURL
 		}
 		connections = downloadConnectionCountFromMode(connections, mode)
@@ -1456,7 +1494,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		if needDecrypt {
 			statusMsg = " [已解密]"
 		}
-		utils.Info("✓ [视频下载] 视频已保存" + statusMsg)
+		utils.Info("✓ [视频下载] 视频已保存%s", statusMsg)
 
 		if h.downloadService != nil {
 			record := &database.DownloadRecord{

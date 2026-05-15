@@ -252,6 +252,7 @@ window.__wx_api_client = {
     var methods = {};
     if (window.WXU) {
       methods.finderGetCommentDetail = !!(window.WXU.API && typeof window.WXU.API.finderGetCommentDetail === 'function');
+      methods.finderGetCommentList = !!(window.WXU.API && typeof window.WXU.API.finderGetCommentList === 'function');
       methods.finderUserPage = !!(window.WXU.API && typeof window.WXU.API.finderUserPage === 'function');
       methods.finderSearch = !!(window.WXU.API2 && typeof window.WXU.API2.finderSearch === 'function');
       methods.finderGetInteractionedFeedList = !!(window.WXU.API4 && typeof window.WXU.API4.finderGetInteractionedFeedList === 'function');
@@ -260,7 +261,7 @@ window.__wx_api_client = {
     return {
       pagePath: window.location.pathname,
       href: window.location.href,
-      apiReady: !!(methods.finderGetCommentDetail || methods.finderUserPage || methods.finderSearch || methods.finderGetInteractionedFeedList),
+      apiReady: !!(methods.finderGetCommentDetail || methods.finderGetCommentList || methods.finderUserPage || methods.finderSearch || methods.finderGetInteractionedFeedList),
       methods: methods,
       timestamp: Date.now(),
       userAgent: navigator.userAgent,
@@ -285,15 +286,6 @@ window.__wx_api_client = {
   // 处理指令
   handleCommand: function (data) {
     console.log('[API客户端] 收到指令:', data);
-
-    if (data.action === 'start_comment_collection') {
-      if (typeof window.__wx_channels_start_comment_collection === 'function') {
-        console.log('[API客户端] 执行评论采集指令...');
-        window.__wx_channels_start_comment_collection();
-      } else {
-        console.warn('[API客户端] 评论采集函数未就绪');
-      }
-    }
 
     if (data.action === 'download_progress') {
       // 派发自定义事件，供 UI 组件消费
@@ -439,6 +431,65 @@ window.__wx_api_client = {
           });
           return;
         }
+      }
+
+      if (key === 'key:channels:fetch_feed_comment_list') {
+        if (!body.object_id) {
+          resp({
+            errCode: 1011,
+            errMsg: '缺失 object_id',
+            payload: body
+          });
+          return;
+        }
+
+        if (!body.nonce_id && !body.comment_id) {
+          resp({
+            errCode: 1011,
+            errMsg: '缺失 nonce_id 或 comment_id',
+            payload: body
+          });
+          return;
+        }
+
+        var payload = body.comment_id ? {
+          direction: 2,
+          identityScene: 2,
+          objectId: body.object_id,
+          rootCommentId: body.comment_id,
+          lastBuffer: body.next_marker ? decodeURIComponent(body.next_marker) : undefined
+        } : {
+          finderBasereq: {
+            scene: 140,
+            ctxInfo: {
+              clientReportBuff: '{"entranceId":"1002"}'
+            },
+            objectBaseInfos: []
+          },
+          objectId: body.object_id,
+          objectNonceId: body.nonce_id,
+          direction: 2,
+          identityScene: 2,
+          lastBuffer: body.next_marker ? decodeURIComponent(body.next_marker) : undefined,
+          enterSessionId: String(Date.now())
+        };
+
+        try {
+          var commentResp = await window.WXU.API.finderGetCommentList(payload);
+          console.log('[API客户端] finderGetCommentList 结果:', commentResp);
+          resp({
+            ...commentResp,
+            payload: payload
+          });
+        } catch (err) {
+          console.error('[API客户端] 获取评论列表失败:', err);
+          resp({
+            errCode: 1011,
+            errMsg: err.message,
+            payload: payload
+          });
+        }
+        return;
       }
 
       // 未匹配的 key

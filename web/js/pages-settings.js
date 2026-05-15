@@ -57,9 +57,14 @@ async function loadSettings() {
                 document.getElementById('settingDownloadDir').value = settings.downloadDir || '';
                 document.getElementById('settingChunkSize').value = (settings.chunkSize || 10485760) / 1048576;
                 document.getElementById('settingConcurrentLimit').value = settings.concurrentLimit || 3;
+                document.getElementById('settingDownloadFilenameWithVideoId').checked = settings.downloadFilenameWithVideoId === true;
                 document.getElementById('settingAutoCleanup').checked = settings.autoCleanupEnabled || false;
                 document.getElementById('settingAutoCleanupDays').value = settings.autoCleanupDays || 30;
                 document.getElementById('settingRadarEnabled').checked = settings.radarEnabled || false;
+                const filenameToggle = document.getElementById('downloadFilenameWithVideoIdToggle');
+                if (filenameToggle) {
+                    filenameToggle.classList.toggle('active', settings.downloadFilenameWithVideoId === true);
+                }
                 const radarToggle = document.getElementById('radarEnabledToggle');
                 if (radarToggle) {
                     radarToggle.classList.toggle('active', !!settings.radarEnabled);
@@ -269,6 +274,15 @@ function toggleAutoCleanupDays() {
     }
 }
 
+function toggleDownloadFilenameWithVideoId() {
+    const checkbox = document.getElementById('settingDownloadFilenameWithVideoId');
+    const toggle = document.getElementById('downloadFilenameWithVideoIdToggle');
+    checkbox.checked = !checkbox.checked;
+    if (toggle) {
+        toggle.classList.toggle('active', checkbox.checked);
+    }
+}
+
 // ============================================
 // Save Functions - Requirements: 11.1, 11.6, 13.7
 // ============================================
@@ -348,6 +362,7 @@ async function saveDownloadSettings() {
         const settings = {
             ...currentSettings.data,
             downloadDir: document.getElementById('settingDownloadDir').value.trim(),
+            downloadFilenameWithVideoId: document.getElementById('settingDownloadFilenameWithVideoId').checked,
             chunkSize: parseInt(document.getElementById('settingChunkSize').value) * 1048576, // Convert MB to bytes
             concurrentLimit: parseInt(document.getElementById('settingConcurrentLimit').value)
         };
@@ -438,12 +453,17 @@ async function resetSettings() {
     document.getElementById('settingDownloadDir').value = '';
     document.getElementById('settingChunkSize').value = 10;
     document.getElementById('settingConcurrentLimit').value = 3;
+    document.getElementById('settingDownloadFilenameWithVideoId').checked = false;
     document.getElementById('settingAutoCleanup').checked = false;
     document.getElementById('settingAutoCleanupDays').value = 30;
     document.getElementById('settingRadarEnabled').checked = false;
     const radarToggle = document.getElementById('radarEnabledToggle');
     if (radarToggle) {
         radarToggle.classList.remove('active');
+    }
+    const filenameToggle = document.getElementById('downloadFilenameWithVideoIdToggle');
+    if (filenameToggle) {
+        filenameToggle.classList.remove('active');
     }
     
     // Clear validation states
@@ -466,6 +486,7 @@ async function resetSettings() {
         try {
             await ApiClient.updateSettings({
                 downloadDir: '',
+                downloadFilenameWithVideoId: false,
                 chunkSize: 10485760, // 10MB
                 concurrentLimit: 3,
                 autoCleanupEnabled: false,
