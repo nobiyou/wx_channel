@@ -398,7 +398,7 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ## 🙏 致谢
 
-- 开发者说明：仓库已内置 `SunnyNet v1.0.3` 源码，位于 [pkg/sunnynet](/E:/netdisk/wx-down/wx_channel_new/wx_channel/pkg/sunnynet:1)。根模块通过 `go.mod` 的 `replace` 指向本地版本，便于其他开发者直接构建与调试。
+- 开发者说明：仓库已内置 `SunnyNet v1.0.3` 源码，位于 [pkg/sunnynet](/pkg/sunnynet:1)。根模块通过 `go.mod` 的 `replace` 指向本地版本，便于其他开发者直接构建与调试。
 - [SunnyNet](https://github.com/qtgolang/SunnyNet) - HTTP/HTTPS 代理库
 - [Go](https://golang.org/) - 编程语言
 - 所有贡献者和支持者
