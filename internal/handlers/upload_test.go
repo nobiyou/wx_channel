@@ -96,7 +96,15 @@ func TestDownloadVideoModeFromRequest(t *testing.T) {
 		{
 			name: "specific file format uses specific mode",
 			req: DownloadVideoRequest{
-				VideoURL:    "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def&X-snsvideoflag=WT111",
+				VideoURL:   "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def&X-snsvideoflag=WT111",
+				FileFormat: "WT111",
+			},
+			want: downloadVideoModeSpecific,
+		},
+		{
+			name: "file format alone keeps specific mode",
+			req: DownloadVideoRequest{
+				VideoURL:   "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def",
 				FileFormat: "WT111",
 			},
 			want: downloadVideoModeSpecific,

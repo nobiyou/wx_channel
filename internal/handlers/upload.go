@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -123,31 +123,35 @@ func compactOriginalVideoURL(raw string) string {
 	return cleaned.String()
 }
 
-func downloadModeFromRequest(req DownloadVideoRequest) downloadVideoMode {
-	if isOriginalVideoURL(req.VideoURL) {
-		return downloadVideoModeOriginal
+func NormalizeDownloadURL(videoURL string, fileFormat string) (string, downloadVideoMode) {
+	if isOriginalVideoURL(videoURL) {
+		return compactOriginalVideoURL(videoURL), downloadVideoModeOriginal
 	}
-	if strings.TrimSpace(req.FileFormat) != "" {
-		return downloadVideoModeSpecific
+	if strings.TrimSpace(fileFormat) != "" || hasSpecificVideoSpec(videoURL) {
+		return videoURL, downloadVideoModeSpecific
 	}
-	if hasSpecificVideoSpec(req.VideoURL) {
-		return downloadVideoModeSpecific
-	}
-	return downloadVideoModeOriginal
+	return compactOriginalVideoURL(videoURL), downloadVideoModeOriginal
 }
 
-func normalizeDownloadVideoURL(req DownloadVideoRequest) string {
-	if downloadModeFromRequest(req) != downloadVideoModeOriginal {
-		return req.VideoURL
-	}
-	return compactOriginalVideoURL(req.VideoURL)
-}
-
-func downloadConnectionCountFromMode(base int, mode downloadVideoMode) int {
+func ResolveDownloadConnections(mode downloadVideoMode, base int) int {
 	if mode == downloadVideoModeOriginal {
 		return 1
 	}
 	return base
+}
+
+func downloadModeFromRequest(req DownloadVideoRequest) downloadVideoMode {
+	_, mode := NormalizeDownloadURL(req.VideoURL, req.FileFormat)
+	return mode
+}
+
+func normalizeDownloadVideoURL(req DownloadVideoRequest) string {
+	normalized, _ := NormalizeDownloadURL(req.VideoURL, req.FileFormat)
+	return normalized
+}
+
+func downloadConnectionCountFromMode(base int, mode downloadVideoMode) int {
+	return ResolveDownloadConnections(mode, base)
 }
 
 func (h *UploadHandler) downloadWithHeaders(ctx context.Context, url, targetPath string, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) error {
