@@ -36,19 +36,23 @@ type BatchHandler struct {
 
 // BatchTask 批量下载任务
 type BatchTask struct {
-	ID              string  `json:"id"`
-	URL             string  `json:"url"`
-	Title           string  `json:"title"`
-	AuthorName      string  `json:"authorName,omitempty"`      // 兼容旧格式
-	Author          string  `json:"author,omitempty"`          // 新格式
-	Key             string  `json:"key,omitempty"`             // 加密密钥（新方式，后端生成解密数组）
-	DecryptorPrefix string  `json:"decryptorPrefix,omitempty"` // 解密前缀（旧方式，前端传递）
-	PrefixLen       int     `json:"prefixLen,omitempty"`
-	Status          string  `json:"status"` // pending, downloading, done, failed
-	Error           string  `json:"error,omitempty"`
-	Progress        float64 `json:"progress,omitempty"`
-	DownloadedMB    float64 `json:"downloadedMB,omitempty"`
-	TotalMB         float64 `json:"totalMB,omitempty"`
+	ID              string            `json:"id"`
+	URL             string            `json:"url"`
+	Title           string            `json:"title"`
+	AuthorName      string            `json:"authorName,omitempty"` // 兼容旧格式
+	Author          string            `json:"author,omitempty"`     // 新格式
+	Headers         map[string]string `json:"headers,omitempty"`
+	UserAgent       string            `json:"userAgent,omitempty"`
+	SourceURL       string            `json:"sourceUrl,omitempty"`
+	Key             string            `json:"key,omitempty"`             // 加密密钥（新方式，后端生成解密数组）
+	DecryptorPrefix string            `json:"decryptorPrefix,omitempty"` // 解密前缀（旧方式，前端传递）
+	PrefixLen       int               `json:"prefixLen,omitempty"`
+	FileFormat      string            `json:"fileFormat,omitempty"`
+	Status          string            `json:"status"` // pending, downloading, done, failed
+	Error           string            `json:"error,omitempty"`
+	Progress        float64           `json:"progress,omitempty"`
+	DownloadedMB    float64           `json:"downloadedMB,omitempty"`
+	TotalMB         float64           `json:"totalMB,omitempty"`
 	// 额外字段用于下载记录（批量下载JSON格式）
 	Duration   string `json:"duration,omitempty"`   // 时长字符串，如 "00:22"
 	SizeMB     string `json:"sizeMB,omitempty"`     // 大小字符串，如 "28.77MB"
@@ -255,16 +259,38 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	// 初始化任务
 	h.mu.Lock()
 	h.tasks = make([]BatchTask, len(req.Videos))
+	defaultHeaders := map[string]string{}
+	if origin := strings.TrimSpace(Conn.Request.Header.Get("Origin")); origin != "" {
+		defaultHeaders["Origin"] = origin
+	}
+	if referer := strings.TrimSpace(Conn.Request.Header.Get("Referer")); referer != "" {
+		defaultHeaders["Referer"] = referer
+	}
+	defaultUserAgent := strings.TrimSpace(Conn.Request.Header.Get("User-Agent"))
+	defaultSourceURL := strings.TrimSpace(Conn.Request.Header.Get("Referer"))
 	for i, v := range req.Videos {
+		taskHeaders := cloneStringMap(v.Headers)
+		if taskHeaders == nil {
+			taskHeaders = map[string]string{}
+		}
+		for k, val := range defaultHeaders {
+			if strings.TrimSpace(taskHeaders[k]) == "" {
+				taskHeaders[k] = val
+			}
+		}
 		h.tasks[i] = BatchTask{
 			ID:              v.ID,
-			URL:             v.URL,
+			URL:             v.GetURL(),
 			Title:           v.Title,
 			AuthorName:      v.GetAuthor(), // 兼容 author 和 authorName
 			Author:          v.Author,
-			Key:             v.Key,
+			Headers:         taskHeaders,
+			UserAgent:       firstNonEmpty(v.UserAgent, defaultUserAgent),
+			SourceURL:       firstNonEmpty(v.SourceURL, defaultSourceURL),
+			Key:             v.GetKey(),
 			DecryptorPrefix: v.DecryptorPrefix,
 			PrefixLen:       v.PrefixLen,
+			FileFormat:      v.FileFormat,
 			Status:          "pending",
 			// 保留额外字段
 			Duration:     v.Duration,
@@ -586,7 +612,31 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 		connections = h.getConfig().DownloadConnections
 	}
 
-	err := h.gopeedService.DownloadSync(ctx, task.URL, filePath, connections, nil, onProgress)
+	downloadURL, mode := NormalizeDownloadURL(task.GetURL(), task.FileFormat)
+	if downloadURL != task.GetURL() {
+		utils.Info("🩹 [批量下载] 原始视频链接已归一化为 encfilekey+token 直链")
+	}
+	connections = ResolveDownloadConnections(mode, connections)
+	if mode == downloadVideoModeOriginal {
+		utils.Info("🎯 [批量下载] 原始视频使用单连接模式")
+	}
+
+	headers := cloneStringMap(task.Headers)
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	if strings.TrimSpace(headers["Origin"]) == "" {
+		headers["Origin"] = "https://channels.weixin.qq.com"
+	}
+	if task.UserAgent != "" {
+		headers["User-Agent"] = task.UserAgent
+	}
+	if task.SourceURL != "" {
+		headers["Referer"] = task.SourceURL
+	}
+	utils.Info("🌐 [批量下载] 请求头: Referer=%s | UA=%s | 连接数=%d", headers["Referer"], headers["User-Agent"], connections)
+
+	err := h.gopeedService.DownloadSync(ctx, downloadURL, filePath, connections, headers, onProgress)
 	if err != nil {
 		return err
 	}
@@ -603,6 +653,32 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 	}
 
 	return nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+			continue
+		}
+		dst[k] = v
+	}
+	if len(dst) == 0 {
+		return nil
+	}
+	return dst
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // saveDownloadRecord 保存下载记录到数据库

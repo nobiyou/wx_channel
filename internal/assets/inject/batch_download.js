@@ -87,6 +87,14 @@ window.__wx_batch_download_manager__ = {
   }
 };
 
+function __wx_channels_batch_api_headers__() {
+  var headers = { 'Content-Type': 'application/json' };
+  if (window.__WX_LOCAL_TOKEN__) {
+    headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+  }
+  return headers;
+}
+
 // ==================== 显示批量下载弹窗 ====================
 function __show_batch_download_ui__(videos, title) {
   if (!videos || videos.length === 0) {
@@ -832,6 +840,12 @@ async function __batch_download_selected__() {
         url: normalizedDownload.url || video.url || '',
         title: video.title || video.id || String(Date.now()),
         author: authorName,
+        headers: {
+          Referer: location.href,
+          Origin: location.origin || 'https://channels.weixin.qq.com'
+        },
+        userAgent: navigator.userAgent || '',
+        sourceUrl: location.href,
         key: video.key || '',
         resolution: normalizedDownload.resolution || '',
         width: normalizedDownload.width || 0,
@@ -843,7 +857,7 @@ async function __batch_download_selected__() {
     // 调用后端批量下载接口
     var response = await fetch('/__wx_channels_api/batch_start', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: __wx_channels_batch_api_headers__(),
       body: JSON.stringify({
         videos: batchVideos,
         forceRedownload: __wx_batch_download_manager__.forceRedownload
@@ -871,7 +885,7 @@ async function __batch_download_selected__() {
     try {
       var progressRes = await fetch('/__wx_channels_api/batch_progress', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: __wx_channels_batch_api_headers__()
       });
       if (progressRes.ok) {
         var progressData = await progressRes.json();
@@ -902,7 +916,7 @@ async function __batch_download_selected__() {
         try {
           await fetch('/__wx_channels_api/batch_cancel', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: __wx_channels_batch_api_headers__()
           });
           __wx_log({ msg: '⏹️ 批量下载已取消' });
         } catch (e) {
@@ -915,7 +929,7 @@ async function __batch_download_selected__() {
       try {
         var progressRes = await fetch('/__wx_channels_api/batch_progress', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: __wx_channels_batch_api_headers__()
         });
 
         if (progressRes.ok) {
