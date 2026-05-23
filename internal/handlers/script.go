@@ -113,7 +113,7 @@ func (h *ScriptHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 // HandleHTMLResponse 处理HTML响应，注入JavaScript代码
 func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path string, body []byte) bool {
 	contentType := strings.ToLower(Conn.Response.Header.Get("content-type"))
-	if contentType != "text/html; charset=utf-8" {
+	if !isHTMLContentType(contentType) {
 		return false
 	}
 
@@ -144,7 +144,7 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 // HandleJavaScriptResponse 处理JavaScript响应，修改JavaScript代码
 func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, path string, body []byte) bool {
 	contentType := strings.ToLower(Conn.Response.Header.Get("content-type"))
-	if contentType != "application/javascript" {
+	if !isJavaScriptContentType(contentType) {
 		return false
 	}
 
@@ -1224,6 +1224,7 @@ if (window.__wx_channels_video_cache_monitor) {
 		utils.LogFileInfo("视频缓冲将被监控，完成时会有提醒")
 		utils.LogFileInfo("[视频播放] 视频播放器已加载 | Path=%s", path)
 	}
+	logInjectPatternResult("sourceBuffer.appendBuffer", path, regexp1.MatchString(content))
 	content = regexp1.ReplaceAllString(content, replaceStr1)
 	regexp2 := regexp.MustCompile(`if\(f.cmd===re.MAIN_THREAD_CMD.AUTO_CUT`)
 	replaceStr2 := `if(f.cmd==="CUT"){
@@ -1233,6 +1234,7 @@ if (window.__wx_channels_video_cache_monitor) {
 	}
 }
 if(f.cmd===re.MAIN_THREAD_CMD.AUTO_CUT`
+	logInjectPatternResult("AUTO_CUT", path, regexp2.MatchString(content))
 	content = regexp2.ReplaceAllString(content, replaceStr2)
 
 	return content, true
@@ -1256,14 +1258,18 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 
 	// 拦截 finderGetCommentDetail - 视频详情（参考 wx_channels_download 项目）
 	feedProfileRegex := regexp.MustCompile(`(?s)async\s+finderGetCommentDetail\s*\(([^)]+)\)\s*\{(.*?)\}\s*async`)
-	if feedProfileRegex.MatchString(content) {
+	feedProfileMatched := feedProfileRegex.MatchString(content)
+	logInjectPatternResult("finderGetCommentDetail", path, feedProfileMatched)
+	if feedProfileMatched {
 		utils.LogFileInfo("[API拦截] ✅ 在virtual_svg-icons-register中成功拦截 finderGetCommentDetail 函数")
 		feedProfileReplace := `async finderGetCommentDetail($1){var result=await(async()=>{$2})();var feed=result.data.object;console.log("[API拦截] finderGetCommentDetail 触发 FeedProfileLoaded");WXU.emit(WXU.Events.FeedProfileLoaded,feed);return result;}async`
 		content = feedProfileRegex.ReplaceAllString(content, feedProfileReplace)
 	}
 
 	commentListRegex := regexp.MustCompile(`(?s)async\s+finderGetCommentList\s*\(([^)]+)\)\s*\{(.*?)\}\s*async`)
-	if commentListRegex.MatchString(content) {
+	commentListMatched := commentListRegex.MatchString(content)
+	logInjectPatternResult("finderGetCommentList", path, commentListMatched)
+	if commentListMatched {
 		utils.LogFileInfo("[API拦截] ✅ 在virtual_svg-icons-register中成功拦截 finderGetCommentList 函数")
 		commentListReplace := `async finderGetCommentList($1){var result=await(async()=>{$2})();console.log("[API拦截] finderGetCommentList 返回评论列表");WXU.emit(WXU.Events.FeedCommentListLoaded,result.data);return result;}async`
 		content = commentListRegex.ReplaceAllString(content, commentListReplace)
@@ -1271,7 +1277,9 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 
 	// 拦截 Profile 页面的视频列表数据 - 使用事件系统（参考 wx_channels_download 项目）
 	profileListRegex := regexp.MustCompile(`(?s)async\s+finderUserPage\s*\(([^)]+)\)\s*\{return(.*?)\}\s*async`)
-	if profileListRegex.MatchString(content) {
+	profileListMatched := profileListRegex.MatchString(content)
+	logInjectPatternResult("finderUserPage", path, profileListMatched)
+	if profileListMatched {
 		utils.LogFileInfo("[API拦截] ✅ 在virtual_svg-icons-register中成功拦截 finderUserPage 函数")
 		profileListReplace := `async finderUserPage($1){console.log("[Profile API] finderUserPage 调用参数:",$1);var result=await(async()=>{return$2})();console.log("[Profile API] finderUserPage 原始结果:",result);if(result&&result.data&&result.data.object){var feeds=result.data.object;console.log("[Profile API] 提取到",feeds.length,"个视频");WXU.emit(WXU.Events.UserFeedsLoaded,feeds);}else{console.warn("[Profile API] result.data.object 为空",result);}return result;}async`
 		content = profileListRegex.ReplaceAllString(content, profileListReplace)
@@ -1279,7 +1287,9 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 
 	// 拦截 Profile 页面的直播回放列表数据 - 使用事件系统
 	liveListRegex := regexp.MustCompile(`(?s)async\s+finderLiveUserPage\s*\(([^)]+)\)\s*\{return(.*?)\}\s*async`)
-	if liveListRegex.MatchString(content) {
+	liveListMatched := liveListRegex.MatchString(content)
+	logInjectPatternResult("finderLiveUserPage", path, liveListMatched)
+	if liveListMatched {
 		utils.LogFileInfo("[API拦截] ✅ 在virtual_svg-icons-register中成功拦截 finderLiveUserPage 函数")
 		liveListReplace := `async finderLiveUserPage($1){console.log("[Profile API] finderLiveUserPage 调用参数:",$1);var result=await(async()=>{return$2})();console.log("[Profile API] finderLiveUserPage 原始结果:",result);if(result&&result.data&&result.data.object){var feeds=result.data.object;console.log("[Profile API] 提取到",feeds.length,"个直播回放");WXU.emit(WXU.Events.UserLiveReplayLoaded,feeds);}else{console.warn("[Profile API] result.data.object 为空",result);}return result;}async`
 		content = liveListRegex.ReplaceAllString(content, liveListReplace)
@@ -1294,7 +1304,9 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 	exportBlockRegex := regexp.MustCompile(`export\s*\{([^}]+)\}`)
 	exportRegex := regexp.MustCompile(`export\s*\{`)
 
-	if exportBlockRegex.MatchString(content) {
+	exportBlockMatched := exportBlockRegex.MatchString(content)
+	logInjectPatternResult("export block", path, exportBlockMatched)
+	if exportBlockMatched {
 		utils.LogFileInfo("[API拦截] ✅ 在virtual_svg-icons-register中找到 export 语句")
 
 		// 提取 export 块中的内容
@@ -1334,8 +1346,6 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 				utils.LogFileInfo("[API拦截] ✅ 已注入 APILoaded 事件")
 			}
 		}
-	} else {
-		utils.LogFileInfo("[API拦截] ❌ 在virtual_svg-icons-register中未找到 export 语句")
 	}
 
 	return content, true
@@ -1357,8 +1367,26 @@ func (h *ScriptHandler) handleWorkerRelease(path string, content string) (string
 
 	regex := regexp.MustCompile(`fmp4Index:p.fmp4Index`)
 	replaceStr := `decryptor_array:p.decryptor_array,fmp4Index:p.fmp4Index`
+	logInjectPatternResult("worker_release fmp4Index", path, regex.MatchString(content))
 	content = regex.ReplaceAllString(content, replaceStr)
 	return content, true
+}
+
+func isHTMLContentType(contentType string) bool {
+	return strings.Contains(strings.ToLower(contentType), "text/html")
+}
+
+func isJavaScriptContentType(contentType string) bool {
+	lower := strings.ToLower(contentType)
+	return strings.Contains(lower, "javascript") || strings.Contains(lower, "ecmascript") || strings.Contains(lower, "text/js")
+}
+
+func logInjectPatternResult(label string, path string, matched bool) {
+	if matched {
+		utils.LogFileInfo("[注入检查] ✅ %s 命中: %s", label, path)
+		return
+	}
+	utils.LogFileInfo("[注入检查] ❌ %s 未命中: %s", label, path)
 }
 
 // handleConnectPublish 处理connect.publish JS文件（参考 wx_channels_download 项目的实现）
@@ -1386,7 +1414,7 @@ func (h *ScriptHandler) getLogPanelScript() string {
 	if h.getConfig().ShowLogButton {
 		showLogButton = "true"
 	}
-	
+
 	// 根据配置决定是否拦截日志（默认禁用以节省内存）
 	enableLogInterception := "false"
 	if h.getConfig().EnableLogInterception {
