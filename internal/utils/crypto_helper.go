@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -71,6 +72,8 @@ func DecryptFileInPlace(filePath string, key string, decryptorPrefixStr string, 
 		return nil // Empty file?
 	}
 
+	backup := append([]byte(nil), chunk[:n]...)
+
 	// XOR Decrypt
 	for i := 0; i < n; i++ {
 		chunk[i] ^= decryptorPrefix[i]
@@ -82,6 +85,13 @@ func DecryptFileInPlace(filePath string, key string, decryptorPrefixStr string, 
 		return fmt.Errorf("failed to write decrypted data: %v", err)
 	}
 
+	if err := validateDecryptedVideoHeader(chunk[:n]); err != nil {
+		if _, restoreErr := f.WriteAt(backup, 0); restoreErr != nil {
+			return fmt.Errorf("decrypted header validation failed: %v (restore failed: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("decrypted header validation failed: %v", err)
+	}
+
 	return nil
 }
 
@@ -91,4 +101,31 @@ func ParseKey(key string) (uint64, error) {
 		return seed, nil
 	}
 	return 0, fmt.Errorf("invalid key format: %s", key)
+}
+
+func validateDecryptedVideoHeader(header []byte) error {
+	if len(header) < 12 {
+		return nil
+	}
+	if looksLikeMediaHeader(header) {
+		return nil
+	}
+	return fmt.Errorf("header does not look like a valid media stream")
+}
+
+func looksLikeMediaHeader(header []byte) bool {
+	limit := len(header)
+	if limit > 32 {
+		limit = 32
+	}
+	for i := 4; i+4 <= limit; i++ {
+		boxType := header[i : i+4]
+		if bytes.Equal(boxType, []byte("ftyp")) ||
+			bytes.Equal(boxType, []byte("styp")) ||
+			bytes.Equal(boxType, []byte("moov")) ||
+			bytes.Equal(boxType, []byte("mdat")) {
+			return true
+		}
+	}
+	return false
 }
