@@ -27,6 +27,7 @@ window.__wx_api_client = {
     this.connect();
     this.setupVisibilityHandler();
     this.setupBeforeUnloadHandler();
+    this.scheduleInjectHealthReports('init');
   },
 
   // 设置页面可见性监听
@@ -184,6 +185,7 @@ window.__wx_api_client = {
         // 启动心跳
         self.startHeartbeat();
         self.sendClientState();
+        self.scheduleInjectHealthReports('ws_open');
       };
 
       ws.onmessage = function (event) {
@@ -263,10 +265,67 @@ window.__wx_api_client = {
       href: window.location.href,
       apiReady: !!(methods.finderGetCommentDetail || methods.finderGetCommentList || methods.finderUserPage || methods.finderSearch || methods.finderGetInteractionedFeedList),
       methods: methods,
+      injectHealth: this.collectInjectHealth(),
       timestamp: Date.now(),
       userAgent: navigator.userAgent,
       visible: !document.hidden
     };
+  },
+
+  collectInjectHealth: function () {
+    var health = this.collectInjectHealthSnapshot();
+    var self = this;
+    window.__wx_channels_inject_health_last__ = health;
+    window.__wx_channels_inject_health__ = function () {
+      return self.collectInjectHealthSnapshot();
+    };
+    return health;
+  },
+
+  collectInjectHealthSnapshot: function () {
+    var store = window.__wx_channels_store__ || null;
+    var profile = store && store.profile ? store.profile : null;
+    var now = Date.now();
+    return {
+      wxu: !!window.WXU,
+      wxe: !!window.WXE,
+      store: !!store,
+      profile: !!profile,
+      hasUrl: !!(profile && (profile.url || profile.originalUrl || (profile.media && profile.media.url))),
+      hasKey: !!(profile && profile.key),
+      title: (profile && profile.title) || '',
+      id: (profile && profile.id) || '',
+      pagePath: window.location.pathname,
+      href: window.location.href,
+      timestamp: now,
+      ts: now
+    };
+  },
+
+  reportInjectHealth: function (reason) {
+    var payload = this.collectInjectHealth();
+    payload.reason = reason || '';
+
+    var headers = { 'Content-Type': 'application/json' };
+    if (window.__WX_LOCAL_TOKEN__) {
+      headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+    }
+
+    return fetch('/__wx_channels_api/inject_health', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload)
+    }).catch(function (err) {
+      console.warn('[API客户端] 上报注入健康失败:', err);
+    });
+  },
+
+  scheduleInjectHealthReports: function (reason) {
+    var self = this;
+    self.reportInjectHealth(reason);
+    setTimeout(function () {
+      self.reportInjectHealth(reason + ':delayed');
+    }, 1500);
   },
 
   sendClientState: function () {

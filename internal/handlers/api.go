@@ -67,6 +67,9 @@ func (h *APIHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	if h.HandleTip(Conn) {
 		return true
 	}
+	if h.HandleInjectHealth(Conn) {
+		return true
+	}
 	if h.HandlePageURL(Conn) {
 		// HandlePageURL updates state alongside returning true
 		return true

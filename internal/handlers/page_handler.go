@@ -18,6 +18,68 @@ import (
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
 
+// HandleInjectHealth 处理注入健康上报请求
+func (h *APIHandler) HandleInjectHealth(Conn *SunnyNet.HttpConn) bool {
+	path := Conn.Request.URL.Path
+	if path != "/__wx_channels_api/inject_health" {
+		return false
+	}
+
+	if Conn.Request.Method != http.MethodPost {
+		h.sendErrorResponse(Conn, fmt.Errorf("method not allowed: %s", Conn.Request.Method))
+		return true
+	}
+
+	cfg := h.getConfig()
+	if cfg != nil && cfg.SecretToken != "" && Conn.Request.Header.Get("X-Local-Auth") != cfg.SecretToken {
+		headers := http.Header{}
+		headers.Set("Content-Type", "application/json")
+		headers.Set("X-Content-Type-Options", "nosniff")
+		Conn.StopRequest(401, `{"success":false,"error":"unauthorized"}`, headers)
+		return true
+	}
+
+	var health struct {
+		PagePath  string `json:"pagePath"`
+		Href      string `json:"href"`
+		Reason    string `json:"reason"`
+		WXU       bool   `json:"wxu"`
+		WXE       bool   `json:"wxe"`
+		Store     bool   `json:"store"`
+		Profile   bool   `json:"profile"`
+		HasURL    bool   `json:"hasUrl"`
+		HasKey    bool   `json:"hasKey"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	body, err := io.ReadAll(Conn.Request.Body)
+	if err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+	if Conn.Request.Body != nil {
+		_ = Conn.Request.Body.Close()
+	}
+	if len(body) == 0 {
+		h.sendEmptyResponse(Conn)
+		return true
+	}
+
+	if err := json.Unmarshal(body, &health); err != nil {
+		h.sendErrorResponse(Conn, err)
+		return true
+	}
+
+	if health.Href != "" {
+		h.SetCurrentURL(health.Href)
+	}
+
+	utils.LogInfo("[注入健康] reason=%s page=%s wxu=%t wxe=%t store=%t profile=%t hasUrl=%t hasKey=%t href=%s",
+		health.Reason, health.PagePath, health.WXU, health.WXE, health.Store, health.Profile, health.HasURL, health.HasKey, health.Href)
+	h.sendEmptyResponse(Conn)
+	return true
+}
+
 // HandlePageURL 处理页面URL请求
 func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
 	// 如果是页面请求，记录URL
