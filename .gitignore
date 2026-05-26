@@ -150,6 +150,7 @@ download_records.csv
 # 测试脚本目录
 scripts/*
 !scripts/build-dual.ps1
+!scripts/build-variants.ps1
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
 

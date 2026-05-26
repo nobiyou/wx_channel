@@ -250,24 +250,38 @@ pause
 
 ### PowerShell 脚本
 
-当前推荐直接使用仓库内置双包脚本：
+当前推荐直接使用仓库内置三版本脚本：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build-dual.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build-variants.ps1
 ```
 
 脚本执行内容：
 
 1. 运行 `go-winres make` 生成 Windows 资源
-2. 临时修改 `internal/config/config.go` 中的 `viper.SetDefault("cloud_enabled", ...)`
-3. 使用 `go build -mod=vendor -ldflags="-w -s -extldflags '-static'" -o wx_channel_cloud.exe` 打包 Hub 版
-4. 再切换为普通版默认值，使用相同参数打包 `wx_channel.exe`
-5. 结束后自动恢复 `config.go` 原始内容
+2. 读取 `internal/version/version.go` 作为发版目录名，例如 `release/v5.6.6/`
+3. 临时修改 `internal/config/config.go` 中的 `viper.SetDefault("cloud_enabled", ...)` 与 `viper.SetDefault("radar_enabled", ...)`
+4. 依次打包 Hub 版、普通版、雷达版
+5. 为每个版本生成独立目录和 ZIP 压缩包
+6. 结束后自动恢复 `config.go` 原始内容
 
 输出文件：
 
+- `release/v<version>/wx_channel_v<version>.exe`
+- `release/v<version>/wx_channel_v<version>.zip`
 - `wx_channel_cloud.exe`
 - `wx_channel.exe`
+- `wx_channel_radar.exe`
+- `release/v<version>/wx_channel_cloud_v<version>.exe`
+- `release/v<version>/wx_channel_cloud_v<version>.zip`
+- `release/v<version>/wx_channel_radar_v<version>.exe`
+- `release/v<version>/wx_channel_radar_v<version>.zip`
+
+如果只需要普通版 + Hub 版，也可以继续使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-dual.ps1
+```
 
 ### Linux/macOS Shell 脚本
 

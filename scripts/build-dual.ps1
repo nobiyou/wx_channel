@@ -2,9 +2,9 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $repoRoot 'internal\config\config.go'
-$originalConfig = Get-Content -LiteralPath $configPath -Raw
-$pattern = 'viper\.SetDefault\("cloud_enabled",\s*(true|false)\)'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$originalConfigBytes = [System.IO.File]::ReadAllBytes($configPath)
+$pattern = 'viper\.SetDefault\("cloud_enabled",\s*(true|false)\)'
 
 function Write-Utf8File {
     param(
@@ -15,6 +15,26 @@ function Write-Utf8File {
     )
 
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
+function Read-Utf8File {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    return $utf8NoBom.GetString([System.IO.File]::ReadAllBytes($Path))
+}
+
+function Assert-LastExitCode {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$CommandName failed with exit code $LASTEXITCODE."
+    }
 }
 
 function Set-CloudEnabledDefault {
@@ -29,13 +49,26 @@ function Set-CloudEnabledDefault {
         'viper.SetDefault("cloud_enabled", false)'
     }
 
-    $current = Get-Content -LiteralPath $configPath -Raw
+    $current = Read-Utf8File -Path $configPath
     $match = [System.Text.RegularExpressions.Regex]::Match($current, $pattern)
     if (-not $match.Success) {
-        throw "未找到 cloud_enabled 默认值配置，无法切换构建模式。"
+        throw 'Could not locate cloud_enabled default in internal/config/config.go.'
     }
+
     $updated = $current.Remove($match.Index, $match.Length).Insert($match.Index, $replacement)
     Write-Utf8File -Path $configPath -Content $updated
+}
+
+function Invoke-GoWinres {
+    $command = Get-Command go-winres -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        & $command.Source make
+        Assert-LastExitCode -CommandName 'go-winres make'
+        return
+    }
+
+    go run -mod=mod github.com/tc-hib/go-winres@latest make
+    Assert-LastExitCode -CommandName 'go run github.com/tc-hib/go-winres@latest make'
 }
 
 function Invoke-GoBuild {
@@ -50,7 +83,11 @@ function Invoke-GoBuild {
         $env:GOARCH = ''
         $env:CGO_ENABLED = '1'
         $ldflags = "-w -s -extldflags '-static'"
+        if (Test-Path $OutputName) {
+            Remove-Item $OutputName -Force
+        }
         go build -mod=vendor "-ldflags=$ldflags" -o $OutputName
+        Assert-LastExitCode -CommandName ("go build -o " + $OutputName)
     }
     finally {
         Pop-Location
@@ -60,24 +97,24 @@ function Invoke-GoBuild {
 try {
     Push-Location $repoRoot
     try {
-        Write-Host '==> 生成 Windows 资源文件' -ForegroundColor Cyan
-        go-winres make
+        Write-Host '==> Generate Windows resources' -ForegroundColor Cyan
+        Invoke-GoWinres
     }
     finally {
         Pop-Location
     }
 
-    Write-Host '==> 打包 Hub 版 (cloud_enabled=true)' -ForegroundColor Cyan
+    Write-Host '==> Build cloud variant (cloud_enabled=true)' -ForegroundColor Cyan
     Set-CloudEnabledDefault -Enabled $true
     Invoke-GoBuild -OutputName 'wx_channel_cloud.exe'
 
-    Write-Host '==> 打包普通版 (cloud_enabled=false)' -ForegroundColor Cyan
+    Write-Host '==> Build standard variant (cloud_enabled=false)' -ForegroundColor Cyan
     Set-CloudEnabledDefault -Enabled $false
     Invoke-GoBuild -OutputName 'wx_channel.exe'
 }
 finally {
-    Write-Utf8File -Path $configPath -Content $originalConfig
-    Write-Host '==> 已恢复 internal/config/config.go 原始内容' -ForegroundColor DarkGray
+    [System.IO.File]::WriteAllBytes($configPath, $originalConfigBytes)
+    Write-Host '==> Restored internal/config/config.go' -ForegroundColor DarkGray
 }
 
-Write-Host '==> 打包完成' -ForegroundColor Green
+Write-Host '==> Dual build complete' -ForegroundColor Green
