@@ -309,6 +309,7 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 - **批量链路命名对齐**：批量下载、下载队列、队列转批量下载统一透传文件名元数据，减少单条与批量命名不一致。
 - **设置接口说明修正**：`GET /api/settings` 与控制台设置页明确 `downloadFilenameTemplate`、`radarEnabled` 为配置回显语义。
 - **雷达开关收敛**：对标雷达默认关闭，以 `config.yaml` 中的 `radar_enabled` 为准，修改后需重启程序生效。
+- **日志提示修正**：启动阶段的日志初始化提示改为安全格式化输出，避免日志路径中的 `%` 被误解析。
 
 ### ✨ 主要特性
 
