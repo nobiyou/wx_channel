@@ -695,9 +695,9 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.6.5 |
+                                <strong>当前版本：</strong>v5.6.6 |
 
-                                <strong>更新时间：</strong>2026-04-26
+                                <strong>更新时间：</strong>2026-05-26
 
                             </p>
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.6.5版本 - 最新版本 -->
+                        <!-- v5.6.6版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.5 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.6 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-05-15</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-05-26</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>原始视频下载</strong>：补齐原始视频下载链路，默认优先走 Gopeed 引擎
+                                    <strong>模板占位符补齐</strong>：`download_filename_template` 文档补齐 `{size}`，与当前代码支持保持一致。
 
                                 </li>
 
@@ -2108,15 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>评论导出对齐</strong>：评论列表导出格式对齐 `wx_channels_download`，精简无用字段
-                                    <strong>下载命名优化</strong>：文件名默认不再附带视频 ID，同标题自动追加序号避免覆盖
+                                    <strong>批量链路命名对齐</strong>：批量下载、下载队列、队列转批量下载统一透传命名元数据，减少文件名差异。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>提交范围整理</strong>：放开 `web/` 目录提交限制，允许站点资源纳入版本管理
+                                    <strong>设置说明修正</strong>：`GET /api/settings` 与控制台设置页明确 `downloadFilenameTemplate`、`radarEnabled` 为配置回显。
 
                                 </li>
 
@@ -2124,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>链接结构兼容</strong>：兼容 `oid/nid`、`context_id`、`fromSubPage=profile`、`tabId=flow + feed_lab` 等多种直达视频链接
+                                    <strong>雷达开关收敛</strong>：对标雷达默认关闭，以 `config.yaml` 中的 `radar_enabled` 为准，修改后需重启程序生效。
 
                                 </li>
 
@@ -2132,7 +2131,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>逻辑分流优化</strong>：对“URL 是 Home、实际是详情页”的场景自动切换到 Feed 逻辑处理
+                                    延续 v5.6.5 已完成的原始视频下载、评论导出与下载命名优化能力。
 
                                 </li>
 
@@ -2140,7 +2139,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    延续 v5.6.0 对新版首页、Feed、Profile、赞和收藏页面的适配成果
+                                    文档、控制台说明与版本记录现已对齐，便于后续问题排查与发布说明追踪。
 
                                 </li>
 
@@ -2164,7 +2163,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    雷达功能默认关闭，并支持控制台设置页即时启停
+                                    雷达功能默认关闭，需要在 config.yaml 中显式开启并重启程序
 
                                 </li>
 
