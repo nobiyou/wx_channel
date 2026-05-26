@@ -459,9 +459,10 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 原始视频下载 - 完善原始视频下载链路，修复获取不到原始视频链接的问题")
-	color.Green("    • 评论导出优化 - 新增评论列表API，支持获取视频评论列表和回复分页")
-	color.Green("    • 下载命名优化 - 默认不再附带视频 ID，同名自动追加序号")
+	color.Green("    • 批量命名链路 - 统一批量下载与队列下载的命名元数据透传")
+	color.Green("    • 模板占位符补齐 - download_filename_template 新增 {size}")
+	color.Green("    • 配置回显修正 - 设置页明确展示 downloadFilenameTemplate 与 radarEnabled")
+	color.Green("    • 雷达与日志修正 - radar_enabled 显式控制，启动日志格式化更安全")
 	fmt.Println()
 }
 
