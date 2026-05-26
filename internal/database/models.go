@@ -98,6 +98,7 @@ const (
 type Settings struct {
 	DownloadDir                 string `json:"downloadDir"`
 	DownloadFilenameWithVideoID bool `json:"downloadFilenameWithVideoId"`
+	DownloadFilenameTemplate    string `json:"downloadFilenameTemplate,omitempty"`
 	ChunkSize                   int64  `json:"chunkSize"`
 	ConcurrentLimit             int    `json:"concurrentLimit"`
 	AutoCleanupEnabled          bool   `json:"autoCleanupEnabled"`
@@ -112,6 +113,7 @@ func DefaultSettings() *Settings {
 	return &Settings{
 		DownloadDir:                 "downloads",
 		DownloadFilenameWithVideoID: false,
+		DownloadFilenameTemplate:    "",
 		ChunkSize:                   10 * 1024 * 1024, // 10MB
 		ConcurrentLimit:             3,
 		AutoCleanupEnabled:          false,

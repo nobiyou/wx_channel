@@ -16,6 +16,9 @@ function toggleAutoCleanup() {
 function toggleRadarEnabled() {
     const toggle = document.getElementById('radarEnabledToggle');
     const checkbox = document.getElementById('settingRadarEnabled');
+    if (toggle && toggle.dataset.readonly === 'true') {
+        return;
+    }
     if (toggle && checkbox) {
         checkbox.checked = !checkbox.checked;
         toggle.classList.toggle('active', checkbox.checked);
@@ -58,6 +61,7 @@ async function loadSettings() {
                 document.getElementById('settingChunkSize').value = (settings.chunkSize || 10485760) / 1048576;
                 document.getElementById('settingConcurrentLimit').value = settings.concurrentLimit || 3;
                 document.getElementById('settingDownloadFilenameWithVideoId').checked = settings.downloadFilenameWithVideoId === true;
+                document.getElementById('settingDownloadFilenameTemplate').value = settings.downloadFilenameTemplate || '';
                 document.getElementById('settingAutoCleanup').checked = settings.autoCleanupEnabled || false;
                 document.getElementById('settingAutoCleanupDays').value = settings.autoCleanupDays || 30;
                 document.getElementById('settingRadarEnabled').checked = settings.radarEnabled || false;
@@ -396,12 +400,11 @@ async function saveCleanupSettings() {
         const settings = {
             ...currentSettings.data,
             autoCleanupEnabled: autoCleanupEnabled,
-            autoCleanupDays: parseInt(document.getElementById('settingAutoCleanupDays').value),
-            radarEnabled: document.getElementById('settingRadarEnabled').checked
+            autoCleanupDays: parseInt(document.getElementById('settingAutoCleanupDays').value)
         };
         
         await ApiClient.updateSettings(settings);
-        showMessage(`清理与雷达设置已保存，雷达已${settings.radarEnabled ? '启用' : '停用'}`, 'success');
+        showMessage('清理设置已保存', 'success');
     } catch (e) {
         showMessage('保存失败: ' + e.message, 'error');
     }
@@ -454,13 +457,9 @@ async function resetSettings() {
     document.getElementById('settingChunkSize').value = 10;
     document.getElementById('settingConcurrentLimit').value = 3;
     document.getElementById('settingDownloadFilenameWithVideoId').checked = false;
+    document.getElementById('settingDownloadFilenameTemplate').value = '';
     document.getElementById('settingAutoCleanup').checked = false;
     document.getElementById('settingAutoCleanupDays').value = 30;
-    document.getElementById('settingRadarEnabled').checked = false;
-    const radarToggle = document.getElementById('radarEnabledToggle');
-    if (radarToggle) {
-        radarToggle.classList.remove('active');
-    }
     const filenameToggle = document.getElementById('downloadFilenameWithVideoIdToggle');
     if (filenameToggle) {
         filenameToggle.classList.remove('active');
@@ -490,8 +489,7 @@ async function resetSettings() {
                 chunkSize: 10485760, // 10MB
                 concurrentLimit: 3,
                 autoCleanupEnabled: false,
-                autoCleanupDays: 30,
-                radarEnabled: false
+                autoCleanupDays: 30
             });
         } catch (e) {
             console.error('Failed to reset server settings:', e);

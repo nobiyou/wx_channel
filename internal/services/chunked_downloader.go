@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"wx_channel/internal/config"
 	"wx_channel/internal/database"
 	"wx_channel/internal/utils"
 )
@@ -447,8 +448,30 @@ func (d *ChunkedDownloader) prepareDownloadPath(item *database.QueueItem) (strin
 		return "", fmt.Errorf("failed to create download directory: %w", err)
 	}
 
-	// 清理文件名
-	filename := utils.CleanFilename(item.Title)
+	settings := database.DefaultSettings()
+	if d.settings != nil && d.settings.GetDBUnsafe() != nil {
+		loaded, err := d.settings.Load()
+		if err == nil && loaded != nil {
+			settings = loaded
+		}
+	}
+	includeVideoID := true
+	if settings != nil {
+		includeVideoID = settings.DownloadFilenameWithVideoID
+	}
+	template := ""
+	if cfg := config.Get(); cfg != nil {
+		template = cfg.DownloadFilenameTemplate
+	}
+
+	filename := utils.BuildVideoFilename(utils.VideoFilenameMeta{
+		Title:      item.Title,
+		VideoID:    item.VideoID,
+		Author:     item.Author,
+		Duration:   time.Duration(item.Duration) * time.Millisecond,
+		CreateTime: item.AddedTime,
+		SizeBytes:  item.TotalSize,
+	}, includeVideoID, template)
 	filename = utils.EnsureExtension(filename, ".mp4")
 
 	return filepath.Join(downloadDir, filename), nil

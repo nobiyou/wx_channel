@@ -1090,6 +1090,17 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="settings-item">
+                            <div class="settings-item-info">
+                                <div class="settings-item-label">下载文件名模板</div>
+                                <div class="settings-item-desc">请在 config.yaml 中配置 download_filename_template。支持 {date} {datetime} {author} {title} {duration} {video_id} {size}</div>
+                            </div>
+                            <div class="settings-item-control" style="min-width: 320px;">
+                                <input type="text" id="settingDownloadFilenameTemplate" value="" readonly
+                                    title="请在 config.yaml 中配置 download_filename_template"
+                                    style="width: 100%; opacity: 0.75; cursor: not-allowed;">
+                            </div>
+                        </div>
                     </div>
                     <div class="form-error" id="downloadDirError"></div>
                     <div class="form-error" id="chunkSizeError"></div>
@@ -1133,11 +1144,11 @@
                         <div class="settings-item">
                             <div class="settings-item-info">
                                 <div class="settings-item-label">启用对标雷达</div>
-                                <div class="settings-item-desc">默认关闭。开启后将在程序下次启动时启用雷达轮询服务</div>
+                                <div class="settings-item-desc">默认关闭。请在 config.yaml 中配置 radar_enabled，修改后重启程序生效</div>
                             </div>
                             <div class="settings-item-control">
-                                <input type="checkbox" id="settingRadarEnabled" style="display: none;">
-                                <div class="toggle-switch" id="radarEnabledToggle" onclick="toggleRadarEnabled()">
+                                <input type="checkbox" id="settingRadarEnabled" style="display: none;" disabled>
+                                <div class="toggle-switch" id="radarEnabledToggle" data-readonly="true" title="请在 config.yaml 中配置" style="cursor: not-allowed; opacity: 0.6;">
                                     <div class="toggle-slider"></div>
                                 </div>
                             </div>
@@ -1254,7 +1265,7 @@
                     <div class="card-header">
                         <h3 class="card-title">对标账号雷达 (24小时自动监控)</h3>
                         <div style="display: flex; gap: 8px;">
-                            <button class="btn btn-primary" onclick="openAddRadarModal()">
+                            <button class="btn btn-primary" id="radarAddButton" onclick="openAddRadarModal()">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                                     style="width: 16px; height: 16px;">
                                     <line x1="12" y1="5" x2="12" y2="19" />
@@ -1265,14 +1276,14 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-info" style="margin-bottom: 20px;">
+                    <div class="alert alert-info" id="radarGlobalStatusAlert" style="margin-bottom: 20px;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             style="width: 20px; height: 20px; flex-shrink: 0;">
                             <circle cx="12" cy="12" r="10" />
                             <line x1="12" y1="16" x2="12" y2="12" />
                             <line x1="12" y1="8" x2="12.01" y2="8" />
                         </svg>
-                        <span>系统会在后台静默轮询以下博主，发现新视频后会自动推入您的下载队列。(如果博主列表为空，请先在视频号添加博主)</span>
+                        <span id="radarGlobalStatusText">系统会在后台静默轮询以下博主，发现新视频后会自动推入您的下载队列。(如果博主列表为空，请先在视频号添加博主)</span>
                     </div>
 
                     <div id="radarTargetList">

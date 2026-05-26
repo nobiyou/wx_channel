@@ -185,6 +185,13 @@ http://127.0.0.1:2025/console
 
 ## 使用场景
 
+## 设置页说明
+
+- 下载目录、分片大小、并发下载数、自动清理等参数可通过控制台保存。
+- `download_filename_template` 为只读展示项，需在 `config.yaml` 中修改。
+- `radar_enabled` 为只读展示项，需在 `config.yaml` 中修改并重启程序。
+- 当前支持的文件名模板占位符为 `{date} {datetime} {author} {title} {duration} {video_id} {size}`。
+
 ### 场景 1：批量下载普通视频
 
 ```json

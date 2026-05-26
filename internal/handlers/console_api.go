@@ -25,6 +25,7 @@ import (
 
 // ConsoleAPIHandler 处理 Web 控制台的 REST API 请求
 type ConsoleAPIHandler struct {
+	cfg             *config.Config
 	browseService   *services.BrowseHistoryService
 	downloadService *services.DownloadRecordService
 	queueService    *services.QueueService
@@ -41,6 +42,7 @@ const maxJSONBodyBytes = 8 << 20 // 8MB
 // NewConsoleAPIHandler 创建一个新的 ConsoleAPIHandler
 func NewConsoleAPIHandler(cfg *config.Config, wsHub *websocket.Hub, radarService *services.RadarService) *ConsoleAPIHandler {
 	return &ConsoleAPIHandler{
+		cfg:             cfg,
 		browseService:   services.NewBrowseHistoryService(),
 		downloadService: services.NewDownloadRecordService(),
 		queueService:    services.NewQueueService(),
@@ -55,7 +57,26 @@ func NewConsoleAPIHandler(cfg *config.Config, wsHub *websocket.Hub, radarService
 
 // getConfig 获取当前配置（动态获取最新配置）
 func (h *ConsoleAPIHandler) getConfig() *config.Config {
+	if h.cfg != nil {
+		return h.cfg
+	}
 	return config.Get()
+}
+
+func (h *ConsoleAPIHandler) applyConfigOwnedSettings(settings *database.Settings) *database.Settings {
+	if settings == nil {
+		settings = database.DefaultSettings()
+	}
+
+	cfg := h.getConfig()
+	if cfg == nil {
+		return settings
+	}
+
+	copied := *settings
+	copied.RadarEnabled = cfg.RadarEnabled
+	copied.DownloadFilenameTemplate = cfg.DownloadFilenameTemplate
+	return &copied
 }
 
 // APIResponse 表示标准 API 响应
@@ -758,18 +779,12 @@ func (h *ConsoleAPIHandler) HandleSettingsGet(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.sendSuccess(w, r, settings)
+	h.sendSuccess(w, r, h.applyConfigOwnedSettings(settings))
 }
 
 // HandleSettingsUpdate 处理 PUT /api/settings - 更新设置
 func (h *ConsoleAPIHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if h.HandleCORS(w, r) {
-		return
-	}
-
-	oldSettings, err := h.settingsRepo.Load()
-	if err != nil {
-		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -779,6 +794,8 @@ func (h *ConsoleAPIHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 
+	settings.RadarEnabled = h.applyConfigOwnedSettings(&settings).RadarEnabled
+
 	// 验证并保存设置
 	// Requirements: 11.3, 11.4 - 验证分片大小 (1-100MB) 和并发限制 (1-5)
 	if err := h.settingsRepo.SaveAndValidate(&settings); err != nil {
@@ -786,18 +803,7 @@ func (h *ConsoleAPIHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.
 		return
 	}
 
-	message := "settings updated"
-	if h.radarService != nil && oldSettings != nil && oldSettings.RadarEnabled != settings.RadarEnabled {
-		if settings.RadarEnabled {
-			h.radarService.Start()
-			message = "settings updated, radar enabled"
-		} else {
-			h.radarService.Stop()
-			message = "settings updated, radar disabled"
-		}
-	}
-
-	h.sendSuccessMessage(w, r, message)
+	h.sendSuccessMessage(w, r, "settings updated")
 }
 
 // HandleSettingsAPI 路由设置 API 请求

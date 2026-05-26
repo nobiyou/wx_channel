@@ -41,7 +41,23 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, 2025, cfg.Port)
 	assert.Equal(t, version.Current, cfg.Version)
 	assert.Equal(t, int64(2<<20), cfg.ChunkSize)
+	assert.Equal(t, "", cfg.DownloadFilenameTemplate)
 	assert.Equal(t, 500*time.Millisecond, cfg.SaveDelay)
+	assert.False(t, cfg.RadarEnabled)
+}
+
+func TestLoad_GeneratedConfigFileIncludesRadarEnabled(t *testing.T) {
+	setupIsolatedTestEnv(t)
+
+	_ = Load()
+
+	content, err := os.ReadFile("config.yaml")
+	if err != nil {
+		t.Fatalf("无法读取自动生成的配置文件: %v", err)
+	}
+
+	assert.Contains(t, string(content), "download_filename_template: \"\"")
+	assert.Contains(t, string(content), "radar_enabled: false")
 }
 
 func TestLoad_EnvVars(t *testing.T) {

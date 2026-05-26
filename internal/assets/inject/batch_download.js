@@ -754,6 +754,25 @@ function __update_batch_ui__() {
   }
 }
 
+function __format_batch_create_time__(unixSeconds) {
+  if (!unixSeconds) {
+    return '';
+  }
+  var date = new Date(unixSeconds * 1000);
+  var pad = function(value) {
+    return value < 10 ? '0' + value : String(value);
+  };
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) +
+    ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+}
+
+function __format_batch_size_mb__(bytes) {
+  if (!bytes) {
+    return '';
+  }
+  return (bytes / (1024 * 1024)).toFixed(2) + 'MB';
+}
+
 // ==================== 批量下载 ====================
 async function __batch_download_selected__() {
   var selectedVideos = __wx_batch_download_manager__.getSelectedVideos();
@@ -850,7 +869,11 @@ async function __batch_download_selected__() {
         resolution: normalizedDownload.resolution || '',
         width: normalizedDownload.width || 0,
         height: normalizedDownload.height || 0,
-        fileFormat: normalizedDownload.fileFormat || ''
+        fileFormat: normalizedDownload.fileFormat || '',
+        durationMs: video.duration || 0,
+        size: video.size || 0,
+        sizeMB: __format_batch_size_mb__(video.size || 0),
+        createTime: __format_batch_create_time__(video.createtime || 0)
       };
     });
 

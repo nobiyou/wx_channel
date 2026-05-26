@@ -45,6 +45,10 @@ download_retry_count: 3
 # 是否启用断点续传
 download_resume_enabled: true
 
+# 下载文件名模板（留空则使用默认标题命名）
+# 可用变量: {date} {datetime} {author} {title} {duration} {video_id} {size}
+download_filename_template: ""
+
 # 下载超时时间（分钟）
 download_timeout: 30
 
@@ -86,6 +90,11 @@ save_page_js: false
 
 # 是否显示日志按钮
 show_log_button: false
+
+# 是否启用对标雷达
+# false: 默认关闭，不执行后台自动监控
+# true: 启用后台自动监控，修改后需重启程序
+radar_enabled: false
 
 # ==================== 性能优化配置 ====================
 

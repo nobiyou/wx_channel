@@ -1258,9 +1258,17 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	if settings != nil {
 		includeVideoID = settings.DownloadFilenameWithVideoID
 	}
+	filenameTemplate := ""
+	if cfg := h.getConfig(); cfg != nil {
+		filenameTemplate = cfg.DownloadFilenameTemplate
+	}
 
-	// 生成文件名：默认仅使用标题；如需避免同名冲突则在落盘前追加序号
-	filename := utils.GenerateVideoFilename(req.Title, req.VideoID, includeVideoID)
+	// 生成文件名：默认仅使用标题；如配置模板，则优先按模板渲染。
+	filename := utils.BuildVideoFilename(utils.VideoFilenameMeta{
+		Title:   req.Title,
+		VideoID: req.VideoID,
+		Author:  req.Author,
+	}, includeVideoID, filenameTemplate)
 
 	// 检查文件名中是否已经包含分辨率信息（避免重复添加）
 	hasResolutionInFilename := false

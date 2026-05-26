@@ -305,6 +305,8 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			ForwardCount: v.ForwardCount,
 			CreateTime:   v.CreateTime,
 			IPRegion:     v.IPRegion,
+			DurationMs:   v.DurationMs,
+			Size:         v.Size,
 		}
 	}
 	h.running = true
@@ -468,6 +470,10 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 	if settings != nil {
 		includeVideoID = settings.DownloadFilenameWithVideoID
 	}
+	filenameTemplate := ""
+	if cfg := h.getConfig(); cfg != nil {
+		filenameTemplate = cfg.DownloadFilenameTemplate
+	}
 
 	if !forceRedownload && task.ID != "" && h.downloadService != nil {
 		if exists, err := h.downloadService.GetByID(task.ID); err == nil && exists != nil && exists.FilePath != "" {
@@ -481,8 +487,16 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		utils.Warn("downloadService is nil, skipping DB check")
 	}
 
-	// 生成文件名：默认仅使用标题，可由设置项打开视频ID
-	cleanFilename := utils.GenerateVideoFilename(task.Title, task.ID, includeVideoID)
+	// 生成文件名：默认仅使用标题；如配置模板，则优先按模板渲染。
+	cleanFilename := utils.BuildVideoFilename(utils.VideoFilenameMeta{
+		Title:      task.Title,
+		VideoID:    task.ID,
+		Author:     task.GetAuthor(),
+		Duration:   resolveBatchTaskDuration(task),
+		CreateTime: parseBatchCreateTime(task.CreateTime),
+		SizeBytes:  task.Size,
+		SizeText:   task.SizeMB,
+	}, includeVideoID, filenameTemplate)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
 	filePath := filepath.Join(savePath, cleanFilename)
 
@@ -698,7 +712,7 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 	}
 
 	// 解析时长字符串为毫秒 (格式: "00:22" 或 "1:23:45")
-	duration := parseDurationToMs(task.Duration)
+	duration := resolveBatchTaskDurationMs(task)
 
 	// 尝试从浏览记录获取更多信息（分辨率、封面等）
 	resolution := task.Resolution
@@ -777,6 +791,51 @@ func parseDurationToMs(duration string) int64 {
 	}
 
 	return totalSeconds * 1000 // 转换为毫秒
+}
+
+func resolveBatchTaskDurationMs(task *BatchTask) int64 {
+	if task == nil {
+		return 0
+	}
+
+	if durationMs := parseDurationToMs(task.Duration); durationMs > 0 {
+		return durationMs
+	}
+
+	if task.DurationMs > 0 {
+		return task.DurationMs
+	}
+
+	return 0
+}
+
+func resolveBatchTaskDuration(task *BatchTask) time.Duration {
+	return time.Duration(resolveBatchTaskDurationMs(task)) * time.Millisecond
+}
+
+func parseBatchCreateTime(raw string) time.Time {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}
+	}
+
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+		"2006/01/02 15:04:05",
+		"2006/01/02 15:04",
+		"2006/01/02",
+	}
+
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
+			return parsed
+		}
+	}
+
+	return time.Time{}
 }
 
 // HandleBatchProgress 处理批量下载进度查询请求

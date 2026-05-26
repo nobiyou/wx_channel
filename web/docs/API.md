@@ -1067,14 +1067,22 @@ downloads/
   "success": true,
   "data": {
     "downloadDir": "downloads",
+    "downloadFilenameWithVideoId": false,
+    "downloadFilenameTemplate": "{date}_{author}_{title}_{duration}",
     "chunkSize": 10485760,
     "concurrentLimit": 3,
     "autoCleanupEnabled": false,
     "autoCleanupDays": 30,
-    "maxRetries": 3
+    "maxRetries": 3,
+    "radarEnabled": false,
+    "theme": "light"
   }
 }
 ```
+
+**说明**：
+- `downloadFilenameTemplate` 和 `radarEnabled` 由服务端配置返回，用于控制台展示当前配置状态。
+- `radarEnabled` 的持久化来源是 `config.yaml`，不是数据库设置表。
 
 #### 2. 更新设置
 
@@ -1087,12 +1095,21 @@ downloads/
 ```json
 {
   "downloadDir": "downloads",
+  "downloadFilenameWithVideoId": false,
+  "downloadFilenameTemplate": "{date}_{author}_{title}_{duration}",
   "chunkSize": 10485760,
   "concurrentLimit": 3,
   "autoCleanupEnabled": true,
-  "autoCleanupDays": 30
+  "autoCleanupDays": 30,
+  "maxRetries": 3,
+  "radarEnabled": false,
+  "theme": "light"
 }
 ```
+
+**更新语义**：
+- `downloadFilenameTemplate` 和 `radarEnabled` 可出现在响应体中，但当前版本不通过该接口持久化修改。
+- 如需修改这两个配置，请直接编辑 `config.yaml` 中的 `download_filename_template` / `radar_enabled` 并重启程序。
 
 ---
 

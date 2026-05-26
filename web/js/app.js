@@ -3084,7 +3084,11 @@
                 title: item.title,
                 url: item.videoUrl,
                 authorName: item.author,
-                key: item.decryptKey  // Decrypt key for encrypted videos
+                key: item.decryptKey,  // Decrypt key for encrypted videos
+                durationMs: item.duration || 0,
+                size: item.totalSize || item.size || 0,
+                createTime: item.addedTime || '',
+                resolution: item.resolution || ''
             }];
             
             const result = await ApiClient.startBatchDownload(videos, false);

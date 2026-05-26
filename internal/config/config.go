@@ -46,13 +46,14 @@ type Config struct {
 	AllowedOrigins  []string `mapstructure:"allowed_origins"`
 
 	// 并发与限流
-	UploadChunkConcurrency int           `mapstructure:"upload_chunk_concurrency"`
-	UploadMergeConcurrency int           `mapstructure:"upload_merge_concurrency"`
-	DownloadConcurrency    int           `mapstructure:"download_concurrency"` // 批量下载并发数（同时下载几个文件）
-	DownloadConnections    int           `mapstructure:"download_connections"` // 单文件多线程连接数（每个文件用几个线程）
-	DownloadRetryCount     int           `mapstructure:"download_retry_count"`
-	DownloadResumeEnabled  bool          `mapstructure:"download_resume_enabled"`
-	DownloadTimeout        time.Duration `mapstructure:"download_timeout"`
+	UploadChunkConcurrency   int           `mapstructure:"upload_chunk_concurrency"`
+	UploadMergeConcurrency   int           `mapstructure:"upload_merge_concurrency"`
+	DownloadConcurrency      int           `mapstructure:"download_concurrency"` // 批量下载并发数（同时下载几个文件）
+	DownloadConnections      int           `mapstructure:"download_connections"` // 单文件多线程连接数（每个文件用几个线程）
+	DownloadRetryCount       int           `mapstructure:"download_retry_count"`
+	DownloadResumeEnabled    bool          `mapstructure:"download_resume_enabled"`
+	DownloadFilenameTemplate string        `mapstructure:"download_filename_template"` // 下载文件名模板
+	DownloadTimeout          time.Duration `mapstructure:"download_timeout"`
 
 	// 日志配置
 	LogFile      string `mapstructure:"log_file"`
@@ -216,6 +217,7 @@ func setDefaults() {
 	viper.SetDefault("download_connections", 8) // 单文件连接数：每个文件用8个线程
 	viper.SetDefault("download_retry_count", 3)
 	viper.SetDefault("download_resume_enabled", true)
+	viper.SetDefault("download_filename_template", "")
 	viper.SetDefault("download_timeout", 30*time.Minute)
 
 	viper.SetDefault("log_file", "logs/wx_channel.log")
@@ -296,6 +298,12 @@ machine_id: %s
 
 # === 性能配置（可选）===
 download_concurrency: 5       # 下载并发数，可根据网络情况调整
+
+# === 下载命名（可选）===
+download_filename_template: "" # 下载文件名模板，可用 {date} {datetime} {author} {title} {duration} {video_id} {size}
+
+# === 功能开关（可选）===
+radar_enabled: false          # 是否启用对标雷达，修改后需重启程序
 `, deviceID)
 
 		if err := os.WriteFile(configFile, []byte(simpleConfig), 0644); err != nil {
@@ -478,9 +486,6 @@ func loadFromDatabase(config *Config) {
 	}
 	if val, err := dbLoader.Get("machine_id"); err == nil && val != "" {
 		config.MachineID = val
-	}
-	if val, err := dbLoader.GetBool("radar_enabled", config.RadarEnabled); err == nil {
-		config.RadarEnabled = val
 	}
 }
 

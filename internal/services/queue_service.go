@@ -3,7 +3,6 @@ package services
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"wx_channel/internal/config"
@@ -38,6 +37,7 @@ type VideoInfo struct {
 	Duration   int64  `json:"duration"`
 	Resolution string `json:"resolution"`
 	Size       int64  `json:"size"`
+	CreateTime string `json:"createTime,omitempty"`
 }
 
 // AddToQueue 将视频添加到下载队列
@@ -250,7 +250,7 @@ func (s *QueueService) CompleteDownload(id string) error {
 
 	// 根据批量下载约定计算文件路径
 	// 路径格式: {baseDir}/downloads/{authorFolder}/{cleanFilename}.mp4
-	filePath := calculateDownloadFilePath(item.Author, item.Title)
+	filePath := calculateDownloadFilePath(item)
 
 	downloadRepo := database.NewDownloadRecordRepository()
 
@@ -296,7 +296,7 @@ func (s *QueueService) CompleteDownload(id string) error {
 }
 
 // calculateDownloadFilePath 计算下载视频的预期文件路径
-func calculateDownloadFilePath(author, title string) string {
+func calculateDownloadFilePath(item *database.QueueItem) string {
 	// 从当前配置获取下载目录
 	cfg := config.Get()
 	var downloadsDir string
@@ -316,65 +316,48 @@ func calculateDownloadFilePath(author, title string) string {
 	}
 
 	// 清理作者名作为文件夹名
-	authorFolder := cleanFolderName(author)
+	authorFolder := utils.CleanFolderName(item.Author)
 	if authorFolder == "" {
 		authorFolder = "未知作者"
 	}
 
-	// 清理标题作为文件名
-	cleanTitle := cleanFilename(title)
-	if cleanTitle == "" {
-		cleanTitle = "未命名视频"
+	settings := loadQueueSettings()
+	includeVideoID := true
+	if settings != nil {
+		includeVideoID = settings.DownloadFilenameWithVideoID
+	}
+	template := ""
+	if cfg != nil {
+		template = cfg.DownloadFilenameTemplate
 	}
 
-	// 确保 .mp4 扩展名
-	if !strings.HasSuffix(strings.ToLower(cleanTitle), ".mp4") {
-		cleanTitle = cleanTitle + ".mp4"
+	meta := utils.VideoFilenameMeta{
+		Title:      item.Title,
+		VideoID:    item.VideoID,
+		Author:     item.Author,
+		Duration:   time.Duration(item.Duration) * time.Millisecond,
+		CreateTime: item.AddedTime,
+		SizeBytes:  item.TotalSize,
 	}
+	cleanTitle := utils.BuildVideoFilename(meta, includeVideoID, template)
+	cleanTitle = utils.EnsureExtension(cleanTitle, ".mp4")
 
 	// 使用正确的下载目录返回绝对路径
 	// 路径格式: {downloadsDir}/{author}/{title}.mp4
 	return filepath.Join(downloadsDir, authorFolder, cleanTitle)
 }
 
-// cleanFolderName 从文件夹名称中移除无效字符
-func cleanFolderName(name string) string {
-	if name == "" {
-		return ""
+func loadQueueSettings() *database.Settings {
+	settings := database.DefaultSettings()
+	repo := database.NewSettingsRepository()
+	if repo == nil || repo.GetDBUnsafe() == nil {
+		return settings
 	}
-	// 移除文件夹名称中无效的字符
-	invalid := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-	result := name
-	for _, char := range invalid {
-		result = strings.ReplaceAll(result, char, "_")
+	loaded, err := repo.Load()
+	if err != nil || loaded == nil {
+		return settings
 	}
-	// 去除空格
-	result = strings.TrimSpace(result)
-	// Windows 文件系统会自动去除文件夹名称末尾的点（.）
-	// 为了确保创建文件夹和查找路径时使用相同的名称，我们需要手动去除末尾的点
-	result = strings.TrimRight(result, ".")
-	// 如果去除末尾点后为空，返回空字符串（调用方会处理）
-	return result
-}
-
-// cleanFilename 从文件名中移除无效字符
-func cleanFilename(name string) string {
-	if name == "" {
-		return ""
-	}
-	// 移除文件名中无效的字符
-	invalid := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-	result := name
-	for _, char := range invalid {
-		result = strings.ReplaceAll(result, char, "_")
-	}
-	// 去除空格
-	result = strings.TrimSpace(result)
-	// 限制长度
-	if len(result) > 200 {
-		result = result[:200]
-	}
-	return result
+	return loaded
 }
 
 // FailDownload 标记项目为失败并附带错误消息

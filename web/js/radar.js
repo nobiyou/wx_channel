@@ -2,6 +2,10 @@
 
 // 状态变量
 let radarTargets = [];
+let radarEnabled = false;
+
+const radarEnabledMessage = '系统会在后台静默轮询以下博主，发现新视频后会自动推入您的下载队列。(如果博主列表为空，请先在视频号添加博主)';
+const radarDisabledMessage = '雷达未开启。请在 config.yaml 中将 radar_enabled 设置为 true 后重启程序，当前不会执行自动监控。';
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -19,8 +23,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // 加载雷达监控目标
 async function loadRadarTargets() {
     try {
-        const response = await fetch('/api/v1/radar/targets');
+        const [response, settingsResult] = await Promise.all([
+            fetch('/api/v1/radar/targets'),
+            ApiClient.getSettings().catch(() => null)
+        ]);
         if (!response.ok) throw new Error('加载失败');
+
+        radarEnabled = !!(settingsResult && settingsResult.success && settingsResult.data && settingsResult.data.radarEnabled);
+        renderRadarGlobalStatus();
 
         const res = await response.json();
         if (res.code === 0 || res.code === 200) {
@@ -32,6 +42,32 @@ async function loadRadarTargets() {
     } catch (err) {
         console.error('加载监控目标失败:', err);
         showMessage('加载失败，请检查网络', 'error');
+    }
+}
+
+function renderRadarGlobalStatus() {
+    const alert = document.getElementById('radarGlobalStatusAlert');
+    const text = document.getElementById('radarGlobalStatusText');
+    const addButton = document.getElementById('radarAddButton');
+    if (!alert || !text) return;
+
+    if (radarEnabled) {
+        alert.classList.remove('alert-warning');
+        alert.classList.add('alert-info');
+        text.textContent = radarEnabledMessage;
+        if (addButton) {
+            addButton.disabled = false;
+            addButton.title = '';
+        }
+        return;
+    }
+
+    alert.classList.remove('alert-info');
+    alert.classList.add('alert-warning');
+    text.textContent = radarDisabledMessage;
+    if (addButton) {
+        addButton.disabled = false;
+        addButton.title = '可先配置监控目标，开启 radar_enabled 并重启后生效';
     }
 }
 
@@ -57,8 +93,12 @@ function renderRadarTable() {
     }
 
     tbody.innerHTML = radarTargets.map(target => {
-        const statusClass = target.status === 'active' ? 'text-success' : 'text-warning';
-        const statusText = target.status === 'active' ? '监控中' : '已暂停';
+        let statusClass = 'text-warning';
+        let statusText = '雷达未开启';
+        if (radarEnabled) {
+            statusClass = target.status === 'active' ? 'text-success' : 'text-warning';
+            statusText = target.status === 'active' ? '监控中' : '已暂停';
+        }
 
         let lastCheck = '从未检测';
         if (target.last_check_time) {

@@ -181,7 +181,7 @@ func (app *App) Run() {
 		utils.HandleError(err, "初始化下载记录系统")
 	} else {
 		if app.LogInitMsg != "" {
-			utils.Info(app.LogInitMsg)
+			utils.Info("%s", app.LogInitMsg)
 			app.LogInitMsg = ""
 		}
 	}

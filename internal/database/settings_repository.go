@@ -17,17 +17,25 @@ func NewSettingsRepository() *SettingsRepository {
 	return &SettingsRepository{db: GetDB()}
 }
 
+// GetDBUnsafe 返回底层 DB 指针，用于调用方在无数据库上下文时安全降级。
+func (r *SettingsRepository) GetDBUnsafe() *sql.DB {
+	if r == nil {
+		return nil
+	}
+	return r.db
+}
+
 // 设置键
 const (
-	SettingKeyDownloadDir        = "download_dir"
+	SettingKeyDownloadDir                 = "download_dir"
 	SettingKeyDownloadFilenameWithVideoID = "download_filename_with_video_id"
-	SettingKeyChunkSize          = "chunk_size"
-	SettingKeyConcurrentLimit    = "concurrent_limit"
-	SettingKeyAutoCleanupEnabled = "auto_cleanup_enabled"
-	SettingKeyAutoCleanupDays    = "auto_cleanup_days"
-	SettingKeyMaxRetries         = "max_retries"
-	SettingKeyRadarEnabled       = "radar_enabled"
-	SettingKeyTheme              = "theme"
+	SettingKeyChunkSize                   = "chunk_size"
+	SettingKeyConcurrentLimit             = "concurrent_limit"
+	SettingKeyAutoCleanupEnabled          = "auto_cleanup_enabled"
+	SettingKeyAutoCleanupDays             = "auto_cleanup_days"
+	SettingKeyMaxRetries                  = "max_retries"
+	SettingKeyRadarEnabled                = "radar_enabled"
+	SettingKeyTheme                       = "theme"
 )
 
 // Get 根据键获取设置值
@@ -125,9 +133,6 @@ func (r *SettingsRepository) Load() (*Settings, error) {
 			settings.MaxRetries = retries
 		}
 	}
-	if v, ok := settingsMap[SettingKeyRadarEnabled]; ok {
-		settings.RadarEnabled = v == "true"
-	}
 	if v, ok := settingsMap[SettingKeyTheme]; ok && v != "" {
 		settings.Theme = v
 	}
@@ -152,15 +157,14 @@ func (r *SettingsRepository) Save(settings *Settings) error {
 
 	// Save each setting
 	settingsMap := map[string]string{
-		SettingKeyDownloadDir:        settings.DownloadDir,
+		SettingKeyDownloadDir:                 settings.DownloadDir,
 		SettingKeyDownloadFilenameWithVideoID: strconv.FormatBool(settings.DownloadFilenameWithVideoID),
-		SettingKeyChunkSize:          strconv.FormatInt(settings.ChunkSize, 10),
-		SettingKeyConcurrentLimit:    strconv.Itoa(settings.ConcurrentLimit),
-		SettingKeyAutoCleanupEnabled: strconv.FormatBool(settings.AutoCleanupEnabled),
-		SettingKeyAutoCleanupDays:    strconv.Itoa(settings.AutoCleanupDays),
-		SettingKeyMaxRetries:         strconv.Itoa(settings.MaxRetries),
-		SettingKeyRadarEnabled:       strconv.FormatBool(settings.RadarEnabled),
-		SettingKeyTheme:              settings.Theme,
+		SettingKeyChunkSize:                   strconv.FormatInt(settings.ChunkSize, 10),
+		SettingKeyConcurrentLimit:             strconv.Itoa(settings.ConcurrentLimit),
+		SettingKeyAutoCleanupEnabled:          strconv.FormatBool(settings.AutoCleanupEnabled),
+		SettingKeyAutoCleanupDays:             strconv.Itoa(settings.AutoCleanupDays),
+		SettingKeyMaxRetries:                  strconv.Itoa(settings.MaxRetries),
+		SettingKeyTheme:                       settings.Theme,
 	}
 
 	for key, value := range settingsMap {
@@ -168,6 +172,10 @@ func (r *SettingsRepository) Save(settings *Settings) error {
 		if err != nil {
 			return fmt.Errorf("failed to save setting %s: %w", key, err)
 		}
+	}
+
+	if _, err := tx.Exec("DELETE FROM settings WHERE key = ?", SettingKeyRadarEnabled); err != nil {
+		return fmt.Errorf("failed to delete deprecated setting %s: %w", SettingKeyRadarEnabled, err)
 	}
 
 	if err := tx.Commit(); err != nil {

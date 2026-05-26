@@ -63,6 +63,16 @@ hub_sync:
 #   cloud_enabled: false
 #   → 完全独立运行，不与 Hub 交互
 
+# === 功能开关 ===
+# 是否启用对标雷达
+# false: 默认关闭，仅展示雷达页面和配置
+# true: 启用后台自动监控，修改后需重启程序
+radar_enabled: false
+
+# 下载文件名模板（留空则使用默认标题命名）
+# 可用变量: {date} {datetime} {author} {title} {duration} {video_id} {size}
+download_filename_template: ""
+
 # === 其他配置 ===
 # 根据需要添加其他配置项
 # 详见完整配置文档

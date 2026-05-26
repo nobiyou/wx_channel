@@ -1,20 +1,31 @@
 package utils
 
 import (
-    "fmt"
-    "os"
-    "path/filepath"
-    "regexp"
-    "strings"
-    "time"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 )
+
+// VideoFilenameMeta 表示生成视频文件名所需的元数据。
+type VideoFilenameMeta struct {
+	Title      string
+	VideoID    string
+	Author     string
+	Duration   time.Duration
+	CreateTime time.Time
+	SizeBytes  int64
+	SizeText   string
+}
 
 // CleanFilename 清理文件名，移除非法字符
 func CleanFilename(filename string) string {
 	// 先移除HTML标签（如 <em class="highlight">纪录片</em>）
 	htmlTagRegex := regexp.MustCompile(`<[^>]*>`)
 	filename = htmlTagRegex.ReplaceAllString(filename, "")
-	
+
 	// 处理常见的HTML实体
 	htmlEntities := map[string]string{
 		"&nbsp;": " ",
@@ -29,11 +40,11 @@ func CleanFilename(filename string) string {
 	for entity, replacement := range htmlEntities {
 		filename = strings.ReplaceAll(filename, entity, replacement)
 	}
-	
+
 	// 移除剩余的HTML实体（如 &#123; 或 &unknown;）
 	htmlEntityRegex := regexp.MustCompile(`&[a-zA-Z0-9#]+;`)
 	filename = htmlEntityRegex.ReplaceAllString(filename, "")
-	
+
 	// 移除Windows非法文件名字符
 	filename = strings.Map(func(r rune) rune {
 		if strings.ContainsRune(`<>:"/\|?*`, r) {
@@ -73,7 +84,7 @@ func CleanFolderName(folderName string) string {
 	if strings.TrimSpace(folderName) == "" {
 		return "未知作者"
 	}
-	
+
 	cleaned := CleanFilename(folderName)
 
 	// 如果清理后为空（理论上不会发生，因为 CleanFilename 会生成默认名称），使用默认名称
@@ -106,42 +117,42 @@ func CleanFolderName(folderName string) string {
 
 // EnsureExtension 确保文件名有指定的扩展名
 func EnsureExtension(filename, ext string) string {
-    if !strings.HasPrefix(ext, ".") {
-        ext = "." + ext
-    }
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
 
-    // 获取当前文件的扩展名
-    currentExt := filepath.Ext(filename)
-    
-    // 如果当前扩展名与期望的扩展名相同，则保持不变
-    if currentExt == ext {
-        return filename
-    }
-    
-    // 如果当前扩展名与期望的不同，追加新的扩展名
-    // 如果没有扩展名，直接添加
-    return filename + ext
+	// 获取当前文件的扩展名
+	currentExt := filepath.Ext(filename)
+
+	// 如果当前扩展名与期望的扩展名相同，则保持不变
+	if currentExt == ext {
+		return filename
+	}
+
+	// 如果当前扩展名与期望的不同，追加新的扩展名
+	// 如果没有扩展名，直接添加
+	return filename + ext
 }
 
 // GenerateUniqueFilename 生成唯一的文件名，避免覆盖
 func GenerateUniqueFilename(dir, filename string, maxAttempts int) string {
-    base := strings.TrimSuffix(filename, filepath.Ext(filename))
-    ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	ext := filepath.Ext(filename)
 
-    for i := 1; i < maxAttempts; i++ {
-        candidate := filepath.Join(dir, filename)
-        if _, err := os.Stat(candidate); os.IsNotExist(err) {
-            // 文件不存在，可以使用
-            return candidate
-        }
+	for i := 1; i < maxAttempts; i++ {
+		candidate := filepath.Join(dir, filename)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			// 文件不存在，可以使用
+			return candidate
+		}
 
-        // 文件存在，尝试添加序号
-        filename = fmt.Sprintf("%s(%d)%s", base, i, ext)
-    }
+		// 文件存在，尝试添加序号
+		filename = fmt.Sprintf("%s(%d)%s", base, i, ext)
+	}
 
-    // 如果所有尝试都失败，添加时间戳
-    timestamp := time.Now().Format("20060102_150405")
-    return filepath.Join(dir, fmt.Sprintf("%s_%s%s", base, timestamp, ext))
+	// 如果所有尝试都失败，添加时间戳
+	timestamp := time.Now().Format("20060102_150405")
+	return filepath.Join(dir, fmt.Sprintf("%s_%s%s", base, timestamp, ext))
 }
 
 // GenerateVideoFilename 根据视频标题和ID生成文件名
@@ -176,6 +187,103 @@ func GenerateVideoFilename(title, videoID string, includeVideoID bool) string {
 	}
 
 	return filename
+}
+
+var repeatedSeparatorRegex = regexp.MustCompile(`_+`)
+
+// RenderFilenameTemplate 渲染下载文件名模板。
+func RenderFilenameTemplate(meta VideoFilenameMeta, template string) string {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		return ""
+	}
+
+	replacements := map[string]string{
+		"{date}":     formatTemplateDate(meta.CreateTime),
+		"{datetime}": formatTemplateDatetime(meta.CreateTime),
+		"{author}":   strings.TrimSpace(meta.Author),
+		"{title}":    strings.TrimSpace(meta.Title),
+		"{duration}": formatTemplateDuration(meta.Duration),
+		"{video_id}": strings.TrimSpace(meta.VideoID),
+		"{size}":     formatTemplateSize(meta.SizeBytes, meta.SizeText),
+	}
+
+	rendered := template
+	for token, value := range replacements {
+		rendered = strings.ReplaceAll(rendered, token, value)
+	}
+
+	rendered = strings.TrimSpace(rendered)
+	rendered = repeatedSeparatorRegex.ReplaceAllString(rendered, "_")
+	rendered = strings.Trim(rendered, " _-.")
+	if rendered == "" {
+		return ""
+	}
+
+	return CleanFilename(rendered)
+}
+
+// BuildVideoFilename 根据模板或默认规则生成文件名主体。
+func BuildVideoFilename(meta VideoFilenameMeta, includeVideoID bool, template string) string {
+	if rendered := RenderFilenameTemplate(meta, template); rendered != "" {
+		return rendered
+	}
+	return GenerateVideoFilename(meta.Title, meta.VideoID, includeVideoID)
+}
+
+func formatTemplateDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
+func formatTemplateDatetime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02_15-04-05")
+}
+
+func formatTemplateDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+
+	totalSeconds := int64(d.Round(time.Second) / time.Second)
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%dh%dm%ds", hours, minutes, seconds)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
+}
+
+func formatTemplateSize(sizeBytes int64, fallback string) string {
+	if sizeBytes > 0 {
+		return formatHumanFileSize(sizeBytes)
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func formatHumanFileSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 // GenerateUniquePath 生成不冲突的完整文件路径。

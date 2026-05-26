@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"wx_channel/internal/config"
+	"wx_channel/internal/database"
 )
 
 func TestIsPathWithinBase(t *testing.T) {
@@ -260,5 +263,117 @@ func TestVideoProxyHTTPClient_CheckRedirect(t *testing.T) {
 	allowedReq := &http.Request{URL: allowedURL}
 	if err := client.CheckRedirect(allowedReq, nil); err != nil {
 		t.Fatalf("unexpected redirect validation error: %v", err)
+	}
+}
+
+func TestHandleSettingsGet_UsesConfigRadarEnabled(t *testing.T) {
+	cleanup := databaseTestSetupForHandlers(t)
+	defer cleanup()
+
+	repo := database.NewSettingsRepository()
+	if err := repo.Set(database.SettingKeyRadarEnabled, "true"); err != nil {
+		t.Fatalf("seed radar_enabled failed: %v", err)
+	}
+
+	cfg := &config.Config{RadarEnabled: false}
+	handler := NewConsoleAPIHandler(cfg, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool              `json:"success"`
+		Data    database.Settings `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success response")
+	}
+	if resp.Data.RadarEnabled {
+		t.Fatalf("radarEnabled = true, want false from config")
+	}
+}
+
+func TestHandleSettingsGet_UsesConfigDownloadFilenameTemplate(t *testing.T) {
+	cleanup := databaseTestSetupForHandlers(t)
+	defer cleanup()
+
+	cfg := &config.Config{
+		RadarEnabled:             false,
+		DownloadFilenameTemplate: "{date}_{author}_{title}_{duration}",
+	}
+	handler := NewConsoleAPIHandler(cfg, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool              `json:"success"`
+		Data    database.Settings `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success response")
+	}
+	if resp.Data.DownloadFilenameTemplate != "{date}_{author}_{title}_{duration}" {
+		t.Fatalf("downloadFilenameTemplate = %q", resp.Data.DownloadFilenameTemplate)
+	}
+}
+
+func TestHandleSettingsUpdate_IgnoresRadarEnabledPayload(t *testing.T) {
+	cleanup := databaseTestSetupForHandlers(t)
+	defer cleanup()
+
+	cfg := &config.Config{RadarEnabled: false}
+	handler := NewConsoleAPIHandler(cfg, nil, nil)
+
+	body := `{"downloadDir":"downloads","downloadFilenameWithVideoId":false,"chunkSize":10485760,"concurrentLimit":3,"autoCleanupEnabled":false,"autoCleanupDays":30,"maxRetries":3,"radarEnabled":true,"theme":"light"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.HandleSettingsUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	value, err := database.NewSettingsRepository().Get(database.SettingKeyRadarEnabled)
+	if err != nil {
+		t.Fatalf("get radar_enabled failed: %v", err)
+	}
+	if value != "" {
+		t.Fatalf("radar_enabled persisted as %q, want empty", value)
+	}
+}
+
+func databaseTestSetupForHandlers(t *testing.T) func() {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	_ = database.Close()
+	if err := database.Initialize(&database.Config{DBPath: dbPath}); err != nil {
+		t.Fatalf("initialize test database failed: %v", err)
+	}
+
+	return func() {
+		if err := database.Close(); err != nil {
+			t.Fatalf("close test database failed: %v", err)
+		}
 	}
 }

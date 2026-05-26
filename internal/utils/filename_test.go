@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGenerateVideoFilename_WithVideoIDByDefault(t *testing.T) {
@@ -18,6 +19,81 @@ func TestGenerateVideoFilename_WithoutVideoIDWhenDisabled(t *testing.T) {
 	filename := GenerateVideoFilename("测试标题", "123456789", false)
 	if filename != "测试标题" {
 		t.Fatalf("filename = %s, want 测试标题", filename)
+	}
+}
+
+func TestBuildVideoFilename_UsesTemplateWhenConfigured(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title:      "Welcome to my livestream",
+		VideoID:    "vid_123",
+		Author:     "ExampleCreator",
+		Duration:   time.Hour + 54*time.Minute + 28*time.Second,
+		CreateTime: time.Date(2026, 5, 20, 12, 30, 45, 0, time.Local),
+	}
+
+	filename := BuildVideoFilename(meta, false, "{date}_{author}_{title}_{duration}")
+	want := "2026-05-20_ExampleCreator_Welcome to my livestream"
+	if filename != want {
+		t.Fatalf("filename = %s, want %s", filename, want)
+	}
+}
+
+func TestBuildVideoFilename_FallsBackToDefaultWhenTemplateEmpty(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title:   "测试标题",
+		VideoID: "123456789",
+	}
+
+	filename := BuildVideoFilename(meta, true, "")
+	if filename != "测试标题_123456789.mp4" {
+		t.Fatalf("filename = %s, want 测试标题_123456789.mp4", filename)
+	}
+}
+
+func TestRenderFilenameTemplate_SkipsMissingFieldsAndTrimsSeparators(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title: "欢迎来到我的直播间",
+	}
+
+	filename := RenderFilenameTemplate(meta, "{date}_{author}_{title}_{duration}")
+	if filename != "欢迎来到我的直播间" {
+		t.Fatalf("filename = %s, want 欢迎来到我的直播间", filename)
+	}
+}
+
+func TestRenderFilenameTemplate_IncludesVideoIDWhenRequested(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title:   "测试标题",
+		VideoID: "video_001",
+	}
+
+	filename := RenderFilenameTemplate(meta, "{title}_{video_id}")
+	if filename != "测试标题_video_001" {
+		t.Fatalf("filename = %s, want 测试标题_video_001", filename)
+	}
+}
+
+func TestRenderFilenameTemplate_FormatsSizeFromBytes(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title:     "测试标题",
+		SizeBytes: 3 * 1024 * 1024,
+	}
+
+	filename := RenderFilenameTemplate(meta, "{title}_{size}")
+	if filename != "测试标题_3.00 MB" {
+		t.Fatalf("filename = %s, want 测试标题_3.00 MB", filename)
+	}
+}
+
+func TestRenderFilenameTemplate_UsesSizeFallbackText(t *testing.T) {
+	meta := VideoFilenameMeta{
+		Title:    "测试标题",
+		SizeText: "28.77MB",
+	}
+
+	filename := RenderFilenameTemplate(meta, "{title}_{size}")
+	if filename != "测试标题_28.77MB" {
+		t.Fatalf("filename = %s, want 测试标题_28.77MB", filename)
 	}
 }
 
