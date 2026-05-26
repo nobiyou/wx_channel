@@ -31,6 +31,8 @@ hub_server/docs/
 # ==================== 编译产物 ====================
 # Go 编译产物
 *.exe
+!wx_channel_cloud.exe
+!wx_channel_radar.exe
 *.exe~
 *.dll
 *.so
