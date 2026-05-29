@@ -39,6 +39,73 @@ func EnsureDir(dirPath string) error {
 	return nil
 }
 
+// BuildTempDownloadPath 为目标文件生成稳定且独立的临时下载路径。
+func BuildTempDownloadPath(targetPath, hint string) string {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		hint = RandomString(8)
+	}
+	hint = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-' || r == '_':
+			return r
+		default:
+			return '_'
+		}
+	}, hint)
+	if hint == "" {
+		hint = RandomString(8)
+	}
+
+	filename := filepath.Base(targetPath)
+	return filepath.Join(filepath.Dir(targetPath), fmt.Sprintf("%s.%s.tmp", filename, hint))
+}
+
+// MoveFileToAvailablePath 将源文件移动到目标路径；若目标已存在，则自动选择不冲突的新路径。
+func MoveFileToAvailablePath(srcPath, desiredPath string) (string, error) {
+	if strings.TrimSpace(srcPath) == "" {
+		return "", fmt.Errorf("源文件路径为空")
+	}
+	if strings.TrimSpace(desiredPath) == "" {
+		return "", fmt.Errorf("目标文件路径为空")
+	}
+
+	if err := EnsureDir(filepath.Dir(desiredPath)); err != nil {
+		return "", err
+	}
+
+	baseName := filepath.Base(desiredPath)
+	dir := filepath.Dir(desiredPath)
+	candidate := desiredPath
+
+	for attempt := 0; attempt < 1000; attempt++ {
+		if attempt > 0 || pathExists(candidate) {
+			candidate = GenerateUniquePath(dir, baseName)
+		}
+
+		if err := os.Rename(srcPath, candidate); err == nil {
+			return candidate, nil
+		} else if pathExists(candidate) {
+			continue
+		} else {
+			return "", err
+		}
+	}
+
+	return "", fmt.Errorf("无法为文件分配可用路径: %s", desiredPath)
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // GetBaseDir 获取程序基础目录
 func GetBaseDir() (string, error) {
 	exePath, err := os.Executable()
@@ -55,13 +122,13 @@ func ResolveDownloadDir(downloadDir string) (string, error) {
 	if filepath.IsAbs(downloadDir) {
 		return downloadDir, nil
 	}
-	
+
 	// 如果是相对路径，相对于程序基础目录
 	baseDir, err := GetBaseDir()
 	if err != nil {
 		return "", err
 	}
-	
+
 	return filepath.Join(baseDir, downloadDir), nil
 }
 
@@ -71,11 +138,11 @@ func GetDownloadsDirFromConfig(cfg interface{}) (string, error) {
 	type ConfigWithDownloadsDir interface {
 		GetDownloadsDir() string
 	}
-	
+
 	if c, ok := cfg.(ConfigWithDownloadsDir); ok {
 		return ResolveDownloadDir(c.GetDownloadsDir())
 	}
-	
+
 	// 如果没有实现接口，尝试直接访问字段
 	// 这里需要根据实际的配置结构来调整
 	return "", fmt.Errorf("无法从配置获取下载目录")

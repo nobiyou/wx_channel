@@ -498,16 +498,13 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		SizeText:   task.SizeMB,
 	}, includeVideoID, filenameTemplate)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
-	filePath := filepath.Join(savePath, cleanFilename)
+	desiredPath := filepath.Join(savePath, cleanFilename)
 
 	if !forceRedownload {
-		if _, err := os.Stat(filePath); err == nil {
-			utils.Info("⏭️ [批量下载] 文件已存在，跳过: %s", cleanFilename)
-			// 文件已存在也保存记录（标记为已完成）
-			h.saveDownloadRecord(task, filePath, "completed")
-			return nil
+		if _, err := os.Stat(desiredPath); err == nil {
+			desiredPath = utils.GenerateUniquePath(savePath, cleanFilename)
+			utils.Info("🪪 [批量下载] 同名文件已存在，将使用新文件名: %s", filepath.Base(desiredPath))
 		}
-		filePath = utils.GenerateUniquePath(savePath, cleanFilename)
 	}
 
 	// 使用配置的重试次数
@@ -548,12 +545,12 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 			timeout = h.getConfig().DownloadTimeout
 		}
 		downloadCtx, cancel := context.WithTimeout(ctx, timeout)
-		err := h.downloadVideoOnce(downloadCtx, task, filePath, taskIdx)
+		actualPath, err := h.downloadVideoOnce(downloadCtx, task, desiredPath, taskIdx)
 		cancel()
 
 		if err == nil {
 			// 下载成功，保存到下载记录数据库
-			h.saveDownloadRecord(task, filePath, "completed")
+			h.saveDownloadRecord(task, actualPath, "completed")
 			return nil
 		}
 
@@ -561,11 +558,6 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		utils.LogDownloadRetry(task.ID, task.Title, retry+1, maxRetries, err)
 		utils.Warn("⚠️ [批量下载] 下载失败 (尝试 %d/%d): %v", retry+1, maxRetries, err)
 
-		// 如果不支持断点续传或是加密视频，清理临时文件
-		resumeEnabled := h.getConfig() != nil && h.getConfig().DownloadResumeEnabled
-		if task.DecryptorPrefix != "" || !resumeEnabled {
-			os.Remove(filePath + ".tmp")
-		}
 	}
 
 	// 记录最终失败的详细错误
@@ -574,24 +566,20 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 }
 
 // downloadVideoOnce 执行一次下载尝试（支持断点续传）
-func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, filePath string, taskIdx int) error {
+func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, desiredPath string, taskIdx int) (string, error) {
 	// 使用 Gopeed 下载
 	if h.gopeedService == nil {
-		return fmt.Errorf("Gopeed下载服务未初始化")
+		return "", fmt.Errorf("Gopeed下载服务未初始化")
 	}
 
 	// 开始下载
 	utils.Info("🚀 [批量下载] 使用 Gopeed 下载: %s", task.Title)
-
-	// 创建临时文件路径（Gopeed 会处理，这里我们只需要传递最终路径，
-	// 但 GopeedService.DownloadSync 还没有实现自动重命名？
-	// 让我们看看 GopeedService.DownloadSync 的实现。
-	// 它是直接调用 CreateDirect，并没有阻塞直到完成？
-	// 之前的 gopeed_service.go 实现是轮询状态直到 DownloadStatusDone。
-	// 所以是阻塞的。
-
-	// 注意：Gopeed 下载的临时文件名处理可能需要注意。
-	// 如果我们传递 filePath，Gopeed 会直接下载到那个路径（或所在目录）。
+	tmpHint := task.ID
+	if tmpHint == "" {
+		tmpHint = strconv.Itoa(taskIdx)
+	}
+	tmpPath := utils.BuildTempDownloadPath(desiredPath, tmpHint)
+	_ = os.Remove(tmpPath)
 
 	onProgress := func(progress float64, downloaded int64, total int64) {
 		h.mu.Lock()
@@ -650,23 +638,44 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, f
 	}
 	utils.Info("🌐 [批量下载] 请求头: Referer=%s | UA=%s | 连接数=%d", headers["Referer"], headers["User-Agent"], connections)
 
-	err := h.gopeedService.DownloadSync(ctx, downloadURL, filePath, connections, headers, onProgress)
+	actualPath, err := h.gopeedService.DownloadSync(ctx, downloadURL, tmpPath, connections, headers, onProgress)
 	if err != nil {
-		return err
+		if actualPath != "" {
+			_ = os.Remove(actualPath)
+		}
+		return "", err
+	}
+	if actualPath == "" {
+		actualPath = tmpPath
+	}
+
+	stat, err := os.Stat(actualPath)
+	if err != nil || stat.Size() == 0 {
+		_ = os.Remove(actualPath)
+		return "", fmt.Errorf("下载文件无效")
 	}
 
 	// 解密逻辑（如果需要）
 	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
 	if needDecrypt {
 		utils.Info("🔐 [批量下载] 开始解密视频...")
-		// 原地解密（不需要额外的临时文件，因为 gopeed 已经下载了完整文件）
-		if err := utils.DecryptFileInPlace(filePath, task.GetKey(), task.DecryptorPrefix, task.PrefixLen); err != nil {
-			return fmt.Errorf("解密失败: %v", err)
+		if err := utils.DecryptFileInPlace(actualPath, task.GetKey(), task.DecryptorPrefix, task.PrefixLen); err != nil {
+			_ = os.Remove(actualPath)
+			return "", fmt.Errorf("解密失败: %v", err)
 		}
 		utils.Info("✓ [批量下载] 解密完成")
 	}
 
-	return nil
+	finalPath, err := utils.MoveFileToAvailablePath(actualPath, desiredPath)
+	if err != nil {
+		_ = os.Remove(actualPath)
+		return "", fmt.Errorf("移动文件失败: %v", err)
+	}
+	if finalPath != desiredPath {
+		utils.Warn("📁 [批量下载] 目标文件已存在，已自动保存为: %s", filepath.Base(finalPath))
+	}
+
+	return finalPath, nil
 }
 
 func cloneStringMap(src map[string]string) map[string]string {

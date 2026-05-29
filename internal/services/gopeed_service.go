@@ -77,10 +77,10 @@ func (s *GopeedService) DeleteTask(taskID string) error {
 }
 
 // DownloadSync downloads a file synchronously (blocking until done)
-// Used by BatchHandler to replace existing downloadVideoOnce logic
-func (s *GopeedService) DownloadSync(ctx context.Context, url string, path string, connections int, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) error {
+// and returns the actual output path used by Gopeed.
+func (s *GopeedService) DownloadSync(ctx context.Context, url string, path string, connections int, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
 	if s.Downloader == nil {
-		return fmt.Errorf("downloader not initialized")
+		return "", fmt.Errorf("downloader not initialized")
 	}
 
 	// Configure options
@@ -120,8 +120,10 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 	}
 	id, err := s.Downloader.CreateDirect(req, opts)
 	if err != nil {
-		return fmt.Errorf("failed to create task: %v", err)
+		return "", fmt.Errorf("failed to create task: %v", err)
 	}
+
+	actualPath := path
 
 	// Poll status
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -132,11 +134,14 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 		case <-ctx.Done():
 			// Cancel task
 			s.Downloader.Delete(&download.TaskFilter{IDs: []string{id}}, true)
-			return ctx.Err()
+			return actualPath, ctx.Err()
 		case <-ticker.C:
 			task := s.Downloader.GetTask(id)
 			if task == nil {
-				return fmt.Errorf("task not found: %s", id)
+				return actualPath, fmt.Errorf("task not found: %s", id)
+			}
+			if task.Meta != nil && task.Meta.Res != nil {
+				actualPath = task.Meta.SingleFilepath()
 			}
 
 			// Report progress
@@ -191,9 +196,9 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 			// Check status
 			switch task.Status {
 			case base.DownloadStatusDone:
-				return nil
+				return actualPath, nil
 			case base.DownloadStatusError:
-				return fmt.Errorf("download task failed")
+				return actualPath, fmt.Errorf("download task failed")
 			case base.DownloadStatusRunning, base.DownloadStatusReady:
 				// Continue waiting
 				continue

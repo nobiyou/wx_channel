@@ -1358,7 +1358,11 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	needDecrypt := req.Key != ""
 
 	// 临时文件路径
-	tmpPath := videoPath + ".tmp"
+	tmpHint := req.VideoID
+	if strings.TrimSpace(tmpHint) == "" {
+		tmpHint = utils.RandomString(8)
+	}
+	tmpPath := utils.BuildTempDownloadPath(videoPath, tmpHint)
 
 	// 进度回调
 	var lastLogTime time.Time
@@ -1443,10 +1447,14 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		}
 		utils.Info("🌐 [视频下载] 请求头: Referer=%s | UA=%s | 连接数=%d", reqHeaders["Referer"], reqHeaders["User-Agent"], connections)
 
-		var err error
-		err = h.gopeedService.DownloadSync(downloadCtx, req.VideoURL, tmpPath, connections, reqHeaders, onProgress)
+		_ = os.Remove(tmpPath)
+
+		actualPath, err := h.gopeedService.DownloadSync(downloadCtx, req.VideoURL, tmpPath, connections, reqHeaders, onProgress)
 		if err != nil {
 			utils.Error("❌ [视频下载] 下载失败: %v", err)
+			if actualPath != "" {
+				_ = os.Remove(actualPath)
+			}
 			if h.wsHub != nil {
 				h.wsHub.BroadcastCommand("download_failed", map[string]interface{}{
 					"videoId": req.VideoID,
@@ -1456,10 +1464,14 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			}
 			return
 		}
+		if actualPath == "" {
+			actualPath = tmpPath
+		}
 
-		stat, err := os.Stat(tmpPath)
+		stat, err := os.Stat(actualPath)
 		if err != nil || stat.Size() == 0 {
 			utils.Error("❌ [视频下载] 下载文件无效")
+			_ = os.Remove(actualPath)
 			if h.wsHub != nil {
 				h.wsHub.BroadcastCommand("download_failed", map[string]interface{}{
 					"videoId": req.VideoID,
@@ -1472,8 +1484,9 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 
 		if needDecrypt {
 			utils.Info("🔐 [视频下载] 开始解密...")
-			if err := utils.DecryptFileInPlace(tmpPath, req.Key, "", 0); err != nil {
+			if err := utils.DecryptFileInPlace(actualPath, req.Key, "", 0); err != nil {
 				utils.Error("❌ [视频下载] 解密失败: %v", err)
+				_ = os.Remove(actualPath)
 				if h.wsHub != nil {
 					h.wsHub.BroadcastCommand("download_failed", map[string]interface{}{
 						"videoId": req.VideoID,
@@ -1486,8 +1499,9 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			utils.Info("✓ [视频下载] 解密完成")
 		}
 
-		if err := os.Rename(tmpPath, videoPath); err != nil {
-			_ = os.Remove(tmpPath)
+		finalPath, err := utils.MoveFileToAvailablePath(actualPath, videoPath)
+		if err != nil {
+			_ = os.Remove(actualPath)
 			utils.Error("❌ [视频下载] 重命名文件失败: %v", err)
 			if h.wsHub != nil {
 				h.wsHub.BroadcastCommand("download_failed", map[string]interface{}{
@@ -1498,9 +1512,12 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			}
 			return
 		}
+		if finalPath != videoPath {
+			utils.Warn("📁 [视频下载] 目标文件已存在，已自动保存为: %s", filepath.Base(finalPath))
+		}
 
 		fileSize := float64(stat.Size()) / (1024 * 1024)
-		relativePath, _ := filepath.Rel(downloadsDir, videoPath)
+		relativePath, _ := filepath.Rel(downloadsDir, finalPath)
 
 		statusMsg := ""
 		if needDecrypt {
@@ -1516,7 +1533,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 				Author:       req.Author,
 				Duration:     0,
 				FileSize:     int64(stat.Size()),
-				FilePath:     videoPath,
+				FilePath:     finalPath,
 				Format:       "mp4",
 				Resolution:   req.Resolution,
 				Status:       database.DownloadStatusCompleted,
@@ -1537,7 +1554,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			h.wsHub.BroadcastCommand("download_complete", map[string]interface{}{
 				"videoId":      req.VideoID,
 				"title":        req.Title,
-				"path":         videoPath,
+				"path":         finalPath,
 				"relativePath": relativePath,
 				"size":         fileSize,
 				"decrypted":    needDecrypt,

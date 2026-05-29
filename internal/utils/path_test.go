@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +139,48 @@ func TestResolveDownloadDirEdgeCases(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildTempDownloadPath_UsesTargetDirAndHint(t *testing.T) {
+	target := filepath.Join("downloads", "author", "video.mp4")
+	got := BuildTempDownloadPath(target, "video-123")
+
+	if filepath.Dir(got) != filepath.Dir(target) {
+		t.Fatalf("BuildTempDownloadPath() dir = %s, want %s", filepath.Dir(got), filepath.Dir(target))
+	}
+	if !strings.Contains(filepath.Base(got), "video.mp4.video-123.tmp") {
+		t.Fatalf("BuildTempDownloadPath() = %s, want suffix with hint", got)
+	}
+}
+
+func TestMoveFileToAvailablePath_RenamesWhenTargetExists(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "video.mp4")
+	src := filepath.Join(dir, "video.mp4.task1.tmp")
+
+	if err := os.WriteFile(target, []byte("old"), 0644); err != nil {
+		t.Fatalf("write target failed: %v", err)
+	}
+	if err := os.WriteFile(src, []byte("new"), 0644); err != nil {
+		t.Fatalf("write src failed: %v", err)
+	}
+
+	got, err := MoveFileToAvailablePath(src, target)
+	if err != nil {
+		t.Fatalf("MoveFileToAvailablePath() error = %v", err)
+	}
+	if got == target {
+		t.Fatalf("MoveFileToAvailablePath() = %s, want renamed path", got)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("src should be moved away, stat err = %v", err)
+	}
+	data, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read moved file failed: %v", err)
+	}
+	if string(data) != "new" {
+		t.Fatalf("moved file contents = %q, want %q", string(data), "new")
 	}
 }
