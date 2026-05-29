@@ -695,9 +695,9 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.6.6 |
+                                <strong>当前版本：</strong>v5.6.7 |
 
-                                <strong>更新时间：</strong>2026-05-26
+                                <strong>更新时间：</strong>2026-05-29
 
                             </p>
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.6.6版本 - 最新版本 -->
+                        <!-- v5.6.7版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.6 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.7 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-05-26</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-05-29</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>模板占位符补齐</strong>：`download_filename_template` 文档补齐 `{size}`，与当前代码支持保持一致。
+                                    <strong>下载链路加固</strong>：批量下载先写临时文件，完成解密与校验后再落成最终文件。
 
                                 </li>
 
@@ -2108,14 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>批量链路命名对齐</strong>：批量下载、下载队列、队列转批量下载统一透传命名元数据，减少文件名差异。
+                                    <strong>不可播放问题修复</strong>：重点收敛部分批量下载视频无法播放的问题，减少异常中断后留下损坏文件。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>设置说明修正</strong>：`GET /api/settings` 与控制台设置页明确 `downloadFilenameTemplate`、`radarEnabled` 为配置回显。
+                                    <strong>真实暂停恢复</strong>：批量任务暂停与恢复改为真实调用 Gopeed 任务级 `Pause` / `Continue`。
 
                                 </li>
 
@@ -2123,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>雷达开关收敛</strong>：对标雷达默认关闭，以 `config.yaml` 中的 `radar_enabled` 为准，修改后需重启程序生效。
+                                    <strong>并发一致性提升</strong>：优化并发下载场景下的状态同步与文件收尾逻辑，降低恢复后状态错乱概率。
 
                                 </li>
 
@@ -2131,7 +2131,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>日志提示修正</strong>：启动阶段的日志初始化提示改为安全格式化输出，避免日志路径中的 `%` 被误解析。
+                                    <strong>版本展示同步</strong>：启动横幅、README、版本说明与 Windows 文件版本信息统一更新到本次发布。
 
                                 </li>
 
@@ -2139,7 +2139,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    延续 v5.6.5 已完成的原始视频下载、评论导出与下载命名优化能力。
+                                    延续 v5.6.6 已完成的配置说明与命名链路整理，不改变既有使用方式。
 
                                 </li>
 
