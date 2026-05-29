@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,16 @@ import (
 	_ "github.com/GopeedLab/gopeed/pkg/protocol/http" // Register HTTP protocol
 	httpProtocol "github.com/GopeedLab/gopeed/pkg/protocol/http"
 )
+
+var ErrTaskPaused = errors.New("gopeed task paused")
+
+type GopeedTaskSnapshot struct {
+	ID         string
+	Status     base.Status
+	ActualPath string
+	Downloaded int64
+	Total      int64
+}
 
 // GopeedService wraps the Gopeed downloader engine
 type GopeedService struct {
@@ -45,85 +56,138 @@ func NewGopeedService(storageDir string) *GopeedService {
 	}
 }
 
-// CreateTask creates a download task
-func (s *GopeedService) CreateTask(url string, opt *base.Options) (string, error) {
+func normalizeConnections(connections int) int {
+	if connections <= 0 {
+		return 8
+	}
+	return connections
+}
+
+func buildOptions(path string, connections int) *base.Options {
+	return &base.Options{
+		Path: filepath.Dir(path),
+		Name: filepath.Base(path),
+		Extra: &httpProtocol.OptsExtra{
+			Connections: normalizeConnections(connections),
+		},
+	}
+}
+
+func buildRequest(url string, headers map[string]string) *base.Request {
+	req := &base.Request{URL: url}
+	if len(headers) == 0 {
+		return req
+	}
+
+	reqHeaders := make(map[string]string, len(headers))
+	for k, v := range headers {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		reqHeaders[k] = v
+	}
+	if len(reqHeaders) > 0 {
+		req.Extra = &httpProtocol.ReqExtra{
+			Header: reqHeaders,
+		}
+	}
+	return req
+}
+
+// CreateTask creates a download task and starts it immediately.
+func (s *GopeedService) CreateTask(url string, path string, connections int, headers map[string]string) (string, error) {
 	if s.Downloader == nil {
 		return "", fmt.Errorf("downloader not initialized")
 	}
-	req := &base.Request{URL: url}
-	return s.Downloader.CreateDirect(req, opt)
+	return s.Downloader.CreateDirect(buildRequest(url, headers), buildOptions(path, connections))
 }
 
-// DeleteTask removes a download task
-func (s *GopeedService) DeleteTask(taskID string) error {
+func (s *GopeedService) PauseTask(taskID string) error {
 	if s.Downloader == nil {
 		return fmt.Errorf("downloader not initialized")
 	}
-	// Pause and remove task
-	// Note: Gopeed API might vary, assuming Pause and Delete exist or Pause acts like cancel
-	// Check available methods on `s.Downloader`
-	// Based on Gopeed source:
-	// func (d *Downloader) Pause(filter *TaskFilter)
-	// func (d *Downloader) Delete(filter *TaskFilter)
-
-	// We prefer Delete
-	filter := &download.TaskFilter{IDs: []string{taskID}}
-
-	// Try Delete first if available, otherwise Pause
-	// Since we don't have full intellisense, we'll try Delete, assuming typical API
-	s.Downloader.Delete(filter, true)
-
-	return nil
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task id is empty")
+	}
+	return s.Downloader.Pause(&download.TaskFilter{IDs: []string{taskID}})
 }
 
-// DownloadSync downloads a file synchronously (blocking until done)
-// and returns the actual output path used by Gopeed.
-func (s *GopeedService) DownloadSync(ctx context.Context, url string, path string, connections int, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
+func (s *GopeedService) ContinueTask(taskID string) error {
+	if s.Downloader == nil {
+		return fmt.Errorf("downloader not initialized")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task id is empty")
+	}
+	return s.Downloader.Continue(&download.TaskFilter{IDs: []string{taskID}})
+}
+
+// DeleteTask removes a download task
+func (s *GopeedService) DeleteTask(taskID string, removeFiles bool) error {
+	if s.Downloader == nil {
+		return fmt.Errorf("downloader not initialized")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil
+	}
+	filter := &download.TaskFilter{IDs: []string{taskID}}
+	return s.Downloader.Delete(filter, removeFiles)
+}
+
+func (s *GopeedService) GetTaskSnapshot(taskID string) (*GopeedTaskSnapshot, error) {
+	if s.Downloader == nil {
+		return nil, fmt.Errorf("downloader not initialized")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil, fmt.Errorf("task id is empty")
+	}
+
+	task := s.Downloader.GetTask(taskID)
+	if task == nil {
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+
+	snapshot := &GopeedTaskSnapshot{
+		ID:     taskID,
+		Status: task.Status,
+	}
+	if task.Meta != nil && task.Meta.Res != nil {
+		snapshot.ActualPath = task.Meta.SingleFilepath()
+	}
+	if task.Progress != nil {
+		snapshot.Downloaded = task.Progress.Downloaded
+	}
+
+	// Use reflection to safely extract total size from internal meta types.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				utils.Warn("反射获取文件大小失败: %v", r)
+			}
+		}()
+
+		v := reflect.ValueOf(task).Elem()
+		metaField := v.FieldByName("Meta")
+		if metaField.IsValid() && !metaField.IsNil() {
+			resField := metaField.Elem().FieldByName("Res")
+			if resField.IsValid() && !resField.IsNil() {
+				sizeField := resField.Elem().FieldByName("Size")
+				if sizeField.IsValid() {
+					snapshot.Total = sizeField.Int()
+				}
+			}
+		}
+	}()
+
+	return snapshot, nil
+}
+
+func (s *GopeedService) WaitTask(ctx context.Context, taskID string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
 	if s.Downloader == nil {
 		return "", fmt.Errorf("downloader not initialized")
 	}
-
-	// Configure options
-	dir := filepath.Dir(path)
-	name := filepath.Base(path)
-
-	// 默认8个连接
-	if connections <= 0 {
-		connections = 8
-	}
-
-	opts := &base.Options{
-		Path: dir,
-		Name: name,
-		Extra: &httpProtocol.OptsExtra{
-			Connections: connections, // 单文件多线程下载
-		},
-	}
-
-	// Create task using CreateDirect
-	req := &base.Request{URL: url}
-	if len(headers) > 0 {
-		reqHeaders := make(map[string]string, len(headers))
-		for k, v := range headers {
-			k = strings.TrimSpace(k)
-			v = strings.TrimSpace(v)
-			if k == "" || v == "" {
-				continue
-			}
-			reqHeaders[k] = v
-		}
-		if len(reqHeaders) > 0 {
-			req.Extra = &httpProtocol.ReqExtra{
-				Header: reqHeaders,
-			}
-		}
-	}
-	id, err := s.Downloader.CreateDirect(req, opts)
-	if err != nil {
-		return "", fmt.Errorf("failed to create task: %v", err)
-	}
-
-	actualPath := path
 
 	// Poll status
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -132,80 +196,58 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 	for {
 		select {
 		case <-ctx.Done():
-			// Cancel task
-			s.Downloader.Delete(&download.TaskFilter{IDs: []string{id}}, true)
-			return actualPath, ctx.Err()
+			return "", ctx.Err()
 		case <-ticker.C:
-			task := s.Downloader.GetTask(id)
-			if task == nil {
-				return actualPath, fmt.Errorf("task not found: %s", id)
-			}
-			if task.Meta != nil && task.Meta.Res != nil {
-				actualPath = task.Meta.SingleFilepath()
+			snapshot, err := s.GetTaskSnapshot(taskID)
+			if err != nil {
+				return "", err
 			}
 
-			// Report progress
 			if onProgress != nil {
-				var downloaded, total int64
-				var progress float64
-
-				if task.Progress != nil {
-					downloaded = task.Progress.Downloaded
+				progress := 0.0
+				if snapshot.Total > 0 {
+					progress = float64(snapshot.Downloaded) / float64(snapshot.Total)
 				}
-
-				// 使用反射获取 TotalSize (因为 Meta 字段类型是 internal 的，外部无法直接访问)
-				// task.Meta -> *fetcher.FetcherMeta
-				// FetcherMeta.Res -> *base.Resource
-				// Resource.Size -> int64
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							// 忽略反射 panic，防止 crash
-							utils.Warn("反射获取文件大小失败: %v", r)
-						}
-					}()
-
-					// get *Task value
-					v := reflect.ValueOf(task).Elem()
-
-					// get Meta field
-					metaField := v.FieldByName("Meta")
-					if metaField.IsValid() && !metaField.IsNil() {
-						// get Res field from FetcherMeta
-						// FetcherMeta struct definition: type FetcherMeta struct { ... Res *base.Resource ... }
-						// We need to dereference the pointer first
-						resField := metaField.Elem().FieldByName("Res")
-						if resField.IsValid() && !resField.IsNil() {
-							// get Size field from Resource
-							sizeField := resField.Elem().FieldByName("Size")
-							if sizeField.IsValid() {
-								total = sizeField.Int()
-							}
-						}
-					}
-				}()
-
-				if total > 0 {
-					progress = float64(downloaded) / float64(total)
-				}
-
-				// 调用进度回调
-				onProgress(progress, downloaded, total)
+				onProgress(progress, snapshot.Downloaded, snapshot.Total)
 			}
 
-			// Check status
-			switch task.Status {
+			switch snapshot.Status {
 			case base.DownloadStatusDone:
-				return actualPath, nil
+				return snapshot.ActualPath, nil
 			case base.DownloadStatusError:
-				return actualPath, fmt.Errorf("download task failed")
-			case base.DownloadStatusRunning, base.DownloadStatusReady:
-				// Continue waiting
+				return snapshot.ActualPath, fmt.Errorf("download task failed")
+			case base.DownloadStatusPause:
+				return snapshot.ActualPath, ErrTaskPaused
+			case base.DownloadStatusRunning, base.DownloadStatusReady, base.DownloadStatusWait:
 				continue
 			default:
-				// Handle other statuses (Paused, etc)
-				// Continue waiting
+				continue
 			}
 		}
 	}
+}
+
+// DownloadSync downloads a file synchronously (blocking until done)
+// and returns the actual output path used by Gopeed.
+func (s *GopeedService) DownloadSync(ctx context.Context, url string, path string, connections int, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
+	id, err := s.CreateTask(url, path, connections, headers)
+	if err != nil {
+		return "", fmt.Errorf("failed to create task: %v", err)
+	}
+
+	actualPath, waitErr := s.WaitTask(ctx, id, onProgress)
+	if waitErr != nil {
+		if actualPath == "" {
+			actualPath = path
+		}
+		_ = s.DeleteTask(id, true)
+		return actualPath, waitErr
+	}
+	if actualPath == "" {
+		actualPath = path
+	}
+	if err := s.DeleteTask(id, false); err != nil {
+		utils.Warn("清理 Gopeed 任务失败: %v", err)
+	}
+	return actualPath, nil
 }
