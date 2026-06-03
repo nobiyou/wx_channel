@@ -84,6 +84,9 @@ type Config struct {
 	// Hub同步配置
 	HubSync HubSyncConfig `mapstructure:"hub_sync"`
 
+	// Cloudflare / 分享链接解析配置
+	Cloudflare CloudflareConfig `mapstructure:"cloudflare"`
+
 	// 功能开关
 	RadarEnabled bool `mapstructure:"radar_enabled"`
 }
@@ -94,6 +97,15 @@ type HubSyncConfig struct {
 	PushEnabled   bool          `mapstructure:"push_enabled"`    // 是否启用主动推送
 	PushInterval  time.Duration `mapstructure:"push_interval"`   // 推送间隔
 	PushBatchSize int           `mapstructure:"push_batch_size"` // 推送批量大小
+}
+
+// CloudflareConfig Cloudflare / 分享链接解析配置
+type CloudflareConfig struct {
+	AccountID     string `mapstructure:"accountId"`
+	APIToken      string `mapstructure:"apiToken"`
+	SphWorkerName string `mapstructure:"sphWorkerName"`
+	SphCookie     string `mapstructure:"sphCookie"`
+	SphHostname   string `mapstructure:"sphHostname"`
 }
 
 var globalConfig *Config
@@ -245,6 +257,13 @@ func setDefaults() {
 	viper.SetDefault("hub_sync.push_enabled", true)
 	viper.SetDefault("hub_sync.push_interval", 5*time.Minute)
 	viper.SetDefault("hub_sync.push_batch_size", 1000)
+
+	// Cloudflare / 分享链接解析默认值
+	viper.SetDefault("cloudflare.accountId", "")
+	viper.SetDefault("cloudflare.apiToken", "")
+	viper.SetDefault("cloudflare.sphWorkerName", "")
+	viper.SetDefault("cloudflare.sphCookie", "")
+	viper.SetDefault("cloudflare.sphHostname", "")
 
 	// 功能默认值
 	viper.SetDefault("radar_enabled", false)

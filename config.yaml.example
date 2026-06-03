@@ -63,6 +63,18 @@ hub_sync:
 #   cloud_enabled: false
 #   → 完全独立运行，不与 Hub 交互
 
+# === 分享链接纯后端解析（可选）===
+# 配置后可直接解析视频号分享链接，不依赖打开视频号页面
+# 二选一即可：
+# 1. 本机直连元宝：填写 sphCookie
+# 2. 走 Cloudflare Worker：填写 sphHostname（可配合 sphWorkerName / accountId / apiToken 部署）
+cloudflare:
+  accountId: ""
+  apiToken: ""
+  sphWorkerName: "sph"
+  sphCookie: ""
+  sphHostname: ""
+
 # === 功能开关 ===
 # 是否启用对标雷达
 # false: 默认关闭，仅展示雷达页面和配置

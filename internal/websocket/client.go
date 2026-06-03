@@ -130,7 +130,7 @@ func (c *Client) ReadPump() {
 			} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled") {
 				utils.LogInfo("WebSocket 上下文已取消: %s", c.RemoteAddr)
 			} else {
-			// 检查是否是正常关闭
+				// 检查是否是正常关闭
 				status := websocket.CloseStatus(err)
 				if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
 					utils.LogInfo("WebSocket 正常关闭")
@@ -321,6 +321,8 @@ func (c *Client) SupportsKey(key string) bool {
 	case "key:channels:feed_list":
 		return c.methods["finderUserPage"]
 	case "key:channels:feed_profile":
+		return c.methods["finderGetCommentDetail"]
+	case "key:channels:shared_feed_profile":
 		return c.methods["finderGetCommentDetail"]
 	case "key:channels:fetch_feed_comment_list":
 		return c.methods["finderGetCommentList"]

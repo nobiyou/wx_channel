@@ -30,6 +30,134 @@ window.__wx_api_client = {
     this.scheduleInjectHealthReports('init');
   },
 
+  decodeFeedProfileURL: function (rawURL) {
+    if (!rawURL) {
+      return '';
+    }
+    try {
+      return decodeURIComponent(rawURL);
+    } catch (err) {
+      return rawURL;
+    }
+  },
+
+  isSharedFeedURL: function (rawURL) {
+    var decoded = this.decodeFeedProfileURL(rawURL);
+    if (!decoded) {
+      return false;
+    }
+
+    try {
+      var u = new URL(decoded, window.location.origin);
+      return (u.hostname === 'weixin.qq.com' && u.pathname.indexOf('/sph/') >= 0) ||
+        (u.hostname === 'channels.weixin.qq.com' && u.pathname.indexOf('/finder-preview/pages/sph') >= 0);
+    } catch (err) {
+      return decoded.indexOf('weixin.qq.com/sph/') >= 0 ||
+        decoded.indexOf('channels.weixin.qq.com/finder-preview/pages/sph') >= 0;
+    }
+  },
+
+  extractSharedFeedShortUri: function (rawURL) {
+    var decoded = this.decodeFeedProfileURL(rawURL);
+    if (!decoded) {
+      return '';
+    }
+
+    var u = new URL(decoded, window.location.origin);
+    var match = u.pathname.match(/\/sph\/([a-zA-Z0-9_-]+)/);
+    if (match) {
+      return match[1];
+    }
+    return u.searchParams.get('id') || '';
+  },
+
+  fetchSharedFeedExportID: async function (rawURL) {
+    var shortUri = this.extractSharedFeedShortUri(rawURL);
+    if (!shortUri) {
+      throw new Error('无法从分享链接中解析 shortUri');
+    }
+
+    var resp = await fetch('/finder-preview/api/feed/get_feed_info', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        baseReq: {
+          generalToken: ''
+        },
+        shortUri: shortUri
+      })
+    });
+
+    if (!resp.ok) {
+      throw new Error('获取分享视频信息失败: HTTP ' + resp.status);
+    }
+
+    var data = await resp.json();
+    if (data && typeof data.errCode === 'number' && data.errCode !== 0) {
+      throw new Error(data.errMsg || ('获取分享视频信息失败: ' + data.errCode));
+    }
+
+    var exportID = data && data.data && data.data.sceneInfo ? data.data.sceneInfo.dynamicExportId : '';
+    if (!exportID) {
+      throw new Error("获取分享视频信息失败: 缺少 sceneInfo.dynamicExportId");
+    }
+
+    return exportID;
+  },
+
+  buildFeedProfilePayload: async function (body) {
+    body = body || {};
+
+    var oid = body.objectId || body.object_id || body.oid || '';
+    var nid = body.nonceId || body.nonce_id || body.nid || '';
+    var eid = body.eid || body.encryptedObjectId || body.encrypted_objectid || '';
+    var rawURL = body.url ? this.decodeFeedProfileURL(body.url) : '';
+
+    if (rawURL && !eid) {
+      if (this.isSharedFeedURL(rawURL)) {
+        eid = await this.fetchSharedFeedExportID(rawURL);
+      } else {
+        var u = new URL(rawURL, window.location.origin);
+        var encodedOID = u.searchParams.get('oid');
+        var encodedNID = u.searchParams.get('nid');
+        if (encodedOID) {
+          oid = window.WXU.API.decodeBase64ToUint64String(encodedOID);
+        }
+        if (encodedNID) {
+          nid = window.WXU.API.decodeBase64ToUint64String(encodedNID);
+        }
+      }
+    }
+
+    if (!eid && (!oid || !nid)) {
+      throw new Error('缺失 object_id 或 nonce_id');
+    }
+
+    return {
+      needObject: 1,
+      lastBuffer: '',
+      scene: eid ? 141 : 146,
+      direction: 2,
+      identityScene: 2,
+      pullScene: 6,
+      objectid: eid ? undefined : (String(oid).indexOf('_') >= 0 ? String(oid).split('_')[0] : String(oid)),
+      objectNonceId: eid ? undefined : nid,
+      encrypted_objectid: eid || ''
+    };
+  },
+
+  fetchFeedProfile: async function (body) {
+    var payload = await this.buildFeedProfilePayload(body);
+    var response = await window.WXU.API.finderGetCommentDetail(payload);
+    return {
+      payload: payload,
+      response: response
+    };
+  },
+
   // 设置页面可见性监听
   setupVisibilityHandler: function () {
     var self = this;
@@ -444,41 +572,15 @@ window.__wx_api_client = {
       }
 
       // 获取视频详情
-      if (key === 'key:channels:feed_profile') {
+      if (key === 'key:channels:feed_profile' || key === 'key:channels:shared_feed_profile') {
         console.log('[API客户端] 获取视频详情:', body);
 
         try {
-          var oid = body.objectId || body.object_id || body.oid || '';
-          var nid = body.nonceId || body.nonce_id || body.nid || '';
-
-          // 如果提供了 URL，从 URL 中解析 oid 和 nid
-          if (body.url) {
-            var u = new URL(decodeURIComponent(body.url));
-            oid = window.WXU.API.decodeBase64ToUint64String(u.searchParams.get('oid'));
-            nid = window.WXU.API.decodeBase64ToUint64String(u.searchParams.get('nid'));
-          }
-
-          if (!oid || !nid) {
-            throw new Error('缺失 object_id 或 nonce_id');
-          }
-
-          var payload = {
-            needObject: 1,
-            lastBuffer: '',
-            scene: 146,
-            direction: 2,
-            identityScene: 2,
-            pullScene: 6,
-            objectid: String(oid).includes('_') ? String(oid).split('_')[0] : String(oid),
-            objectNonceId: nid,
-            encrypted_objectid: ''
-          };
-
-          var r = await window.WXU.API.finderGetCommentDetail(payload);
-          console.log('[API客户端] finderGetCommentDetail 结果:', r);
+          var profileResult = await this.fetchFeedProfile(body);
+          console.log('[API客户端] finderGetCommentDetail 结果:', profileResult.response);
           resp({
-            ...r,
-            payload: payload
+            ...profileResult.response,
+            payload: profileResult.payload
           });
           return;
         } catch (err) {

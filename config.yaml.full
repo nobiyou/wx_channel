@@ -34,6 +34,19 @@ machine_id: ""
 # 绑定令牌（从 Hub Server 获取）
 bind_token: ""
 
+# ==================== 分享链接纯后端解析 ====================
+
+# 可选：用于不依赖视频号页面解析分享链接
+# 二选一即可：
+# 1. 直接填写 sphCookie，服务端直连元宝接口
+# 2. 部署 Cloudflare Worker 后填写 sphHostname
+cloudflare:
+  accountId: ""
+  apiToken: ""
+  sphWorkerName: "sph"
+  sphCookie: ""
+  sphHostname: ""
+
 # ==================== 下载配置 ====================
 
 # 下载并发数

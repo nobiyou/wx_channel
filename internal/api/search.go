@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,15 +14,22 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/response"
+	"wx_channel/internal/services"
 	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
 )
+
+type sharedFeedProfileService interface {
+	Enabled() bool
+	FetchVideoProfile(ctx context.Context, shareURL string) (*services.SphFeedResponse, error)
+}
 
 // SearchService 搜索服务
 type SearchService struct {
 	hub                 *websocket.Hub
 	callAPI             func(key string, body interface{}, timeout time.Duration) ([]byte, error)
 	resolveDownloadsDir func() (string, error)
+	sphService          sharedFeedProfileService
 }
 
 // NewSearchService 创建搜索服务
@@ -30,6 +39,7 @@ func NewSearchService(hub *websocket.Hub) *SearchService {
 	service.resolveDownloadsDir = func() (string, error) {
 		return config.Get().GetResolvedDownloadsDir()
 	}
+	service.sphService = services.NewSphService()
 	return service
 }
 
@@ -172,6 +182,87 @@ type GetFeedProfileRequest struct {
 	URL      string `json:"url"`
 }
 
+func decodeGetFeedProfileRequest(r *http.Request) (GetFeedProfileRequest, error) {
+	var req GetFeedProfileRequest
+
+	if r.Method == http.MethodGet {
+		req.ObjectID = r.URL.Query().Get("object_id")
+		req.NonceID = r.URL.Query().Get("nonce_id")
+		req.URL = r.URL.Query().Get("url")
+		return req, nil
+	}
+
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return req, err
+		}
+		return req, nil
+	}
+
+	return req, nil
+}
+
+func normalizeFeedProfileURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	decoded, err := url.QueryUnescape(raw)
+	if err == nil {
+		return decoded
+	}
+	return raw
+}
+
+func isSharedFeedURL(raw string) bool {
+	normalized := strings.ToLower(normalizeFeedProfileURL(raw))
+	if normalized == "" {
+		return false
+	}
+
+	return strings.Contains(normalized, "weixin.qq.com/sph/") ||
+		strings.Contains(normalized, "channels.weixin.qq.com/finder-preview/pages/sph")
+}
+
+func feedProfileAPIKey(req GetFeedProfileRequest) string {
+	if isSharedFeedURL(req.URL) {
+		return "key:channels:shared_feed_profile"
+	}
+	return "key:channels:feed_profile"
+}
+
+func (s *SearchService) fetchFeedProfile(req GetFeedProfileRequest, forceShared bool) ([]byte, error) {
+	body := websocket.FeedProfileBody{
+		ObjectID: req.ObjectID,
+		NonceID:  req.NonceID,
+		URL:      req.URL,
+	}
+
+	key := feedProfileAPIKey(req)
+	if forceShared {
+		key = "key:channels:shared_feed_profile"
+	}
+
+	return s.callAPI(key, body, 60*time.Second)
+}
+
+func (s *SearchService) tryFetchSharedFeedProfile(ctx context.Context, req GetFeedProfileRequest) (interface{}, bool, error) {
+	if !isSharedFeedURL(req.URL) {
+		return nil, false, nil
+	}
+	if s.sphService == nil || !s.sphService.Enabled() {
+		return nil, false, nil
+	}
+
+	resp, err := s.sphService.FetchVideoProfile(ctx, normalizeFeedProfileURL(req.URL))
+	if err != nil {
+		return nil, true, err
+	}
+
+	return services.BuildSharedFeedProfileCompatResponse(resp), true, nil
+}
+
 // GetFeedCommentListRequest 获取视频评论列表请求参数
 type GetFeedCommentListRequest struct {
 	ObjectID   string `json:"object_id"`
@@ -217,18 +308,18 @@ type feedCommentAPIData struct {
 }
 
 type commentExportFile struct {
-	ObjectID          string                     `json:"objectId"`
-	ObjectNonceID     string                     `json:"objectNonceId"`
-	Title             string                     `json:"title"`
-	Author            string                     `json:"author"`
-	CommentInfo       []formattedCommentEntry    `json:"commentInfo"`
-	CountInfo         feedCommentExportCountInfo `json:"countInfo"`
-	LastBuffer        string                     `json:"lastBuffer"`
-	UpContinueFlag    int                        `json:"upContinueFlag"`
-	DownContinueFlag  int                        `json:"downContinueFlag"`
-	OriginalCommentCount int                     `json:"originalCommentCount"`
-	SavedAt           string                     `json:"savedAt"`
-	Source            string                     `json:"source"`
+	ObjectID             string                     `json:"objectId"`
+	ObjectNonceID        string                     `json:"objectNonceId"`
+	Title                string                     `json:"title"`
+	Author               string                     `json:"author"`
+	CommentInfo          []formattedCommentEntry    `json:"commentInfo"`
+	CountInfo            feedCommentExportCountInfo `json:"countInfo"`
+	LastBuffer           string                     `json:"lastBuffer"`
+	UpContinueFlag       int                        `json:"upContinueFlag"`
+	DownContinueFlag     int                        `json:"downContinueFlag"`
+	OriginalCommentCount int                        `json:"originalCommentCount"`
+	SavedAt              string                     `json:"savedAt"`
+	Source               string                     `json:"source"`
 }
 
 type formattedCommentEntry struct {
@@ -265,17 +356,10 @@ type feedCommentExportCountInfo struct {
 
 // GetFeedProfile 获取视频详情
 func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
-	var req GetFeedProfileRequest
-
-	if r.Method == http.MethodGet {
-		req.ObjectID = r.URL.Query().Get("object_id")
-		req.NonceID = r.URL.Query().Get("nonce_id")
-		req.URL = r.URL.Query().Get("url")
-	} else if r.Method == http.MethodPost {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			response.Error(w, 400, "Invalid request body")
-			return
-		}
+	req, err := decodeGetFeedProfileRequest(r)
+	if err != nil {
+		response.Error(w, 400, "Invalid request body")
+		return
 	}
 
 	if req.ObjectID == "" && req.URL == "" {
@@ -283,17 +367,84 @@ func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用前端 API
-	body := websocket.FeedProfileBody{
-		ObjectID: req.ObjectID,
-		NonceID:  req.NonceID,
-		URL:      req.URL,
+	if result, handled, err := s.tryFetchSharedFeedProfile(r.Context(), req); handled {
+		if err == nil {
+			response.Success(w, result)
+			return
+		}
+		utils.LogWarn("[parse_sph] feed profile backend parse failed, fallback to page API: %v", err)
 	}
 
-	data, err := s.callAPI("key:channels:feed_profile", body, 60*time.Second)
+	data, err := s.fetchFeedProfile(req, false)
 	if err != nil {
 		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for feed profile.")
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		response.Success(w, json.RawMessage(data))
+		return
+	}
+
+	response.Success(w, result)
+}
+
+// ParseSph 通过纯后端链路解析分享链接
+func (s *SearchService) ParseSph(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeGetFeedProfileRequest(r)
+	if err != nil {
+		response.Error(w, 400, "Invalid request body")
+		return
+	}
+
+	if req.URL == "" {
+		response.Error(w, 400, "url is required")
+		return
+	}
+	if s.sphService == nil || !s.sphService.Enabled() {
+		response.Error(w, 400, "cloudflare.sphHostname or cloudflare.sphCookie not configured")
+		return
+	}
+
+	feedResp, err := s.sphService.FetchVideoProfile(r.Context(), normalizeFeedProfileURL(req.URL))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	response.Success(w, feedResp)
+}
+
+// GetSharedFeedProfile 获取分享链接视频详情
+func (s *SearchService) GetSharedFeedProfile(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeGetFeedProfileRequest(r)
+	if err != nil {
+		response.Error(w, 400, "Invalid request body")
+		return
+	}
+
+	if req.URL == "" {
+		response.Error(w, 400, "url is required")
+		return
+	}
+
+	if result, handled, err := s.tryFetchSharedFeedProfile(r.Context(), req); handled {
+		if err == nil {
+			response.Success(w, result)
+			return
+		}
+		utils.LogWarn("[parse_sph] shared feed backend parse failed, fallback to page API: %v", err)
+	}
+
+	data, err := s.fetchFeedProfile(req, true)
+	if err != nil {
+		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for shared feed profile.")
 			return
 		}
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -707,14 +858,14 @@ func (s *SearchService) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := map[string]interface{}{
-		"connected":            s.hub.ClientCount() > 0,
-		"clients":              s.hub.ClientCount(),
-		"ready_clients":        readyCount,
-		"search_ready_clients": searchReadyCount,
-		"feed_ready_clients":   feedReadyCount,
+		"connected":             s.hub.ClientCount() > 0,
+		"clients":               s.hub.ClientCount(),
+		"ready_clients":         readyCount,
+		"search_ready_clients":  searchReadyCount,
+		"feed_ready_clients":    feedReadyCount,
 		"profile_ready_clients": profileReadyCount,
 		"comment_ready_clients": commentReadyCount,
-		"client_list":          clientStatuses,
+		"client_list":           clientStatuses,
 	}
 	response.Success(w, status)
 }
@@ -724,6 +875,8 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/search/contact", s.SearchContact)
 	mux.HandleFunc("/api/v1/search/feed", s.GetFeedList)
 	mux.HandleFunc("/api/v1/search/feed/profile", s.GetFeedProfile)
+	mux.HandleFunc("/api/v1/search/shared_feed/profile", s.GetSharedFeedProfile)
+	mux.HandleFunc("/api/v1/search/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/v1/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/v1/search/feed/comments/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/v1/status", s.GetStatus)
@@ -732,6 +885,8 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/search/contact", s.SearchContact)
 	mux.HandleFunc("/api/search/feed", s.GetFeedList)
 	mux.HandleFunc("/api/search/feed/profile", s.GetFeedProfile)
+	mux.HandleFunc("/api/search/shared_feed/profile", s.GetSharedFeedProfile)
+	mux.HandleFunc("/api/search/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/search/feed/comments/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/status", s.GetStatus)
@@ -740,6 +895,8 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/contact/search", s.SearchContact)
 	mux.HandleFunc("/api/channels/contact/feed/list", s.GetFeedList)
 	mux.HandleFunc("/api/channels/feed/profile", s.GetFeedProfile)
+	mux.HandleFunc("/api/channels/shared_feed/profile", s.GetSharedFeedProfile)
+	mux.HandleFunc("/api/channels/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/channels/feed/comment/list", s.GetFeedCommentList)
 	mux.HandleFunc("/api/channels/feed/comment/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/channels/status", s.GetStatus)

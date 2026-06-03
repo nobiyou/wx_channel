@@ -128,6 +128,8 @@ func main() {
 	auth.HandleFunc("/api/metrics/summary", controllers.GetMetricsSummary).Methods("GET")
 	auth.HandleFunc("/api/metrics/timeseries", controllers.GetTimeSeriesData).Methods("GET")
 	auth.HandleFunc("/api/ws/stats", controllers.GetWSStats(hub)).Methods("GET")
+	auth.HandleFunc("/api/channels/parse_sph", controllers.ParseSph).Methods("GET", "POST")
+	auth.HandleFunc("/api/channels/shared_feed/profile", controllers.GetSharedFeedProfile).Methods("GET", "POST")
 
 	// Sync Management
 	auth.HandleFunc("/api/sync/status", controllers.GetSyncStatus).Methods("GET")
@@ -142,6 +144,8 @@ func main() {
 	admin.Use(adminMiddleware)
 
 	admin.HandleFunc("/users", controllers.GetUserList).Methods("GET")
+	admin.HandleFunc("/settings/sph", controllers.GetSphSettings).Methods("GET")
+	admin.HandleFunc("/settings/sph", controllers.UpdateSphSettings).Methods("POST")
 	admin.HandleFunc("/stats", controllers.GetStats).Methods("GET")
 	admin.HandleFunc("/user/credits", controllers.UpdateUserCredits).Methods("POST")
 	admin.HandleFunc("/user/role", controllers.UpdateUserRole).Methods("POST")
