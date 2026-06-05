@@ -1,5 +1,16 @@
 # wx_channel 更新日志
 
+## [5.6.8] - 2026-06-05
+
+### 分享链接解析与控制台导入
+
+- 修复 `/api/channels/shared_feed/profile` 分享链接详情链路，恢复历史上的 `finderGetCommentDetail` 主流程。
+- 新增 `/api/channels/share/resolve` 分享链接解析接口，支持自动、视频号页面、Cookie/Worker 纯后端三种模式。
+- Web 控制台批量下载页新增“分享链接下载”入口，可直接解析分享链接并写入下载列表。
+- 设置接口补充 `sharedFeedBackendEnabled` 与 `sharedFeedBackendType`，前端可明确提示后端解析是否已配置。
+- 补齐分享短链的 `eid` fallback，`get_feed_info` 失败时可直接回退到短链 ID，减少“之前能用，现在不能用”的回归。
+- 同步更新版本号、启动横幅、README、版本说明与 Windows 文件版本信息。
+
 ## [5.6.7] - 2026-05-29
 
 ### 批量下载稳定性修复

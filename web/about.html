@@ -695,7 +695,7 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.6.7 |
+                                <strong>当前版本：</strong>v5.6.8 |
 
                                 <strong>更新时间：</strong>2026-05-29
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.6.7版本 - 最新版本 -->
+                        <!-- v5.6.8版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.7 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.8 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-05-29</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-06-05</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>下载链路加固</strong>：批量下载先写临时文件，完成解密与校验后再落成最终文件。
+                                    <strong>分享详情恢复</strong>：`/api/channels/shared_feed/profile` 分享链接详情接口恢复可用。
 
                                 </li>
 
@@ -2108,14 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>不可播放问题修复</strong>：重点收敛部分批量下载视频无法播放的问题，减少异常中断后留下损坏文件。
+                                    <strong>控制台直接导入</strong>：批量下载页新增“分享链接下载”，解析后可直接加入下载列表。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>真实暂停恢复</strong>：批量任务暂停与恢复改为真实调用 Gopeed 任务级 `Pause` / `Continue`。
+                                    <strong>双通道解析</strong>：支持自动、视频号页面、Cookie/Worker 纯后端三种解析模式。
 
                                 </li>
 
@@ -2123,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>并发一致性提升</strong>：优化并发下载场景下的状态同步与文件收尾逻辑，降低恢复后状态错乱概率。
+                                    <strong>短链回退补齐</strong>：页面接口未稳定返回 `dynamicExportId` 时，自动回退到短链 ID。
 
                                 </li>
 
@@ -2139,7 +2139,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    延续 v5.6.6 已完成的配置说明与命名链路整理，不改变既有使用方式。
+                                    保持现有调用方式不变，同时补上控制台侧的分享链接直链导入能力。
 
                                 </li>
 
@@ -2147,7 +2147,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    文档、控制台说明与版本记录现已对齐，便于后续问题排查与发布说明追踪。
+                                    设置接口会显式返回后端解析是否已配置，页面提示和版本记录现已重新对齐。
 
                                 </li>
 
