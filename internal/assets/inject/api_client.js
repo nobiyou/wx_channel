@@ -71,7 +71,72 @@ window.__wx_api_client = {
     return u.searchParams.get('id') || '';
   },
 
-  fetchSharedFeedExportID: async function (rawURL) {
+  extractSharedFeedFallbackEID: function (rawURL) {
+    var shortUri = this.extractSharedFeedShortUri(rawURL);
+    if (shortUri) {
+      return shortUri;
+    }
+
+    var decoded = this.decodeFeedProfileURL(rawURL);
+    if (!decoded) {
+      return '';
+    }
+
+    var match = decoded.match(/\/([a-zA-Z0-9_-]{1,})$/);
+    if (match && match[1]) {
+      return match[1];
+    }
+
+    return '';
+  },
+
+  extractSharedFeedExportID: function (data, rawURL) {
+    var payload = data && data.data ? data.data : {};
+    var sceneInfo = payload && payload.sceneInfo ? payload.sceneInfo : {};
+    var object = payload && payload.object ? payload.object : {};
+    var exportID = sceneInfo.dynamicExportId ||
+      sceneInfo.exportId ||
+      payload.exportId ||
+      payload.eid ||
+      object.id ||
+      '';
+
+    if (!exportID && rawURL) {
+      try {
+        var u = new URL(this.decodeFeedProfileURL(rawURL), window.location.origin);
+        exportID = u.searchParams.get('eid') || '';
+      } catch (err) {
+        exportID = '';
+      }
+    }
+
+    return exportID ? String(exportID).trim() : '';
+  },
+
+  cleanSharedFeedMediaURL: function (rawURL) {
+    var trimmed = rawURL ? String(rawURL).trim() : '';
+    if (!trimmed) {
+      return '';
+    }
+
+    try {
+      var parsed = new URL(trimmed, window.location.origin);
+      var fileKey = (parsed.searchParams.get('encfilekey') || '').trim();
+      var token = (parsed.searchParams.get('token') || '').trim();
+      if (!fileKey || !token) {
+        return trimmed;
+      }
+
+      var clean = new URL(parsed.origin + parsed.pathname);
+      clean.searchParams.set('encfilekey', fileKey);
+      clean.searchParams.set('token', token);
+      return clean.toString();
+    } catch (err) {
+      return trimmed;
+    }
+  },
+
+  fetchSharedFeedInfo: async function (rawURL) {
     var shortUri = this.extractSharedFeedShortUri(rawURL);
     if (!shortUri) {
       throw new Error('无法从分享链接中解析 shortUri');
@@ -100,12 +165,162 @@ window.__wx_api_client = {
       throw new Error(data.errMsg || ('获取分享视频信息失败: ' + data.errCode));
     }
 
-    var exportID = data && data.data && data.data.sceneInfo ? data.data.sceneInfo.dynamicExportId : '';
+    return data;
+  },
+
+  fetchSharedFeedExportID: async function (rawURL) {
+    var data = await this.fetchSharedFeedInfo(rawURL);
+    var exportID = this.extractSharedFeedExportID(data, rawURL);
     if (!exportID) {
-      throw new Error("获取分享视频信息失败: 缺少 sceneInfo.dynamicExportId");
+      throw new Error("获取分享视频信息失败: 缺少可用的 exportId");
     }
 
     return exportID;
+  },
+
+  resolveSharedFeedExportID: async function (rawURL) {
+    try {
+      var exportID = await this.fetchSharedFeedExportID(rawURL);
+      if (exportID) {
+        return exportID;
+      }
+    } catch (err) {
+      var fallbackEID = this.extractSharedFeedFallbackEID(rawURL);
+      if (fallbackEID) {
+        return fallbackEID;
+      }
+      throw err;
+    }
+
+    var fallback = this.extractSharedFeedFallbackEID(rawURL);
+    if (fallback) {
+      return fallback;
+    }
+
+    throw new Error('获取分享视频信息失败: 缺少可用的 exportId');
+  },
+
+  buildSharedFeedCompatResponse: function (rawURL, data) {
+    var payload = data && data.data ? data.data : {};
+    var object = payload && payload.object ? payload.object : {};
+    var objectDesc = object && object.objectDesc ? object.objectDesc : {};
+    var mediaList = objectDesc && Array.isArray(objectDesc.media) ? objectDesc.media : [];
+    var sceneInfo = payload && payload.sceneInfo ? payload.sceneInfo : {};
+
+    if (mediaList.length > 0) {
+      var mediaCopy = Object.assign({}, mediaList[0]);
+      if (!mediaCopy.url && mediaCopy.urlToken) {
+        mediaCopy.url = mediaCopy.urlToken;
+        mediaCopy.urlToken = '';
+      }
+      if (mediaCopy.url) {
+        mediaCopy.url = this.cleanSharedFeedMediaURL(mediaCopy.url);
+      }
+      objectDesc.media = [mediaCopy];
+      object.objectDesc = objectDesc;
+      payload.object = object;
+      if (!sceneInfo.dynamicExportId) {
+        sceneInfo.dynamicExportId = this.extractSharedFeedExportID(data, rawURL) || object.id || 'shared_feed';
+        payload.sceneInfo = sceneInfo;
+      }
+      return {
+        errCode: typeof data.errCode === 'number' ? data.errCode : 0,
+        errMsg: data && data.errMsg ? data.errMsg : 'ok',
+        data: payload
+      };
+    }
+
+    var feedInfo = payload && payload.feedInfo ? payload.feedInfo : {};
+    var authorInfo = payload && payload.authorInfo ? payload.authorInfo : {};
+    var exportID = this.extractSharedFeedExportID(data, rawURL) || 'shared_feed';
+    var mediaURL = this.cleanSharedFeedMediaURL(
+      feedInfo.originVideoUrl ||
+      feedInfo.videoUrl ||
+      ((feedInfo.h264VideoInfo && feedInfo.h264VideoInfo.videoUrl) || '') ||
+      ((feedInfo.h265VideoInfo && feedInfo.h265VideoInfo.videoUrl) || '')
+    );
+    var coverURL = feedInfo.coverUrl || feedInfo.thumbUrl || '';
+
+    return {
+      errCode: typeof data.errCode === 'number' ? data.errCode : 0,
+      errMsg: data && data.errMsg ? data.errMsg : 'ok',
+      data: {
+        object: {
+          id: exportID,
+          nickname: authorInfo.nickname || '',
+          headUrl: authorInfo.headImgUrl || '',
+          contact: {
+            nickname: authorInfo.nickname || '',
+            headImgUrl: authorInfo.headImgUrl || '',
+            authIconUrl: authorInfo.authIconUrl || ''
+          },
+          objectDesc: {
+            description: feedInfo.description || '',
+            mediaType: feedInfo.mediaType || 4,
+            media: mediaURL ? [{
+              url: mediaURL,
+              urlToken: '',
+              decodeKey: feedInfo.decodeKey || '',
+              decryptKey: feedInfo.decryptKey || '',
+              thumbUrl: coverURL,
+              coverUrl: coverURL,
+              fullThumbUrl: coverURL,
+              fileSize: feedInfo.fileSize || 0,
+              durationMs: feedInfo.durationMs || 0,
+              videoDuration: feedInfo.videoDuration || 0,
+              videoPlayLen: feedInfo.videoPlayLen || 0,
+              videoResolution: feedInfo.videoResolution || ''
+            }] : []
+          }
+        },
+        sceneInfo: {
+          dynamicExportId: exportID
+        },
+        feedInfo: feedInfo,
+        authorInfo: authorInfo
+      }
+    };
+  },
+
+  hasSharedFeedMedia: function (responseData) {
+    var payload = responseData && responseData.data ? responseData.data : {};
+    var object = payload && payload.object ? payload.object : {};
+    var objectDesc = object && object.objectDesc ? object.objectDesc : {};
+    var media = objectDesc && Array.isArray(objectDesc.media) ? objectDesc.media : [];
+    if (!media.length) {
+      return false;
+    }
+    return !!((media[0] && media[0].url) || '');
+  },
+
+  fetchSharedFeedProfile: async function (body, rawURL) {
+    var sharedInfo = await this.fetchSharedFeedInfo(rawURL);
+    var compatResponse = this.buildSharedFeedCompatResponse(rawURL, sharedInfo);
+    if (this.hasSharedFeedMedia(compatResponse)) {
+      return {
+        payload: {
+          shortUri: this.extractSharedFeedShortUri(rawURL),
+          source: 'short_uri_feed_info'
+        },
+        response: compatResponse
+      };
+    }
+
+    var exportID = this.extractSharedFeedExportID(sharedInfo, rawURL) || this.extractSharedFeedFallbackEID(rawURL);
+    if (!exportID) {
+      throw new Error('获取分享视频信息失败: 页面接口未返回可用媒体地址或 exportId');
+    }
+
+    var payload = await this.buildFeedProfilePayload({
+      objectId: body.objectId || body.object_id || body.oid || '',
+      nonceId: body.nonceId || body.nonce_id || body.nid || '',
+      eid: exportID
+    });
+    var response = await window.WXU.API.finderGetCommentDetail(payload);
+    return {
+      payload: payload,
+      response: response
+    };
   },
 
   buildFeedProfilePayload: async function (body) {
@@ -118,7 +333,7 @@ window.__wx_api_client = {
 
     if (rawURL && !eid) {
       if (this.isSharedFeedURL(rawURL)) {
-        eid = await this.fetchSharedFeedExportID(rawURL);
+        eid = await this.resolveSharedFeedExportID(rawURL);
       } else {
         var u = new URL(rawURL, window.location.origin);
         var encodedOID = u.searchParams.get('oid');
@@ -149,7 +364,18 @@ window.__wx_api_client = {
     };
   },
 
+  resolveSharedFeedProfile: async function (body) {
+    body = body || {};
+    var rawURL = body.url ? this.decodeFeedProfileURL(body.url) : '';
+    if (rawURL && this.isSharedFeedURL(rawURL)) {
+      return this.fetchSharedFeedProfile(body, rawURL);
+    }
+
+    return this.fetchFeedProfile(body);
+  },
+
   fetchFeedProfile: async function (body) {
+    body = body || {};
     var payload = await this.buildFeedProfilePayload(body);
     var response = await window.WXU.API.finderGetCommentDetail(payload);
     return {
@@ -572,11 +798,13 @@ window.__wx_api_client = {
       }
 
       // 获取视频详情
-      if (key === 'key:channels:feed_profile' || key === 'key:channels:shared_feed_profile') {
+      if (key === 'key:channels:feed_profile' || key === 'key:channels:shared_feed_profile' || key === 'key:channels:shared_feed_resolve') {
         console.log('[API客户端] 获取视频详情:', body);
 
         try {
-          var profileResult = await this.fetchFeedProfile(body);
+          var profileResult = key === 'key:channels:shared_feed_resolve'
+            ? await this.resolveSharedFeedProfile(body)
+            : await this.fetchFeedProfile(body);
           console.log('[API客户端] finderGetCommentDetail 结果:', profileResult.response);
           resp({
             ...profileResult.response,
