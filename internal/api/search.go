@@ -247,6 +247,16 @@ func (s *SearchService) fetchFeedProfile(req GetFeedProfileRequest, forceShared 
 	return s.callAPI(key, body, 60*time.Second)
 }
 
+func (s *SearchService) fetchSharedFeedResolveProfile(req GetFeedProfileRequest) ([]byte, error) {
+	body := websocket.FeedProfileBody{
+		ObjectID: req.ObjectID,
+		NonceID:  req.NonceID,
+		URL:      req.URL,
+	}
+
+	return s.callAPI("key:channels:shared_feed_resolve", body, 60*time.Second)
+}
+
 func (s *SearchService) tryFetchSharedFeedProfile(ctx context.Context, req GetFeedProfileRequest) (interface{}, bool, error) {
 	if !isSharedFeedURL(req.URL) {
 		return nil, false, nil
@@ -877,6 +887,7 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/search/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/v1/search/shared_feed/profile", s.GetSharedFeedProfile)
 	mux.HandleFunc("/api/v1/search/parse_sph", s.ParseSph)
+	mux.HandleFunc("/api/v1/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/v1/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/v1/search/feed/comments/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/v1/status", s.GetStatus)
@@ -887,6 +898,7 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/search/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/search/shared_feed/profile", s.GetSharedFeedProfile)
 	mux.HandleFunc("/api/search/parse_sph", s.ParseSph)
+	mux.HandleFunc("/api/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/search/feed/comments/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/status", s.GetStatus)
@@ -897,6 +909,7 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/channels/shared_feed/profile", s.GetSharedFeedProfile)
 	mux.HandleFunc("/api/channels/parse_sph", s.ParseSph)
+	mux.HandleFunc("/api/channels/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/channels/feed/comment/list", s.GetFeedCommentList)
 	mux.HandleFunc("/api/channels/feed/comment/export", s.ExportFeedComments)
 	mux.HandleFunc("/api/channels/status", s.GetStatus)

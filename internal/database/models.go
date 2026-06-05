@@ -105,6 +105,8 @@ type Settings struct {
 	AutoCleanupDays             int    `json:"autoCleanupDays"`
 	MaxRetries                  int    `json:"maxRetries"`
 	RadarEnabled                bool   `json:"radarEnabled"`
+	SharedFeedBackendEnabled    bool   `json:"sharedFeedBackendEnabled"`
+	SharedFeedBackendType       string `json:"sharedFeedBackendType,omitempty"`
 	Theme                       string `json:"theme"`
 }
 

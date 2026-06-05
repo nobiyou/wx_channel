@@ -334,6 +334,43 @@ func TestHandleSettingsGet_UsesConfigDownloadFilenameTemplate(t *testing.T) {
 	}
 }
 
+func TestHandleSettingsGet_UsesSharedFeedBackendStatusFromConfig(t *testing.T) {
+	cleanup := databaseTestSetupForHandlers(t)
+	defer cleanup()
+
+	cfg := &config.Config{
+		Cloudflare: config.CloudflareConfig{
+			SphHostname: "https://worker.example.com",
+		},
+	}
+	handler := NewConsoleAPIHandler(cfg, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rr := httptest.NewRecorder()
+	handler.HandleSettingsGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool              `json:"success"`
+		Data    database.Settings `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success response")
+	}
+	if !resp.Data.SharedFeedBackendEnabled {
+		t.Fatalf("sharedFeedBackendEnabled = false, want true")
+	}
+	if resp.Data.SharedFeedBackendType != "worker" {
+		t.Fatalf("sharedFeedBackendType = %q, want worker", resp.Data.SharedFeedBackendType)
+	}
+}
+
 func TestHandleSettingsUpdate_IgnoresRadarEnabledPayload(t *testing.T) {
 	cleanup := databaseTestSetupForHandlers(t)
 	defer cleanup()

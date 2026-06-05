@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -348,6 +349,250 @@ func TestParseSphReturnsBackendFeedResponse(t *testing.T) {
 	}
 }
 
+func TestResolveSharedFeedLinksUsesBackendMode(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		sphService: stubSharedFeedProfileService{
+			enabled: true,
+			fetch: func(ctx context.Context, shareURL string) (*services.SphFeedResponse, error) {
+				if shareURL != "https://weixin.qq.com/sph/A1b2C3d4" {
+					t.Fatalf("shareURL = %q", shareURL)
+				}
+				return &services.SphFeedResponse{
+					ErrCode: 0,
+					Data: services.SphFeedData{
+						SceneInfo: services.SphSceneInfo{DynamicExportID: "export-id-123"},
+						AuthorInfo: services.SphAuthorInfo{
+							Nickname: "后端作者",
+						},
+						FeedInfo: services.SphFeedInfo{
+							VideoURL:       "https://cdn.example.com/video.mp4?foo=1&encfilekey=abc&token=xyz&bar=2",
+							OriginVideoURL: "https://cdn.example.com/video.mp4?encfilekey=abc&token=xyz",
+							Description:    "后端分享视频",
+							CoverURL:       "https://cdn.example.com/cover.jpg",
+							CreateTime:     1717200000,
+						},
+					},
+				}, nil
+			},
+		},
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			t.Fatalf("callAPI should not be used in backend mode")
+			return nil, nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/share/resolve", strings.NewReader(`{"mode":"backend","urls":["https://weixin.qq.com/sph/A1b2C3d4"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	service.ResolveSharedFeedLinks(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			BackendEnabled bool `json:"backendEnabled"`
+			Resolved       []struct {
+				InputURL   string `json:"inputUrl"`
+				Channel    string `json:"channel"`
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				AuthorName string `json:"authorName"`
+				URL        string `json:"url"`
+				Key        string `json:"key"`
+				CoverURL   string `json:"coverUrl"`
+				SourceURL  string `json:"sourceUrl"`
+			} `json:"resolved"`
+			Failed []interface{} `json:"failed"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if body.Code != 0 {
+		t.Fatalf("code = %d, want 0", body.Code)
+	}
+	if !body.Data.BackendEnabled {
+		t.Fatalf("backendEnabled = false, want true")
+	}
+	if len(body.Data.Resolved) != 1 {
+		t.Fatalf("resolved count = %d, want 1", len(body.Data.Resolved))
+	}
+	item := body.Data.Resolved[0]
+	if item.Channel != "backend" {
+		t.Fatalf("channel = %q, want backend", item.Channel)
+	}
+	if item.ID != "export-id-123" {
+		t.Fatalf("id = %q, want export-id-123", item.ID)
+	}
+	if item.Title != "后端分享视频" {
+		t.Fatalf("title = %q", item.Title)
+	}
+	if item.AuthorName != "后端作者" {
+		t.Fatalf("authorName = %q", item.AuthorName)
+	}
+	if item.URL != "https://cdn.example.com/video.mp4?encfilekey=abc&token=xyz" {
+		t.Fatalf("url = %q", item.URL)
+	}
+	if item.Key != "" {
+		t.Fatalf("key = %q, want empty", item.Key)
+	}
+	if item.SourceURL != "" {
+		t.Fatalf("sourceUrl = %q, want empty", item.SourceURL)
+	}
+	if len(body.Data.Failed) != 0 {
+		t.Fatalf("failed count = %d, want 0", len(body.Data.Failed))
+	}
+}
+
+func TestResolveSharedFeedLinksAutoFallsBackToPage(t *testing.T) {
+	t.Parallel()
+
+	var calledKey string
+
+	service := &SearchService{
+		sphService: stubSharedFeedProfileService{
+			enabled: true,
+			fetch: func(ctx context.Context, shareURL string) (*services.SphFeedResponse, error) {
+				return nil, errors.New("worker unavailable")
+			},
+		},
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			calledKey = key
+			return []byte(`{"errCode":0,"data":{"object":{"id":"page-export-id","nickname":"页面作者","contact":{"nickname":"页面作者"},"objectDesc":{"description":"页面分享视频","mediaType":4,"media":[{"url":"https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456","decodeKey":"987654321","thumbUrl":"https://cdn.example.com/page-cover.jpg","videoPlayLen":12,"fileSize":1048576,"videoResolution":"1080p"}]}},"sceneInfo":{"dynamicExportId":"page-export-id"}}}`), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/share/resolve", strings.NewReader(`{"mode":"auto","urls":["https://weixin.qq.com/sph/A1b2C3d4"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	service.ResolveSharedFeedLinks(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledKey != "key:channels:shared_feed_resolve" {
+		t.Fatalf("called key = %s, want key:channels:shared_feed_resolve", calledKey)
+	}
+
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			Resolved []struct {
+				Channel    string `json:"channel"`
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				AuthorName string `json:"authorName"`
+				URL        string `json:"url"`
+				Key        string `json:"key"`
+				CoverURL   string `json:"coverUrl"`
+				Resolution string `json:"resolution"`
+				DurationMs int64  `json:"durationMs"`
+				Size       int64  `json:"size"`
+			} `json:"resolved"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Resolved) != 1 {
+		t.Fatalf("resolved count = %d, want 1", len(body.Data.Resolved))
+	}
+	item := body.Data.Resolved[0]
+	if item.Channel != "page" {
+		t.Fatalf("channel = %q, want page", item.Channel)
+	}
+	if item.ID != "page-export-id" {
+		t.Fatalf("id = %q", item.ID)
+	}
+	if item.Title != "页面分享视频" {
+		t.Fatalf("title = %q", item.Title)
+	}
+	if item.AuthorName != "页面作者" {
+		t.Fatalf("authorName = %q", item.AuthorName)
+	}
+	if item.URL != "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456" {
+		t.Fatalf("url = %q", item.URL)
+	}
+	if item.Key != "987654321" {
+		t.Fatalf("key = %q", item.Key)
+	}
+	if item.CoverURL != "https://cdn.example.com/page-cover.jpg" {
+		t.Fatalf("coverUrl = %q", item.CoverURL)
+	}
+	if item.Resolution != "1080p" {
+		t.Fatalf("resolution = %q", item.Resolution)
+	}
+	if item.DurationMs != 12000 {
+		t.Fatalf("durationMs = %d, want 12000", item.DurationMs)
+	}
+	if item.Size != 1048576 {
+		t.Fatalf("size = %d, want 1048576", item.Size)
+	}
+}
+
+func TestResolveSharedFeedLinksPageModeSkipsBackend(t *testing.T) {
+	t.Parallel()
+
+	var calledKey string
+
+	service := &SearchService{
+		sphService: stubSharedFeedProfileService{
+			enabled: true,
+			fetch: func(ctx context.Context, shareURL string) (*services.SphFeedResponse, error) {
+				t.Fatalf("backend fetch should not be used in page mode")
+				return nil, nil
+			},
+		},
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			calledKey = key
+			return []byte(`{"errCode":0,"data":{"object":{"id":"page-only-id","nickname":"页面作者","objectDesc":{"description":"页面模式视频","mediaType":4,"media":[{"url":"https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456","thumbUrl":"https://cdn.example.com/page-cover.jpg"}]}}}}`), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/share/resolve", strings.NewReader(`{"mode":"page","urls":["https://weixin.qq.com/sph/A1b2C3d4"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	service.ResolveSharedFeedLinks(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledKey != "key:channels:shared_feed_resolve" {
+		t.Fatalf("called key = %s, want key:channels:shared_feed_resolve", calledKey)
+	}
+
+	var body struct {
+		Code int `json:"code"`
+		Data struct {
+			Resolved []struct {
+				Channel string `json:"channel"`
+				Title   string `json:"title"`
+			} `json:"resolved"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data.Resolved) != 1 {
+		t.Fatalf("resolved count = %d, want 1", len(body.Data.Resolved))
+	}
+	if body.Data.Resolved[0].Channel != "page" {
+		t.Fatalf("channel = %q, want page", body.Data.Resolved[0].Channel)
+	}
+	if body.Data.Resolved[0].Title != "页面模式视频" {
+		t.Fatalf("title = %q", body.Data.Resolved[0].Title)
+	}
+}
+
 func TestRegisterRoutesSupportsChannelsParseSph(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +614,44 @@ func TestRegisterRoutesSupportsChannelsParseSph(t *testing.T) {
 	service.RegisterRoutes(mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/channels/parse_sph?url=https://weixin.qq.com/sph/A1b2C3d4", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestRegisterRoutesSupportsChannelsShareResolve(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		sphService: stubSharedFeedProfileService{
+			enabled: true,
+			fetch: func(ctx context.Context, shareURL string) (*services.SphFeedResponse, error) {
+				return &services.SphFeedResponse{
+					ErrCode: 0,
+					Data: services.SphFeedData{
+						SceneInfo: services.SphSceneInfo{DynamicExportID: "export-id-route"},
+						AuthorInfo: services.SphAuthorInfo{
+							Nickname: "作者A",
+						},
+						FeedInfo: services.SphFeedInfo{
+							OriginVideoURL: "https://cdn.example.com/video.mp4?encfilekey=abc&token=xyz",
+							Description:    "路由测试视频",
+						},
+					},
+				}, nil
+			},
+		},
+	}
+
+	mux := http.NewServeMux()
+	service.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/share/resolve", strings.NewReader(`{"mode":"backend","urls":["https://weixin.qq.com/sph/A1b2C3d4"]}`))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)

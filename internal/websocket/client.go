@@ -324,6 +324,8 @@ func (c *Client) SupportsKey(key string) bool {
 		return c.methods["finderGetCommentDetail"]
 	case "key:channels:shared_feed_profile":
 		return c.methods["finderGetCommentDetail"]
+	case "key:channels:shared_feed_resolve":
+		return c.methods["finderGetCommentDetail"]
 	case "key:channels:fetch_feed_comment_list":
 		return c.methods["finderGetCommentList"]
 	default:

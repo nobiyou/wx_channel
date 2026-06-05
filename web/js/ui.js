@@ -221,6 +221,9 @@ async function loadPageData(page) {
             case 'browse': await loadBrowseHistory(); break;
             case 'downloads': await loadDownloadRecords(); break;
             case 'batch':
+                if (typeof loadBatchPageContext === 'function') {
+                    await loadBatchPageContext();
+                }
                 // 检测批量下载任务并显示进度卡片
                 if (typeof checkAndShowBatchProgressForBatchPage === 'function') {
                     await checkAndShowBatchProgressForBatchPage();

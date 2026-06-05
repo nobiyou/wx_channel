@@ -76,7 +76,22 @@ func (h *ConsoleAPIHandler) applyConfigOwnedSettings(settings *database.Settings
 	copied := *settings
 	copied.RadarEnabled = cfg.RadarEnabled
 	copied.DownloadFilenameTemplate = cfg.DownloadFilenameTemplate
+	copied.SharedFeedBackendEnabled, copied.SharedFeedBackendType = resolveSharedFeedBackendStatus(cfg)
 	return &copied
+}
+
+func resolveSharedFeedBackendStatus(cfg *config.Config) (bool, string) {
+	if cfg == nil {
+		return false, "none"
+	}
+
+	if strings.TrimSpace(cfg.Cloudflare.SphHostname) != "" {
+		return true, "worker"
+	}
+	if strings.TrimSpace(cfg.Cloudflare.SphCookie) != "" {
+		return true, "cookie"
+	}
+	return false, "none"
 }
 
 // APIResponse 表示标准 API 响应

@@ -618,6 +618,43 @@
                     <div class="card-header">
                         <h3 class="card-title">批量下载</h3>
                     </div>
+                    <div class="form-group" style="margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border-color);">
+                        <label>分享链接下载</label>
+                        <textarea id="sharedFeedUrlList" rows="5" placeholder="每行一个视频号分享链接，例如 https://weixin.qq.com/sph/xxxx"
+                            style="font-family: monospace; font-size: 13px;"></textarea>
+                        <div class="form-hint" id="sharedFeedBackendHint">支持自动、视频号页面、Cookie纯后端 三种解析模式</div>
+                    </div>
+                    <div class="form-group" style="display: flex; gap: 16px; flex-wrap: wrap; align-items: end; margin-bottom: 20px;">
+                        <div style="min-width: 220px; flex: 1;">
+                            <label for="sharedFeedResolveMode">解析模式</label>
+                            <select id="sharedFeedResolveMode" class="filter-btn" style="width: 100%;">
+                                <option value="auto">自动（推荐）</option>
+                                <option value="page">视频号页面</option>
+                                <option value="backend">Cookie纯后端</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <button class="btn btn-primary" onclick="resolveSharedFeedLinks()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                                解析并加入下载列表
+                            </button>
+                            <button class="btn btn-secondary" onclick="clearSharedFeedInputs()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path
+                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                </svg>
+                                清空分享链接
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group" id="sharedFeedResolveSummary" style="display: none; margin-bottom: 24px;">
+                        <div class="alert alert-info" id="sharedFeedResolveSummaryText"></div>
+                    </div>
                     <div class="form-group">
                         <label>视频列表（JSON 格式）</label>
                         <textarea id="batchVideoList" rows="12" placeholder='请输入 JSON 格式的视频列表，或从浏览记录导入...'

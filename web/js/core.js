@@ -306,6 +306,19 @@ const ApiClient = {
     // Settings
     async getSettings() { return await this.request('GET', '/settings'); },
     async updateSettings(settings) { return await this.request('PUT', '/settings', settings); },
+    async resolveSharedFeedLinks(urls, mode = 'auto') {
+        const result = await this.request('POST', '/search/share/resolve', { urls, mode });
+        if (result && result.code === 0) {
+            return {
+                success: true,
+                data: result.data || {}
+            };
+        }
+        return {
+            success: false,
+            error: result && (result.message || result.error) ? (result.message || result.error) : '未知错误'
+        };
+    },
 
     // Statistics
     async getStatistics() { return await this.request('GET', '/stats'); },
