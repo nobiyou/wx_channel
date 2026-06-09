@@ -18,9 +18,16 @@ hub_server/sites_hub_frontend/node_modules/
 hub_server/sites_hub_frontend/dist/
 hub_server/sites_hub_frontend/.next/
 hub_server/sites_hub_frontend/.wrangler/
+hub_server/sites_hub_frontend/dev.log
+hub_server/sites_hub_frontend/*.tar
 hub_server/help.md
 hub_server/CHANGELOG.md
 hub_server/hub_server
+
+# Local tool/runtime caches
+.codegraph/
+.codex-cache/
+.tmp_runtime/
 hub_server/frontend/
 hub_server/docs/
 # ==================== 压缩文件 ====================
