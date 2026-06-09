@@ -1,14 +1,37 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"wx_channel/hub_server/database"
+	"wx_channel/hub_server/middleware"
+	"wx_channel/hub_server/models"
+	"wx_channel/hub_server/ws"
 	"wx_channel/internal/services"
 )
+
+type hubSharedFeedService interface {
+	Enabled() bool
+	FetchVideoProfile(ctx context.Context, shareURL string) (*services.SphFeedResponse, error)
+}
+
+type sharedFeedProfileRequest struct {
+	URL string `json:"url"`
+}
+
+var newHubSharedFeedService = func() hubSharedFeedService {
+	return services.NewSphServiceWithConfigProvider(loadHubSphConfig)
+}
+
+var fetchSharedFeedProfileViaPage = defaultFetchSharedFeedProfileViaPage
 
 func ParseSph(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -52,43 +75,51 @@ func ParseSph(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetSharedFeedProfile(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL string `json:"url"`
+	handleSharedFeedProfile(nil, w, r)
+}
+
+func GetSharedFeedProfileHandler(hub *ws.Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handleSharedFeedProfile(hub, w, r)
+	}
+}
+
+func handleSharedFeedProfile(hub *ws.Hub, w http.ResponseWriter, r *http.Request) {
+	req, err := decodeSharedFeedProfileRequest(r)
+	if err != nil {
+		writeSharedFeedProfileError(w, http.StatusBadRequest, "Invalid request body")
+		return
 	}
 
-	if r.Method == http.MethodGet {
-		req.URL = r.URL.Query().Get("url")
-	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+	req.URL = normalizeSharedFeedProfileURL(req.URL)
+	if req.URL == "" {
+		writeSharedFeedProfileError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	service := newHubSharedFeedService()
+	if service != nil && service.Enabled() {
+		resp, err := service.FetchVideoProfile(r.Context(), req.URL)
+		if err == nil {
+			writeSharedFeedProfileSuccess(w, services.BuildSharedFeedProfileCompatResponse(resp))
 			return
 		}
+
+		log.Printf("[shared_feed_profile] backend parse failed, fallback to page API: %v", err)
 	}
 
-	req.URL = strings.TrimSpace(req.URL)
-	if req.URL == "" {
-		http.Error(w, "url is required", http.StatusBadRequest)
-		return
-	}
-
-	service := services.NewSphServiceWithConfigProvider(loadHubSphConfig)
-	if !service.Enabled() {
-		http.Error(w, "sph settings not configured", http.StatusBadRequest)
-		return
-	}
-
-	resp, err := service.FetchVideoProfile(r.Context(), req.URL)
+	userID := getHubUserID(r)
+	result, err := fetchSharedFeedProfileViaPage(r.Context(), hub, userID, req.URL)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if isNoReadySharedFeedPageError(err) {
+			writeSharedFeedProfileError(w, http.StatusServiceUnavailable, "No ready WeChat page is available for shared feed profile.")
+			return
+		}
+		writeSharedFeedProfileError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"code":    0,
-		"message": "success",
-		"data":    services.BuildSharedFeedProfileCompatResponse(resp),
-	})
+	writeSharedFeedProfileSuccess(w, result)
 }
 
 func GetSphSettings(w http.ResponseWriter, r *http.Request) {
@@ -99,10 +130,10 @@ func GetSphSettings(w http.ResponseWriter, r *http.Request) {
 		"code":    0,
 		"message": "success",
 		"data": map[string]interface{}{
-			"enabled":          strings.TrimSpace(cfg.SphCookie) != "" || strings.TrimSpace(cfg.SphHostname) != "",
-			"hasCookie":        strings.TrimSpace(cfg.SphCookie) != "",
-			"cookieMasked":     maskSecret(cfg.SphCookie),
-			"hostname":         cfg.SphHostname,
+			"enabled":           strings.TrimSpace(cfg.SphCookie) != "" || strings.TrimSpace(cfg.SphHostname) != "",
+			"hasCookie":         strings.TrimSpace(cfg.SphCookie) != "",
+			"cookieMasked":      maskSecret(cfg.SphCookie),
+			"hostname":          cfg.SphHostname,
 			"sourceFallbackEnv": strings.TrimSpace(os.Getenv("HUB_SPH_COOKIE")) != "" || strings.TrimSpace(os.Getenv("HUB_SPH_HOSTNAME")) != "",
 		},
 	})
@@ -145,6 +176,175 @@ func UpdateSphSettings(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"code":    0,
 		"message": "Settings updated successfully",
+	})
+}
+
+func decodeSharedFeedProfileRequest(r *http.Request) (sharedFeedProfileRequest, error) {
+	var req sharedFeedProfileRequest
+
+	if r.Method == http.MethodGet {
+		req.URL = r.URL.Query().Get("url")
+		return req, nil
+	}
+
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return req, err
+		}
+	}
+
+	return req, nil
+}
+
+func normalizeSharedFeedProfileURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	decoded, err := url.QueryUnescape(raw)
+	if err == nil {
+		return decoded
+	}
+
+	return raw
+}
+
+func defaultFetchSharedFeedProfileViaPage(ctx context.Context, hub *ws.Hub, userID uint, shareURL string) (interface{}, error) {
+	if hub == nil {
+		return nil, errors.New("no ready client")
+	}
+
+	clientIDs := collectSharedFeedProfileClientIDs(userID)
+	if len(clientIDs) == 0 {
+		return nil, errors.New("no ready client")
+	}
+
+	var lastErr error
+	payload := map[string]interface{}{
+		"key": "key:channels:shared_feed_profile",
+		"body": map[string]interface{}{
+			"objectId": "",
+			"nonceId":  "",
+			"url":      shareURL,
+		},
+	}
+
+	for _, clientID := range clientIDs {
+		resp, err := hub.Call(userID, clientID, "api_call", payload, 60*time.Second)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if !resp.Success {
+			if msg := strings.TrimSpace(resp.Error); msg != "" {
+				lastErr = errors.New(msg)
+			} else {
+				lastErr = errors.New("shared feed profile page call failed")
+			}
+			continue
+		}
+
+		var result interface{}
+		if err := json.Unmarshal(resp.Data, &result); err != nil {
+			raw := append([]byte(nil), resp.Data...)
+			return json.RawMessage(raw), nil
+		}
+
+		return result, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	return nil, errors.New("no ready client")
+}
+
+func collectSharedFeedProfileClientIDs(userID uint) []string {
+	seen := map[string]struct{}{}
+	var clientIDs []string
+
+	appendNode := func(node models.Node) {
+		if node.ID == "" || node.Status != "online" {
+			return
+		}
+		if _, ok := seen[node.ID]; ok {
+			return
+		}
+		seen[node.ID] = struct{}{}
+		clientIDs = append(clientIDs, node.ID)
+	}
+
+	if userID != 0 {
+		user, err := database.GetUserByID(userID)
+		if err == nil {
+			for _, device := range user.Devices {
+				if device.Status == "online" && nodeSupportsCapability(device, "profile") {
+					appendNode(device)
+				}
+			}
+			for _, device := range user.Devices {
+				if device.Status == "online" {
+					appendNode(device)
+				}
+			}
+		}
+	}
+
+	var nodes []models.Node
+	if database.DB != nil {
+		if err := database.DB.Where("status = ? AND supports_profile = ?", "online", true).Find(&nodes).Error; err == nil {
+			for _, node := range nodes {
+				appendNode(node)
+			}
+		}
+
+		nodes = nil
+		if err := database.DB.Where("status = ?", "online").Find(&nodes).Error; err == nil {
+			for _, node := range nodes {
+				appendNode(node)
+			}
+		}
+	}
+
+	return clientIDs
+}
+
+func getHubUserID(r *http.Request) uint {
+	userID, _ := r.Context().Value(middleware.ContextKeyUserID).(uint)
+	return userID
+}
+
+func isNoReadySharedFeedPageError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "no ready client") ||
+		strings.Contains(msg, "no available client") ||
+		strings.Contains(msg, "no online device") ||
+		strings.Contains(msg, "no device found") ||
+		strings.Contains(msg, "client offline")
+}
+
+func writeSharedFeedProfileSuccess(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"code":    0,
+		"message": "success",
+		"data":    data,
+	})
+}
+
+func writeSharedFeedProfileError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"code":    status,
+		"message": message,
 	})
 }
 

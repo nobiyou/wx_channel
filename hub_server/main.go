@@ -129,7 +129,7 @@ func main() {
 	auth.HandleFunc("/api/metrics/timeseries", controllers.GetTimeSeriesData).Methods("GET")
 	auth.HandleFunc("/api/ws/stats", controllers.GetWSStats(hub)).Methods("GET")
 	auth.HandleFunc("/api/channels/parse_sph", controllers.ParseSph).Methods("GET", "POST")
-	auth.HandleFunc("/api/channels/shared_feed/profile", controllers.GetSharedFeedProfile).Methods("GET", "POST")
+	auth.HandleFunc("/api/channels/shared_feed/profile", controllers.GetSharedFeedProfileHandler(hub)).Methods("GET", "POST")
 
 	// Sync Management
 	auth.HandleFunc("/api/sync/status", controllers.GetSyncStatus).Methods("GET")

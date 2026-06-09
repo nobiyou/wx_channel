@@ -14,6 +14,10 @@ logs/
 
 # Web 控制台源代码
 hub_server/frontend/
+hub_server/sites_hub_frontend/node_modules/
+hub_server/sites_hub_frontend/dist/
+hub_server/sites_hub_frontend/.next/
+hub_server/sites_hub_frontend/.wrangler/
 hub_server/help.md
 hub_server/CHANGELOG.md
 hub_server/hub_server

@@ -47,12 +47,7 @@ func (h *Hub) Run() {
 
 			log.Printf("Client connected: %s from %s", client.ID, client.IP)
 			// DB: Mark as online
-			database.UpsertNode(&models.Node{
-				ID:       client.ID,
-				IP:       client.IP,
-				Status:   "online",
-				LastSeen: time.Now(),
-			})
+			database.UpsertNodePresence(client.ID, client.IP, time.Now())
 
 		case client := <-h.Unregister:
 			h.mu.Lock()

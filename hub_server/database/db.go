@@ -6,6 +6,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var DB *gorm.DB
@@ -65,20 +66,15 @@ func GetNodes() ([]models.Node, error) {
 }
 
 func UpsertNode(node *models.Node) error {
-	// First check if node exists
-	var existing models.Node
-	if err := DB.First(&existing, "id = ?", node.ID).Error; err != nil {
-		// New node - set CreatedAt and FirstSeen if not already set
-		if node.CreatedAt.IsZero() {
-			node.CreatedAt = time.Now()
-		}
-		if node.FirstSeen.IsZero() {
-			node.FirstSeen = time.Now()
-		}
-		return DB.Create(node).Error
+	// Insert or update in one statement so websocket register/heartbeat writes
+	// cannot race and drop capability fields like supports_profile.
+	if node.CreatedAt.IsZero() {
+		node.CreatedAt = time.Now()
+	}
+	if node.FirstSeen.IsZero() {
+		node.FirstSeen = time.Now()
 	}
 
-	// Update existing fields, but preserve created_at, first_seen, UserID and BindStatus
 	updates := map[string]interface{}{
 		"hostname":              node.Hostname,
 		"version":               node.Version,
@@ -111,7 +107,33 @@ func UpsertNode(node *models.Node) error {
 		updates["bind_status"] = node.BindStatus
 	}
 
-	return DB.Model(&models.Node{}).Where("id = ?", node.ID).Updates(updates).Error
+	return DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.Assignments(updates),
+	}).Create(node).Error
+}
+
+func UpsertNodePresence(id string, ip string, lastSeen time.Time) error {
+	node := &models.Node{
+		ID:        id,
+		IP:        ip,
+		Status:    "online",
+		LastSeen:  lastSeen,
+		CreatedAt: time.Now(),
+		FirstSeen: time.Now(),
+	}
+
+	updates := map[string]interface{}{
+		"ip":         ip,
+		"status":     "online",
+		"last_seen":  lastSeen,
+		"updated_at": time.Now(),
+	}
+
+	return DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.Assignments(updates),
+	}).Create(node).Error
 }
 
 func UpdateNodeStatus(id string, status string) error {
