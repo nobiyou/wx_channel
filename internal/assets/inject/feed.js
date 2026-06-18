@@ -44,10 +44,18 @@ function __get_visible_feed_op_items() {
   return [];
 }
 
-function __fetch_feed_comments__() {
+async function __fetch_feed_comments__() {
+  var refreshLockKey = 'feed-comment-export';
+  if (window.__wx_keep_alive && typeof window.__wx_keep_alive.lockRefresh === 'function') {
+    window.__wx_keep_alive.lockRefresh(refreshLockKey, '评论导出进行中');
+  }
+
   var profile = __sync_feed_profile_with_runtime(false);
 
   if (!profile || !profile.id) {
+    if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
+      window.__wx_keep_alive.unlockRefresh(refreshLockKey);
+    }
     __wx_log({ msg: '❌ 当前视频信息未就绪，无法获取评论' });
     return;
   }
@@ -58,6 +66,9 @@ function __fetch_feed_comments__() {
   }
 
   if (!nonceId) {
+    if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
+      window.__wx_keep_alive.unlockRefresh(refreshLockKey);
+    }
     __wx_log({ msg: '❌ 缺少 nonce_id，无法获取评论列表' });
     return;
   }
@@ -68,34 +79,53 @@ function __fetch_feed_comments__() {
   }
 
   __wx_log({ msg: '💬 正在获取评论并保存...' });
-  fetch('/api/channels/feed/comment/export', {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify({
-      object_id: profile.id,
-      nonce_id: nonceId,
-      title: profile.description || profile.title || '',
-      author: (profile.contact && (profile.contact.nickname || profile.contact.username)) || profile.nickname || ''
-    })
-  })
-    .then(function (response) { return response.json(); })
-    .then(function (result) {
-      if (result && result.code === 0 && result.data) {
-        var exported = result.data;
-        var total = exported.total_count || 0;
-        var reported = exported.reported_count || total;
-        __wx_log({ msg: '💬 评论导出成功：' + total + '/' + reported });
-        if (exported.relative_path) {
-          __wx_log({ msg: '💾 已保存：' + exported.relative_path });
-        }
-        window.__wx_channels_last_comment_list__ = result.data;
-      } else {
-        __wx_log({ msg: '❌ 获取评论列表失败' + (result && result.message ? '：' + result.message : '') });
-      }
-    })
-    .catch(function (err) {
-      __wx_log({ msg: '❌ 获取评论列表失败<' + (err && err.message ? err.message : err) + '>' });
+  try {
+    var response = await fetch('/api/channels/feed/comment/export', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        object_id: profile.id,
+        nonce_id: nonceId,
+        title: profile.description || profile.title || '',
+        author: (profile.contact && (profile.contact.nickname || profile.contact.username)) || profile.nickname || ''
+      })
     });
+    var result = await response.json().catch(function () { return null; });
+
+    if (!response.ok) {
+      var httpMessage = (result && result.message) ? result.message : ('HTTP ' + response.status);
+      __wx_log({ msg: '❌ 获取评论列表失败：' + httpMessage });
+      return;
+    }
+
+    if (!result || result.code !== 0 || !result.data) {
+      __wx_log({ msg: '❌ 获取评论列表失败' + (result && result.message ? '：' + result.message : '') });
+      return;
+    }
+
+    try {
+      var exported = result.data;
+      var total = exported.total_count || 0;
+      var reported = exported.reported_count || total;
+      var topLevel = exported.top_level_count || 0;
+      var replies = exported.reply_count || 0;
+      __wx_log({ msg: '💬 评论导出成功：一级' + topLevel + '，回复' + replies + '，合计' + total + '/' + reported });
+      if (exported.relative_path) {
+        __wx_log({ msg: '💾 已保存：' + exported.relative_path });
+      }
+      window.__wx_channels_last_comment_list__ = exported;
+    } catch (postProcessErr) {
+      console.error('[feed.js] 评论导出成功，但前端结果处理失败:', postProcessErr);
+      __wx_log({ msg: '💬 评论已导出成功，但前端状态更新失败' });
+    }
+  } catch (err) {
+    console.error('[feed.js] 评论导出请求失败:', err);
+    __wx_log({ msg: '❌ 获取评论列表失败<' + (err && err.message ? err.message : err) + '>' });
+  } finally {
+    if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
+      window.__wx_keep_alive.unlockRefresh(refreshLockKey);
+    }
+  }
 }
 
 var __wx_feed_runtime_state = {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -154,5 +155,91 @@ func TestExportFeedCommentsFetchesAllPagesRepliesAndSavesFile(t *testing.T) {
 	}
 	if filepath.Base(filepath.Dir(result.SavedPath)) != time.Now().Format("2006-01-02") {
 		t.Fatalf("saved directory = %s, want today's folder", filepath.Base(filepath.Dir(result.SavedPath)))
+	}
+}
+
+func TestExportFeedCommentsSavesCheckpointBeforeReplyFailure(t *testing.T) {
+	tempDir := t.TempDir()
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			req, ok := body.(websocket.FeedCommentListBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+
+			switch {
+			case req.CommentID == "" && req.NextMarker == "":
+				return []byte(`{"errCode":0,"errMsg":"ok","data":{"commentInfo":[{"commentId":"c1","content":"top-1","expandCommentCount":2,"levelTwoComment":[],"nickname":"用户A","username":"user_a"}],"countInfo":{"commentCount":1},"lastBuffer":""}}`), nil
+			case req.CommentID == "c1":
+				return nil, errors.New("page reloaded")
+			default:
+				t.Fatalf("unexpected request: %+v", req)
+				return nil, nil
+			}
+		},
+		resolveDownloadsDir: func() (string, error) {
+			return tempDir, nil
+		},
+	}
+
+	_, err := service.exportFeedComments(ExportFeedCommentsRequest{
+		ObjectID: "oid-1",
+		NonceID:  "nid-1",
+		Title:    "超长评论测试",
+		Author:   "测试作者",
+	})
+	if err == nil {
+		t.Fatalf("exportFeedComments() error = nil, want failure")
+	}
+
+	matches, err := filepath.Glob(filepath.Join(tempDir, "comment_data", time.Now().Format("2006-01-02"), "*.partial.json"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("partial checkpoint count = %d, want 1", len(matches))
+	}
+
+	raw, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	var saved struct {
+		ObjectID      string `json:"objectId"`
+		ObjectNonceID string `json:"objectNonceId"`
+		Title         string `json:"title"`
+		CommentInfo   []struct {
+			CommentID       string `json:"commentId"`
+			LevelTwoComment []struct{} `json:"levelTwoComment"`
+		} `json:"commentInfo"`
+		OriginalCommentCount int    `json:"originalCommentCount"`
+		Source               string `json:"source"`
+	}
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatalf("json unmarshal error = %v", err)
+	}
+
+	if saved.ObjectID != "oid-1" {
+		t.Fatalf("saved objectId = %s, want oid-1", saved.ObjectID)
+	}
+	if saved.ObjectNonceID != "nid-1" {
+		t.Fatalf("saved objectNonceId = %s, want nid-1", saved.ObjectNonceID)
+	}
+	if len(saved.CommentInfo) != 1 {
+		t.Fatalf("saved commentInfo len = %d, want 1", len(saved.CommentInfo))
+	}
+	if saved.CommentInfo[0].CommentID != "c1" {
+		t.Fatalf("saved commentId = %s, want c1", saved.CommentInfo[0].CommentID)
+	}
+	if len(saved.CommentInfo[0].LevelTwoComment) != 0 {
+		t.Fatalf("saved levelTwoComment len = %d, want 0", len(saved.CommentInfo[0].LevelTwoComment))
+	}
+	if saved.OriginalCommentCount != 1 {
+		t.Fatalf("saved originalCommentCount = %d, want 1", saved.OriginalCommentCount)
+	}
+	if saved.Source != "finderGetCommentList.partial" {
+		t.Fatalf("saved source = %s, want finderGetCommentList.partial", saved.Source)
 	}
 }

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -563,8 +561,21 @@ func (s *SearchService) ExportFeedComments(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*ExportFeedCommentsResult, error) {
+	downloadsDir, err := s.resolveDownloadsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	persistence, err := newCommentExportPersistence(downloadsDir, req)
+	if err != nil {
+		return nil, err
+	}
+
 	topLevelComments, reportedCount, err := s.fetchCommentPages(req.ObjectID, req.NonceID, "")
 	if err != nil {
+		return nil, err
+	}
+	if err := persistence.SaveCheckpoint(req, topLevelComments, reportedCount, 0, "finderGetCommentList.partial"); err != nil {
 		return nil, err
 	}
 
@@ -581,9 +592,13 @@ func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*Expo
 		}
 		comment["levelTwoComment"] = replies
 		replyCount += len(replies)
+
+		if err := persistence.SaveCheckpoint(req, topLevelComments, reportedCount, replyCount, "finderGetCommentList.partial"); err != nil {
+			return nil, err
+		}
 	}
 
-	savedPath, relativePath, err := s.saveCommentExport(req, topLevelComments, reportedCount, replyCount)
+	savedPath, relativePath, err := persistence.Finalize(req, topLevelComments, reportedCount, replyCount, "finderGetCommentList")
 	if err != nil {
 		return nil, err
 	}
@@ -663,52 +678,6 @@ func (s *SearchService) fetchCommentPages(objectID, nonceID, commentID string) (
 	}
 
 	return items, reportedCount, nil
-}
-
-func (s *SearchService) saveCommentExport(req ExportFeedCommentsRequest, comments []map[string]interface{}, reportedCount, replyCount int) (string, string, error) {
-	downloadsDir, err := s.resolveDownloadsDir()
-	if err != nil {
-		return "", "", err
-	}
-
-	saveDir := filepath.Join(downloadsDir, "comment_data", time.Now().Format("2006-01-02"))
-	if err := utils.EnsureDir(saveDir); err != nil {
-		return "", "", err
-	}
-
-	filenameBase := utils.CleanFilename(req.Title)
-	if strings.TrimSpace(filenameBase) == "" {
-		filenameBase = "comments_" + req.ObjectID
-	}
-
-	filename := utils.EnsureExtension(filenameBase, ".json")
-	savePath := utils.GenerateUniqueFilename(saveDir, filename, 100)
-
-	payload := commentExportFile{
-		ObjectID:             req.ObjectID,
-		ObjectNonceID:        req.NonceID,
-		Title:                req.Title,
-		Author:               req.Author,
-		CommentInfo:          formatCommentsForExport(comments),
-		CountInfo:            feedCommentExportCountInfo{CommentCount: len(comments)},
-		LastBuffer:           "",
-		UpContinueFlag:       0,
-		DownContinueFlag:     0,
-		OriginalCommentCount: reportedCount,
-		Source:               "finderGetCommentList",
-		SavedAt:              time.Now().Format(time.RFC3339),
-	}
-
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", "", err
-	}
-	if err := os.WriteFile(savePath, data, 0644); err != nil {
-		return "", "", err
-	}
-
-	relativePath, _ := filepath.Rel(downloadsDir, savePath)
-	return savePath, relativePath, nil
 }
 
 func commentHasReplies(comment map[string]interface{}) bool {

@@ -19,6 +19,7 @@ window.__wx_keep_alive = {
         visibilityChanges: 0,
         refreshCount: 0
     },
+    refreshLocks: {},
 
     // 初始化
     init: function () {
@@ -233,6 +234,10 @@ window.__wx_keep_alive = {
             const now = Date.now();
             const timeSinceLastRefresh = now - this.lastRefreshTime;
 
+            if (this.isRefreshLocked()) {
+                return;
+            }
+
             // 只有在页面运行超过 15 分钟时才刷新
             if (timeSinceLastRefresh >= REFRESH_INTERVAL) {
                 this.performRefresh('定期刷新（防止内存溢出）');
@@ -255,10 +260,36 @@ window.__wx_keep_alive = {
         console.log('[页面保活] ✅ 自动刷新已启动 (15分钟间隔，防止内存溢出)');
     },
 
+    isRefreshLocked: function () {
+        return Object.keys(this.refreshLocks).length > 0;
+    },
+
+    lockRefresh: function (key, reason) {
+        if (!key) return;
+        this.refreshLocks[key] = {
+            reason: reason || '',
+            lockedAt: Date.now()
+        };
+        console.log('[页面保活] 🔒 暂停自动刷新:', key, reason || '');
+    },
+
+    unlockRefresh: function (key) {
+        if (!key) return;
+        if (this.refreshLocks[key]) {
+            delete this.refreshLocks[key];
+            console.log('[页面保活] 🔓 恢复自动刷新:', key);
+        }
+    },
+
     // 执行页面刷新（可被外部调用）
     performRefresh: function (reason) {
         reason = reason || '手动刷新';
         const now = Date.now();
+
+        if (this.isRefreshLocked()) {
+            console.warn('[页面保活] ⏭️ 跳过刷新，存在刷新锁:', Object.keys(this.refreshLocks));
+            return;
+        }
 
         this.stats.refreshCount++;
         console.warn(`[页面保活] 🔄 执行刷新: ${reason} (第 ${this.stats.refreshCount} 次)`);
@@ -288,7 +319,8 @@ window.__wx_keep_alive = {
             timeSinceLastRefresh: Date.now() - this.lastRefreshTime,
             isActive: this.isActive,
             isVisible: !document.hidden,
-            hasWakeLock: !!this.wakeLock
+            hasWakeLock: !!this.wakeLock,
+            refreshLocks: Object.keys(this.refreshLocks)
         };
     },
 
