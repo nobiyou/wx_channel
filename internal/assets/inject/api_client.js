@@ -736,6 +736,42 @@ window.__wx_api_client = {
     }
 
     try {
+      if (key === 'key:channels:download_video') {
+        var headers = { 'Content-Type': 'application/json' };
+        if (window.__WX_LOCAL_TOKEN__) {
+          headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
+        }
+
+        try {
+          var downloadResp = await fetch('/__wx_channels_api/download_video', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(body || {})
+          });
+          var downloadData = await downloadResp.json().catch(function () { return {}; });
+
+          if (!downloadResp.ok || !downloadData || downloadData.success === false) {
+            resp({
+              errCode: downloadResp.status || 1011,
+              errMsg: (downloadData && (downloadData.error || downloadData.message)) || '下载视频失败',
+              payload: body,
+              response: downloadData
+            });
+            return;
+          }
+
+          resp(downloadData);
+          return;
+        } catch (err) {
+          resp({
+            errCode: 1011,
+            errMsg: err.message || '下载视频失败',
+            payload: body
+          });
+          return;
+        }
+      }
+
       // 等待 WXU.API 和 WXU.API2 初始化
       var maxWait = 10000; // 最多等待10秒
       var startTime = Date.now();

@@ -549,6 +549,15 @@ func (c *Connector) processMessage(msg CloudMessage) {
 
 	utils.LogInfo("收到云端指令: %s", cmd.Action)
 
+	if mappedData, mapped, err := mapCommandToAPICall(cmd.Action, cmd.Data); err != nil {
+		utils.LogError("指令参数转换失败: %v", err)
+		c.sendError(msg.ID, "Invalid command parameters")
+		return
+	} else if mapped {
+		c.handleAPICall(msg.ID, mappedData)
+		return
+	}
+
 	switch cmd.Action {
 	case "api_call":
 		c.handleAPICall(msg.ID, cmd.Data)
