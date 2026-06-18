@@ -67,25 +67,19 @@
 
 > 💡 **提示**：更多功能说明请查看 [文档目录](docs/README.md) 和 [Web 控制台指南](docs/WEB_CONSOLE.md)
 
-### Hub 前端界面 (v5.5+)
+### Hub 联动
 
-全新设计的 Hub 前端界面，提供更直观的数据看板和设备管理能力。服务端启动后访问 `http://localhost:8080` 使用：
+`wx_channel` 仍然支持连接独立 Hub，用于远程设备管理、同步推送和订阅协同：
 
-- **仪表盘 (Dashboard)**：实时监控设备在线状态、吞吐量及系统资源
-- **设备管理 (Devices)**：远程管理客户端设备，支持备注、分组及远程解绑
-- **任务中心 (Tasks)**：查看系统后台任务执行记录及状态
-- **个人中心 (Settings)**：管理账户积分、API 密钥及查看积分变动历史
-- **订阅管理 (Subscriptions)**：管理视频号订阅及自动下载策略
+- 客户端通过 `cloud_hub_url` 连接 Hub 的 `/ws/client`
+- 可使用绑定命令把客户端接入 Hub 账号体系
+- 本地配置中的 `hub_sync` 仍控制同步推送相关行为
 
-| Hub 登录页 | Hub 仪表盘 |
-| --- | --- | 
-|  ![Hub Login](assets/hub_login.png)  | ![Hub Dashboard](assets/hub_dashboard.png)  |
+Hub 服务端和 Hub 前端已经拆分到独立仓库：
 
-适配了电脑端和手机端页面，还有暗色和亮色主题。
+- [wx_channel_hub](https://github.com/nobiyou/wx_channel_hub)
 
-~~我今天看服务器咋那么慢，一看上传下载116mb，然后一看记录，吓了一跳，原本是问了方便群友，1月2日整了10T，我的妈呀，我真的吓到了，web控制台不再开放，计划中的功能延后开发，或者是否开放，后面再说。~~
-
-之前的不提了，不开放web端，现在视频号的标签页都可以下载了，功能已经很完善了。
+如果你需要部署 Hub，请在 `wx_channel_hub` 仓库中构建和运行，不再通过 `wx_channel` 仓库启动 `http://localhost:8080` 的 Hub 前端。
 
 
 ---
