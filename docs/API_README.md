@@ -20,15 +20,16 @@
 ## 详细文档
 
 - **快速开始**: `API_QUICK_START.md`
-- **搜索 API**: `docs/API_SEARCH_GUIDE.md`
-- **实现细节**: `docs/API_IMPLEMENTATION_SUMMARY.md`
+- **配置说明**: `CONFIGURATION.md`
+- **Web 控制台**: `WEB_CONSOLE.md`
 
 ## 注意事项
 
 1. 必须先打开微信视频号页面
 2. 使用 `username` 而不是 `nickname`
 3. 建议请求间隔 0.5-1 秒
-4. 检查 `errCode` 判断成功/失败
+4. 检查响应体中的 `code` 判断成功/失败
+5. 对标雷达默认关闭；如需使用，请运行 `wx_channel_radar.exe`，并在 `config.yaml` 中开启 `radar_enabled`
 
 ## 示例
 

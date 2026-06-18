@@ -18,7 +18,7 @@
 ### 1. 启动程序
 
 ```bash
-.\wx_channel_api.exe
+.\wx_channel.exe
 ```
 
 ### 2. 打开微信视频号页面
@@ -42,7 +42,7 @@ curl "http://127.0.0.1:2026/api/channels/contact/feed/list?username=账号userna
 #### 获取视频详情
 
 ```bash
-curl "http://127.0.0.1:2026/api/channels/feed/profile?objectId=视频ID&nonceId=视频NonceID"
+curl "http://127.0.0.1:2026/api/channels/feed/profile?object_id=视频ID&nonce_id=视频NonceID"
 ```
 
 ## API 端点
@@ -57,8 +57,8 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?objectId=视频ID&nonceId=
 **响应**:
 ```json
 {
-  "errCode": 0,
-  "errMsg": "ok",
+  "code": 0,
+  "message": "success",
   "data": {
     "infoList": [
       {
@@ -84,8 +84,8 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?objectId=视频ID&nonceId=
 **响应**:
 ```json
 {
-  "errCode": 0,
-  "errMsg": "ok",
+  "code": 0,
+  "message": "success",
   "data": {
     "object": [
       {
@@ -107,14 +107,15 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?objectId=视频ID&nonceId=
 **端点**: `GET /api/channels/feed/profile`
 
 **参数**:
-- `objectId` (必需): 视频ID
-- `nonceId` (必需): 视频NonceID
+- `object_id` (必需): 视频ID
+- `nonce_id` (可选): 视频 NonceID
+- `url` (可选): 视频页 URL 或分享链接；与 `object_id` 二选一，分享链接会自动走分享详情链路
 
 **响应**:
 ```json
 {
-  "errCode": 0,
-  "errMsg": "ok",
+  "code": 0,
+  "message": "success",
   "data": {
     "object": {
       "objectDesc": {
@@ -149,8 +150,8 @@ videos = response.json()['data']['object']
 video = videos[0]
 response = requests.get('http://127.0.0.1:2026/api/channels/feed/profile',
                        params={
-                           'objectId': video['id'],
-                           'nonceId': video['objectNonceId']
+                           'object_id': video['id'],
+                           'nonce_id': video['objectNonceId']
                        })
 detail = response.json()['data']['object']
 ```
@@ -160,7 +161,8 @@ detail = response.json()['data']['object']
 1. **必须先打开微信视频号页面** - API 通过 WebSocket 与页面通信
 2. **使用正确的 username** - 从搜索结果中获取，不是昵称
 3. **请求频率** - 建议在请求之间添加适当延迟（0.5-1秒）
-4. **错误处理** - 检查 `errCode`，0 表示成功
+4. **错误处理** - 检查 `code`，0 表示成功
+5. **对标雷达默认关闭** - 雷达监控需要运行 `wx_channel_radar.exe`，且默认以 `config.yaml` 中的 `radar_enabled` 为准
 
 ## 故障排查
 
@@ -176,11 +178,22 @@ detail = response.json()['data']['object']
 - 检查参数是否正确
 - 查看 `BaseResponse.Ret` 是否为 0
 
+### 视频详情接口返回 400
+
+- `GET /api/channels/feed/profile` 当前使用 `object_id` / `nonce_id` 参数名，不使用 `objectId` / `nonceId`
+- 也可以直接传 `url`，用于视频页地址或分享链接解析
+
+### 雷达监控获取不到视频列表
+
+- 普通版 `wx_channel.exe` 默认不启用对标雷达
+- 需要使用 `wx_channel_radar.exe`
+- 并确认 `config.yaml` 中 `radar_enabled: true` 后重启程序
+
 ## 更多信息
 
 详细的 API 文档请参考：
-- `docs/API_SEARCH_GUIDE.md` - 搜索 API 详细说明
-- `docs/API_IMPLEMENTATION_SUMMARY.md` - 实现细节
+- `docs/API_README.md` - API 功能说明
+- `docs/CONFIGURATION.md` - 配置项说明
 
 ---
 
