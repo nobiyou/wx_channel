@@ -459,10 +459,10 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 分享详情恢复 - /api/channels/shared_feed/profile 再次可用")
-	color.Green("    • 控制台直接导入 - 批量下载页可直接解析分享链接")
-	color.Green("    • 双通道解析 - 自动在纯后端与视频号页面之间切换")
-	color.Green("    • 短链回退补齐 - 页面接口异常时可回退到短链 ID")
+	color.Green("    • 检查点保存 - 评论导出过程新增 .partial.json 进度文件")
+	color.Green("    • 自动刷新保护 - 导出期间临时锁住 15 分钟页面自动刷新")
+	color.Green("    • 误报修复 - 后端已成功导出时不再弹 Failed to fetch")
+	color.Green("    • 成功提示增强 - 直接显示一级评论、回复与合计条数")
 	fmt.Println()
 }
 

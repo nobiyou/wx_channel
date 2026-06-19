@@ -695,9 +695,9 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.6.8 |
+                                <strong>当前版本：</strong>v5.6.9 |
 
-                                <strong>更新时间：</strong>2026-05-29
+                                <strong>更新时间：</strong>2026-06-19
 
                             </p>
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.6.8版本 - 最新版本 -->
+                        <!-- v5.6.9版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.8 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.9 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-06-05</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-06-19</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>分享详情恢复</strong>：`/api/channels/shared_feed/profile` 分享链接详情接口恢复可用。
+                                    <strong>分段保存进度</strong>：评论导出过程中会先写入 `.partial.json` 检查点文件。
 
                                 </li>
 
@@ -2108,14 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>控制台直接导入</strong>：批量下载页新增“分享链接下载”，解析后可直接加入下载列表。
+                                    <strong>自动刷新保护</strong>：导出评论期间临时锁住页面 15 分钟自动刷新，减少长任务被打断。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>双通道解析</strong>：支持自动、视频号页面、Cookie/Worker 纯后端三种解析模式。
+                                    <strong>误报修复</strong>：后端已成功导出后，不再因为前端状态更新异常弹出失败提示。
 
                                 </li>
 
@@ -2123,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>短链回退补齐</strong>：页面接口未稳定返回 `dynamicExportId` 时，自动回退到短链 ID。
+                                    <strong>成功提示增强</strong>：导出完成后直接展示一级评论数、回复数和总条数。
 
                                 </li>
 
@@ -2131,7 +2131,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>版本展示同步</strong>：启动横幅、README、版本说明与 Windows 文件版本信息统一更新到本次发布。
+                                    <strong>版本展示同步</strong>：README、版本说明、About 页面与 Windows 文件版本信息统一更新到本次发布。
 
                                 </li>
 
@@ -2139,7 +2139,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    保持现有调用方式不变，同时补上控制台侧的分享链接直链导入能力。
+                                    中断时会保留已完成的评论结果，便于后续排查或重试。
 
                                 </li>
 
@@ -2147,7 +2147,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    设置接口会显式返回后端解析是否已配置，页面提示和版本记录现已重新对齐。
+                                    成功和失败提示现在按真实链路分别展示，避免“导出成功但页面说失败”。
 
                                 </li>
 
@@ -2155,7 +2155,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    延续新版评论侧栏兼容、自动打开评论区与完整采集能力
+                                    长评论视频导出体验更稳，减少导出到一半被重置的情况。
 
                                 </li>
 
@@ -2163,7 +2163,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    延续 Hub / WebSocket 页面能力识别与智能选设备优化
+                                    保持现有评论列表 API 调用方式不变，不需要兼容旧参数。
 
                                 </li>
 
@@ -2171,7 +2171,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    雷达功能默认关闭，需要在 config.yaml 中显式开启并重启程序
+                                    雷达功能默认关闭，需要在 `config.yaml` 中显式开启并重启程序。
 
                                 </li>
 
@@ -2179,7 +2179,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    持续优化新版页面下的下载、评论、Hub 调用与整体稳定性
+                                    持续优化新版页面下的评论导出、下载链路与整体稳定性。
 
                                 </li>
 
