@@ -2,12 +2,12 @@
 
 ## 简介
 
-本项目提供了完整的 HTTP API 接口，可以通过标准的 HTTP 请求获取微信视频号的数据。
+本项目提供了完整的 HTTP API 接口，可以通过标准的 HTTP 请求获取微信视频号客户端代理拦截到的数据。
 
 ## 架构
 
 - **后端**: Go + WebSocket Hub + HTTP API
-- **前端**: JavaScript + WebSocket Client
+- **客户端桥接**: 微信视频号客户端 + 代理注入脚本 + WebSocket Client
 - **通信**: WebSocket 双向通信
 - **端口**: 
   - 代理端口: 2025（默认）
@@ -21,9 +21,9 @@
 .\wx_channel.exe
 ```
 
-### 2. 打开微信视频号页面
+### 2. 启动微信视频号客户端并保持代理可用
 
-在浏览器中打开任意微信视频号页面，等待页面加载完成。
+微信视频号内容来自独立客户端，浏览器不能直接访问内容。请启动微信视频号客户端，确认本程序代理已拦截到视频号 API，并等待 `/api/channels/status` 显示可用客户端。
 
 ### 3. 调用 API
 
@@ -31,6 +31,12 @@
 
 ```bash
 curl "http://127.0.0.1:2026/api/channels/contact/search?keyword=纪录片"
+```
+
+#### 搜索视频
+
+```bash
+curl "http://127.0.0.1:2026/api/channels/feed/search?keyword=AI"
 ```
 
 #### 获取账号视频列表
@@ -102,7 +108,40 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?object_id=视频ID&nonce_i
 }
 ```
 
-### 3. 获取视频详情
+### 3. 搜索视频
+
+**端点**: `GET /api/channels/feed/search`
+
+**参数**:
+- `keyword` (必需): 搜索关键词
+- `next_marker` (可选): 分页标记
+
+**说明**: 该接口固定使用视频搜索场景，内部调用视频号客户端 API `key:channels:contact_list` 且 `type=3`。返回结构跟客户端原始结果保持一致，常见视频列表字段可能位于 `data.objectList`、`data.data.objectList` 或类似结构中。
+
+**响应**:
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "errCode": 0,
+    "data": {
+      "objectList": [
+        {
+          "id": "视频ID",
+          "objectNonceId": "视频NonceID",
+          "objectDesc": {
+            "description": "视频标题"
+          }
+        }
+      ],
+      "lastBuffer": "下一页标记"
+    }
+  }
+}
+```
+
+### 4. 获取视频详情
 
 **端点**: `GET /api/channels/feed/profile`
 
@@ -130,6 +169,24 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?object_id=视频ID&nonce_i
 }
 ```
 
+### 5. 获取评论列表
+
+**端点**: `GET /api/channels/feed/comment/list`
+
+**参数**:
+- `object_id` (必需): 视频ID
+- `nonce_id` (可选): 视频 NonceID
+- `next_marker` (可选): 分页标记
+
+### 6. 导出评论
+
+**端点**: `POST /api/channels/feed/comment/export`
+
+**参数**:
+- `object_id` (必需): 视频ID
+- `nonce_id` (可选): 视频 NonceID
+- `title` (可选): 导出文件标题
+
 ## Python 示例
 
 ```python
@@ -140,13 +197,18 @@ response = requests.get('http://127.0.0.1:2026/api/channels/contact/search',
                        params={'keyword': '纪录片'})
 accounts = response.json()['data']['infoList']
 
-# 2. 获取第一个账号的视频列表
+# 2. 搜索视频池
+response = requests.get('http://127.0.0.1:2026/api/channels/feed/search',
+                       params={'keyword': 'AI'})
+videos = response.json()['data']['data']['objectList']
+
+# 3. 获取第一个账号的视频列表
 username = accounts[0]['contact']['username']
 response = requests.get('http://127.0.0.1:2026/api/channels/contact/feed/list',
                        params={'username': username})
-videos = response.json()['data']['object']
+account_videos = response.json()['data']['object']
 
-# 3. 获取第一个视频的详情
+# 4. 获取第一个视频的详情
 video = videos[0]
 response = requests.get('http://127.0.0.1:2026/api/channels/feed/profile',
                        params={
@@ -158,7 +220,7 @@ detail = response.json()['data']['object']
 
 ## 注意事项
 
-1. **必须先打开微信视频号页面** - API 通过 WebSocket 与页面通信
+1. **必须先启动微信视频号客户端并保持代理拦截可用** - API 通过 WebSocket 与注入客户端通信
 2. **使用正确的 username** - 从搜索结果中获取，不是昵称
 3. **请求频率** - 建议在请求之间添加适当延迟（0.5-1秒）
 4. **错误处理** - 检查 `code`，0 表示成功
@@ -168,7 +230,7 @@ detail = response.json()['data']['object']
 
 ### API 返回超时
 
-- 确认微信视频号页面已打开
+- 确认微信视频号客户端正在运行，并且程序代理已接管客户端请求
 - 检查后端日志是否有 WebSocket 连接
 - 刷新页面重新建立连接
 

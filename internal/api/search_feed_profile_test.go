@@ -139,6 +139,98 @@ func TestGetFeedProfileKeepsNormalRPCForFeedURLs(t *testing.T) {
 	}
 }
 
+func TestGetFeedProfileTranslatesJSAPIContextMismatch(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			return nil, errors.New("API error (code=-70003): JSAPI_JSONPARSE_FAILED")
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/feed/profile?object_id=oid-1&nonce_id=nid-1", nil)
+	rec := httptest.NewRecorder()
+
+	service.GetFeedProfile(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "当前页面上下文与这组视频 ID / nonce_id 不匹配") {
+		t.Fatalf("expected translated context mismatch guidance, got %s", rec.Body.String())
+	}
+}
+
+func TestGetSharedFeedProfileTranslatesJSAPIContextMismatch(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			return nil, errors.New("API error (code=-70003): JSAPI_JSONPARSE_FAILED")
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/shared_feed/profile?url=https://weixin.qq.com/sph/A1b2C3d4", nil)
+	rec := httptest.NewRecorder()
+
+	service.GetSharedFeedProfile(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "当前页面上下文与这组视频 ID / nonce_id 不匹配") {
+		t.Fatalf("expected translated context mismatch guidance, got %s", rec.Body.String())
+	}
+}
+
+func TestGetFeedCommentListTranslatesJSAPIContextMismatch(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			return nil, errors.New("API error (code=-70003): JSAPI_JSONPARSE_FAILED")
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/feed/comment/list?object_id=oid-1&nonce_id=nid-1", nil)
+	rec := httptest.NewRecorder()
+
+	service.GetFeedCommentList(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "当前页面上下文与这组视频 ID / nonce_id 不匹配") {
+		t.Fatalf("expected translated context mismatch guidance, got %s", rec.Body.String())
+	}
+}
+
+func TestExportFeedCommentsTranslatesJSAPIContextMismatch(t *testing.T) {
+	t.Parallel()
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			return nil, errors.New("API error (code=-70003): JSAPI_JSONPARSE_FAILED")
+		},
+		resolveDownloadsDir: func() (string, error) {
+			return t.TempDir(), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/feed/comment/export", strings.NewReader(`{"object_id":"oid-1","nonce_id":"nid-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	service.ExportFeedComments(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "当前页面上下文与这组视频 ID / nonce_id 不匹配") {
+		t.Fatalf("expected translated context mismatch guidance, got %s", rec.Body.String())
+	}
+}
+
 func TestRegisterRoutesSupportsChannelsSharedFeedProfile(t *testing.T) {
 	t.Parallel()
 
@@ -164,6 +256,123 @@ func TestRegisterRoutesSupportsChannelsSharedFeedProfile(t *testing.T) {
 	}
 	if calledKey != "key:channels:shared_feed_profile" {
 		t.Fatalf("called key = %s, want key:channels:shared_feed_profile", calledKey)
+	}
+}
+
+func TestSearchFeedGETForcesVideoSearchTypeAndMarker(t *testing.T) {
+	t.Parallel()
+
+	var calledKey string
+	var calledBody websocket.SearchContactBody
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			calledKey = key
+			if timeout != 60*time.Second {
+				t.Fatalf("timeout = %s, want 60s", timeout)
+			}
+			req, ok := body.(websocket.SearchContactBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+			calledBody = req
+			return []byte(`{"errCode":0,"data":{"objectList":[{"id":"feed-1"}],"lastBuffer":"next"}}`), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/feed/search?keyword=AI&type=1&next_marker=cursor%2B1", nil)
+	rec := httptest.NewRecorder()
+
+	service.SearchFeed(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledKey != "key:channels:contact_list" {
+		t.Fatalf("called key = %s, want key:channels:contact_list", calledKey)
+	}
+	if calledBody.Keyword != "AI" {
+		t.Fatalf("keyword = %q, want AI", calledBody.Keyword)
+	}
+	if calledBody.Type != 3 {
+		t.Fatalf("type = %d, want 3", calledBody.Type)
+	}
+	if calledBody.NextMarker != "cursor+1" {
+		t.Fatalf("next_marker = %q, want cursor+1", calledBody.NextMarker)
+	}
+}
+
+func TestSearchFeedPOSTForcesVideoSearchType(t *testing.T) {
+	t.Parallel()
+
+	var calledBody websocket.SearchContactBody
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			if key != "key:channels:contact_list" {
+				t.Fatalf("called key = %s, want key:channels:contact_list", key)
+			}
+			req, ok := body.(websocket.SearchContactBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+			calledBody = req
+			return []byte(`{"errCode":0,"data":{"objectList":[{"id":"feed-1"}]}}`), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/channels/feed/search", strings.NewReader(`{"keyword":"AI","type":1,"next_marker":"cursor"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	service.SearchFeed(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledBody.Keyword != "AI" {
+		t.Fatalf("keyword = %q, want AI", calledBody.Keyword)
+	}
+	if calledBody.Type != 3 {
+		t.Fatalf("type = %d, want 3", calledBody.Type)
+	}
+	if calledBody.NextMarker != "cursor" {
+		t.Fatalf("next_marker = %q, want cursor", calledBody.NextMarker)
+	}
+}
+
+func TestRegisterRoutesSupportsChannelsFeedSearch(t *testing.T) {
+	t.Parallel()
+
+	var calledBody websocket.SearchContactBody
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			if key != "key:channels:contact_list" {
+				t.Fatalf("called key = %s, want key:channels:contact_list", key)
+			}
+			req, ok := body.(websocket.SearchContactBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+			calledBody = req
+			return []byte(`{"errCode":0,"data":{"objectList":[{"id":"feed-1"}]}}`), nil
+		},
+	}
+
+	mux := http.NewServeMux()
+	service.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/feed/search?keyword=AI", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledBody.Type != 3 {
+		t.Fatalf("type = %d, want 3", calledBody.Type)
 	}
 }
 
