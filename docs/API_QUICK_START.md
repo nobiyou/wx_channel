@@ -60,6 +60,8 @@ curl "http://127.0.0.1:2026/api/channels/feed/profile?object_id=视频ID&nonce_i
 **参数**:
 - `keyword` (必需): 搜索关键词
 
+**说明**: 该接口固定使用账号搜索场景，内部调用视频号客户端 API `key:channels:contact_list` 且 `type=1`。如果要搜索视频，请使用 `/api/channels/feed/search`。
+
 **响应**:
 ```json
 {

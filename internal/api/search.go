@@ -90,6 +90,9 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 		req.PageSize = 20
 	}
 
+	// 账号搜索入口固定使用 finderSearch 的账号场景，视频搜索请走 /api/channels/feed/search。
+	req.Type = 1
+
 	// 调用前端 API
 	body := websocket.SearchContactBody{
 		Keyword:    req.Keyword,
@@ -120,9 +123,19 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 // SearchFeed 搜索视频，复用视频号客户端 finderSearch 的 Type=3 场景。
 func (s *SearchService) SearchFeed(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		query := r.URL.Query()
-		query.Set("type", "3")
-		r.URL.RawQuery = query.Encode()
+		var req SearchContactRequest
+		req.Keyword = r.URL.Query().Get("keyword")
+		req.Type = 3
+		req.Page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+		req.PageSize, _ = strconv.Atoi(r.URL.Query().Get("page_size"))
+		req.NextMarker = r.URL.Query().Get("next_marker")
+		data, err := s.searchWithRequest(req)
+		if err != nil {
+			writeSearchError(w, err)
+			return
+		}
+		response.Success(w, data)
+		return
 	}
 	if r.Method == http.MethodPost {
 		var req SearchContactRequest

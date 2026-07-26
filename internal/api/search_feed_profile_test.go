@@ -341,6 +341,79 @@ func TestSearchFeedPOSTForcesVideoSearchType(t *testing.T) {
 	}
 }
 
+func TestSearchContactGETForcesAccountSearchType(t *testing.T) {
+	t.Parallel()
+
+	var calledBody websocket.SearchContactBody
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			if key != "key:channels:contact_list" {
+				t.Fatalf("called key = %s, want key:channels:contact_list", key)
+			}
+			req, ok := body.(websocket.SearchContactBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+			calledBody = req
+			return []byte(`{"errCode":0,"data":{"infoList":[{"contact":{"username":"finder_user"}}]}}`), nil
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/contact/search?keyword=纪录片&type=3&next_marker=cursor%2B1", nil)
+	rec := httptest.NewRecorder()
+
+	service.SearchContact(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledBody.Keyword != "纪录片" {
+		t.Fatalf("keyword = %q, want 纪录片", calledBody.Keyword)
+	}
+	if calledBody.Type != 1 {
+		t.Fatalf("type = %d, want 1", calledBody.Type)
+	}
+	if calledBody.NextMarker != "cursor+1" {
+		t.Fatalf("next_marker = %q, want cursor+1", calledBody.NextMarker)
+	}
+}
+
+func TestRegisterRoutesSupportsChannelsContactSearchAsAccountSearch(t *testing.T) {
+	t.Parallel()
+
+	var calledBody websocket.SearchContactBody
+
+	service := &SearchService{
+		callAPI: func(key string, body interface{}, timeout time.Duration) ([]byte, error) {
+			if key != "key:channels:contact_list" {
+				t.Fatalf("called key = %s, want key:channels:contact_list", key)
+			}
+			req, ok := body.(websocket.SearchContactBody)
+			if !ok {
+				t.Fatalf("unexpected body type: %T", body)
+			}
+			calledBody = req
+			return []byte(`{"errCode":0,"data":{"infoList":[{"contact":{"username":"finder_user"}}]}}`), nil
+		},
+	}
+
+	mux := http.NewServeMux()
+	service.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/contact/search?keyword=纪录片&type=3", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if calledBody.Type != 1 {
+		t.Fatalf("type = %d, want 1", calledBody.Type)
+	}
+}
+
 func TestRegisterRoutesSupportsChannelsFeedSearch(t *testing.T) {
 	t.Parallel()
 
