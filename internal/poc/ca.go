@@ -82,9 +82,9 @@ func (c *JobCA) WriteSecrets(secretsDir string) (certPath string, keyPath string
 	if jobID == c.Certificate.Subject.CommonName || filepath.Base(canonical) != jobID || filepath.Base(filepath.Dir(canonical)) != ".poc-secrets" {
 		return "", "", errors.New("secrets directory does not match job CA")
 	}
-	certPath = filepath.Join(canonical, "job-ca.pem")
+	certPath = filepath.Join(canonical, "job-ca.cert")
 	keyPath = filepath.Join(canonical, "job-ca.key")
-	if err := writeSecretExclusive(certPath, c.CertPEM); err != nil {
+	if err := writeSecretExclusive(certPath, c.Certificate.Raw); err != nil {
 		return "", "", err
 	}
 	if err := writeSecretExclusive(keyPath, c.KeyPEM); err != nil {

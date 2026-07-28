@@ -479,7 +479,7 @@ func destroyRuntimeSecrets(ca *JobCA, store *Store) error {
 	} else if !os.IsNotExist(statErr) {
 		return errors.New("inspect encrypted evidence cleanup directory")
 	}
-	for _, name := range []string{"job-ca.pem", "job-ca.key"} {
+	for _, name := range []string{"job-ca.cert", "job-ca.pem", "job-ca.key"} {
 		path := filepath.Join(directory, name)
 		if info, statErr := os.Lstat(path); statErr == nil {
 			if !info.Mode().IsRegular() {

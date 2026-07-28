@@ -3,11 +3,11 @@
 package poc
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,7 +36,7 @@ func (s *windowsCertificateStore) Install(ctx context.Context, certPath, fingerp
 	if err != nil || !info.Mode().IsRegular() {
 		return errors.New("certificate path is not a regular file")
 	}
-	if filepath.Base(certPath) != "job-ca.pem" || filepath.Base(filepath.Dir(filepath.Dir(certPath))) != ".poc-secrets" {
+	if filepath.Base(certPath) != "job-ca.cert" || filepath.Base(filepath.Dir(filepath.Dir(certPath))) != ".poc-secrets" {
 		return errors.New("certificate path is outside the POC secrets tree")
 	}
 	parent, err := existingCanonicalDirectory(filepath.Dir(certPath))
@@ -71,12 +71,12 @@ func verifyCertificateFileFingerprint(path, expected string, size int64) error {
 	if err != nil {
 		return errors.New("read certificate file")
 	}
-	block, rest := pem.Decode(raw)
-	if block == nil || block.Type != "CERTIFICATE" || len(strings.TrimSpace(string(rest))) != 0 {
-		return errors.New("certificate file is not a single PEM certificate")
+	certificates, err := x509.ParseCertificates(raw)
+	if err != nil || len(certificates) != 1 || !bytes.Equal(certificates[0].Raw, raw) {
+		return errors.New("certificate file is not a single DER certificate")
 	}
-	certificate, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
+	certificate := certificates[0]
+	if certificate == nil {
 		return errors.New("parse certificate file")
 	}
 	if !certificate.IsCA || certificate.KeyUsage&x509.KeyUsageCertSign == 0 {

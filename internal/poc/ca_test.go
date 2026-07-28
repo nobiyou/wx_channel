@@ -49,6 +49,17 @@ func TestJobCAWritesOnlyToMatchingSecretDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if filepath.Base(certPath) != "job-ca.cert" {
+		t.Fatalf("certificate file=%q; Windows Import-Certificate requires a supported certificate format", filepath.Base(certPath))
+	}
+	certRaw, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := x509.ParseCertificate(certRaw)
+	if err != nil || !bytes.Equal(parsed.Raw, ca.Certificate.Raw) {
+		t.Fatalf("certificate file is not the generated DER certificate: err=%v", err)
+	}
 	for _, path := range []string{certPath, keyPath} {
 		info, err := os.Stat(path)
 		if err != nil {
