@@ -39,11 +39,18 @@ func RunCLI(ctx context.Context, input io.Reader, output io.Writer, args []strin
 		return 1
 	}
 	if err := runtime.Run(ctx, options); err != nil {
+		writeSafeRunError(output, err)
 		_, _ = fmt.Fprintln(output, "POC run did not complete; cleanup path executed")
 		return 1
 	}
 	_, _ = fmt.Fprintln(output, "POC run completed and cleanup path executed")
 	return 0
+}
+
+func writeSafeRunError(output io.Writer, err error) {
+	if code, ok := safeCertificateErrorCode(err); ok {
+		_, _ = fmt.Fprintf(output, "POC run error code: %s\n", code)
+	}
 }
 
 func RunCleanupCLI(ctx context.Context, output io.Writer, args []string, options Options) int {
