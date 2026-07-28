@@ -143,6 +143,16 @@ func (p *Preflight) checkGit(ctx context.Context, options Options) bool {
 }
 
 func (p *Preflight) runBoolean(ctx context.Context, script string, args ...string) bool {
+	commandArgs := powerShellCommandArgs(script, args...)
+	output, err := p.runner.Run(ctx, "powershell.exe", commandArgs...)
+	if err != nil {
+		return false
+	}
+	value, err := parseBooleanOutput(output)
+	return err == nil && value
+}
+
+func powerShellCommandArgs(script string, args ...string) []string {
 	if len(args) > 0 {
 		quoted := make([]string, len(args))
 		for i, arg := range args {
@@ -150,13 +160,7 @@ func (p *Preflight) runBoolean(ctx context.Context, script string, args ...strin
 		}
 		script = "& { " + script + " } " + strings.Join(quoted, " ")
 	}
-	commandArgs := []string{"-NoProfile", "-NonInteractive", "-Command", script}
-	output, err := p.runner.Run(ctx, "powershell.exe", commandArgs...)
-	if err != nil {
-		return false
-	}
-	value, err := parseBooleanOutput(output)
-	return err == nil && value
+	return []string{"-NoProfile", "-NonInteractive", "-Command", script}
 }
 
 func hashNormalized(raw []byte) string {

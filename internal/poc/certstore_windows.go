@@ -117,8 +117,7 @@ func (s *windowsCertificateStore) runBoolean(ctx context.Context, script string,
 	if s == nil || s.runner == nil {
 		return false, errors.New("certificate command runner is missing")
 	}
-	commandArgs := []string{"-NoProfile", "-NonInteractive", "-Command", script}
-	commandArgs = append(commandArgs, args...)
+	commandArgs := powerShellCommandArgs(script, args...)
 	output, err := s.runner.Run(ctx, "powershell.exe", commandArgs...)
 	if err != nil {
 		return false, errors.New("certificate store command failed")
