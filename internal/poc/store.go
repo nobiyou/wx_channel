@@ -26,6 +26,10 @@ var (
 	evidenceNamePattern = regexp.MustCompile(`^[0-9]{6}\.json$`)
 )
 
+func validJobID(value string) bool {
+	return jobIDPattern.MatchString(value) && value != "." && value != ".."
+}
+
 type StoreOptions struct {
 	RepoRoot    string
 	DataRoot    string
@@ -50,7 +54,7 @@ type Store struct {
 }
 
 func NewStore(options StoreOptions) (*Store, error) {
-	if !jobIDPattern.MatchString(options.JobID) || options.JobID == "." || options.JobID == ".." {
+	if !validJobID(options.JobID) {
 		return nil, errors.New("invalid job ID")
 	}
 	repoRoot, err := existingCanonicalDirectory(options.RepoRoot)
@@ -240,6 +244,10 @@ func (s *Store) SecretsDir() string {
 	return s.secretsDir
 }
 
+func (s *Store) RuntimeDir() string {
+	return s.runtimeDir
+}
+
 func (s *Store) WriteJSON(name string, value any) error {
 	if !outputNamePattern.MatchString(name) || filepath.Base(name) != name {
 		return errors.New("invalid output filename")
@@ -339,10 +347,61 @@ func (s *Store) WriteCleanupReceipt(value CleanupReceipt) error {
 	return s.WriteJSON("cleanup_receipt.json", value)
 }
 
-func (s *Store) writeJSONAt(target string, value any) error {
+func (s *Store) WriteRuntimeState(value PersistedRuntimeState) error {
+	return s.writeJSONWithin(s.runtimeDir, filepath.Join(s.runtimeDir, "state.json"), value)
+}
+
+func (s *Store) LoadRuntimeState() (PersistedRuntimeState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !pathWithin(s.jobDir, target) {
+	if err := validateExistingDirectory(s.repoRoot, s.runtimeDir); err != nil {
+		return PersistedRuntimeState{}, errors.New("runtime state directory failed validation")
+	}
+	target := filepath.Join(s.runtimeDir, "state.json")
+	if err := validateOutputTarget(target); err != nil {
+		return PersistedRuntimeState{}, err
+	}
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		return PersistedRuntimeState{}, errors.New("read runtime state")
+	}
+	if err := ScanOrdinaryOutput(raw); err != nil {
+		return PersistedRuntimeState{}, err
+	}
+	var state PersistedRuntimeState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return PersistedRuntimeState{}, errors.New("decode runtime state")
+	}
+	return state, nil
+}
+
+func (s *Store) RemoveRuntimeState() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateExistingDirectory(s.repoRoot, s.runtimeDir); err != nil {
+		return errors.New("runtime state directory failed validation")
+	}
+	target := filepath.Join(s.runtimeDir, "state.json")
+	if err := validateOutputTarget(target); err != nil {
+		return err
+	}
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return errors.New("remove runtime state")
+	}
+	if err := os.Remove(s.runtimeDir); err != nil && !os.IsNotExist(err) {
+		return errors.New("remove empty runtime directory")
+	}
+	return nil
+}
+
+func (s *Store) writeJSONAt(target string, value any) error {
+	return s.writeJSONWithin(s.jobDir, target, value)
+}
+
+func (s *Store) writeJSONWithin(root, target string, value any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !pathWithin(root, target) {
 		return errors.New("output path escapes job directory")
 	}
 	parent := filepath.Dir(target)
