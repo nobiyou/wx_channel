@@ -287,6 +287,12 @@ func (r *Runtime) cleanupState(ctx context.Context, state *runtimeState) error {
 	}
 	_ = r.deps.Logger.Event("cleanup_started", map[string]any{"phase": "cleanup"})
 	var cleanupErrors []error
+	proxyClean := !state.persisted.ProxyStarted
+	bridgeClean := !state.persisted.BridgeStarted
+	driverClean := !state.persisted.DriverStarted
+	certificateClean := !state.persisted.CertificateInstalled
+	secretsClean := state.ca == nil
+	encryptedRawClean := state.ca == nil
 	if state.cancelRequests != nil {
 		state.cancelRequests()
 	}
@@ -299,6 +305,8 @@ func (r *Runtime) cleanupState(ctx context.Context, state *runtimeState) error {
 		} else {
 			state.persisted.ProxyStarted = false
 			state.persisted.DriverStarted = false
+			proxyClean = true
+			driverClean = true
 		}
 	}
 	if state.bridgeCloser != nil {
@@ -306,6 +314,7 @@ func (r *Runtime) cleanupState(ctx context.Context, state *runtimeState) error {
 			cleanupErrors = append(cleanupErrors, err)
 		} else {
 			state.persisted.BridgeStarted = false
+			bridgeClean = true
 		}
 	}
 	if state.certInstalled && state.ca != nil {
@@ -314,19 +323,29 @@ func (r *Runtime) cleanupState(ctx context.Context, state *runtimeState) error {
 		} else {
 			state.persisted.CertificateInstalled = false
 			state.certInstalled = false
+			certificateClean = true
 		}
 	}
 	if state.ca != nil && state.store != nil {
 		if err := r.deps.DestroySecrets(state.ca, state.store); err != nil {
 			cleanupErrors = append(cleanupErrors, err)
+		} else {
+			secretsClean = true
+			encryptedRawClean = true
 		}
 	}
 	success := len(cleanupErrors) == 0
 	receipt := CleanupReceipt{
 		JobID: state.jobID, Success: success,
 		Categories: map[string]bool{
-			"requests_stopped": true, "proxy_stopped": !state.persisted.ProxyStarted,
-			"bridge_stopped": !state.persisted.BridgeStarted, "certificate_removed": !state.persisted.CertificateInstalled,
+			"requests_stopped":        true,
+			"process_rule_removed":    proxyClean,
+			"proxy_stopped":           proxyClean,
+			"bridge_stopped":          bridgeClean,
+			"driver_removed":          driverClean,
+			"certificate_removed":     certificateClean,
+			"secrets_destroyed":       secretsClean,
+			"encrypted_raw_destroyed": encryptedRawClean,
 		},
 		CompletedAt: r.deps.Now().UTC(),
 	}
@@ -491,6 +510,9 @@ func cleanupPersistedRuntime(ctx context.Context, store *Store, state PersistedR
 		return errors.New("persisted certificate fingerprint is invalid")
 	}
 	var cleanupErrors []error
+	driverClean := !state.DriverStarted
+	certificateClean := !state.CertificateInstalled
+	secretsClean := false
 	if state.DriverStarted {
 		if stopDriver == nil {
 			cleanupErrors = append(cleanupErrors, errors.New("persisted driver cleanup is unavailable"))
@@ -499,6 +521,7 @@ func cleanupPersistedRuntime(ctx context.Context, store *Store, state PersistedR
 		} else {
 			state.DriverStarted = false
 			state.ProxyStarted = false
+			driverClean = true
 		}
 	}
 	if state.CertificateInstalled {
@@ -506,6 +529,7 @@ func cleanupPersistedRuntime(ctx context.Context, store *Store, state PersistedR
 			cleanupErrors = append(cleanupErrors, err)
 		} else {
 			state.CertificateInstalled = false
+			certificateClean = true
 		}
 	}
 	ca := &JobCA{SHA256Fingerprint: state.CertificateSHA256}
@@ -514,14 +538,26 @@ func cleanupPersistedRuntime(ctx context.Context, store *Store, state PersistedR
 	}
 	if err := destroy(ca, store); err != nil {
 		cleanupErrors = append(cleanupErrors, err)
+	} else {
+		secretsClean = true
 	}
+	state.ProxyStarted = false
 	state.BridgeStarted = false
 	if len(cleanupErrors) != 0 {
 		_ = store.WriteRuntimeState(state)
 	}
 	receipt := CleanupReceipt{
 		JobID: state.JobID, Success: len(cleanupErrors) == 0,
-		Categories:  map[string]bool{"driver_stopped": !state.DriverStarted, "certificate_removed": !state.CertificateInstalled, "secrets_destroyed": len(cleanupErrors) == 0},
+		Categories: map[string]bool{
+			"requests_stopped":        true,
+			"process_rule_removed":    driverClean,
+			"proxy_stopped":           !state.ProxyStarted,
+			"bridge_stopped":          !state.BridgeStarted,
+			"driver_removed":          driverClean,
+			"certificate_removed":     certificateClean,
+			"secrets_destroyed":       secretsClean,
+			"encrypted_raw_destroyed": secretsClean,
+		},
 		CompletedAt: now.UTC(),
 	}
 	if !receipt.Success {

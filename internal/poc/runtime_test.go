@@ -2,8 +2,11 @@ package poc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -134,12 +137,44 @@ func fakeRuntimeDeps(t *testing.T, collect func(context.Context) error) (Runtime
 
 func TestRuntimeCleansUpInReverseOrderOnCollectorFailure(t *testing.T) {
 	deps, events := fakeRuntimeDeps(t, func(context.Context) error { return errors.New("fixture collector failure") })
+	var store *Store
+	deps.StoreFactory = func(_ Options, jobID string) (*Store, error) {
+		store = newTestStore(t, jobID)
+		return store, nil
+	}
 	err := NewRuntime(deps).Run(context.Background(), approvedTestOptions())
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	want := []string{"preflight", "create-ca", "install-ca", "start-bridge", "start-proxy", "start-driver", "collect", "stop-requests", "remove-process-rule", "stop-proxy", "stop-bridge", "remove-ca", "destroy-secrets", "write-cleanup-receipt"}
 	assertRuntimeEvents(t, events.snapshot(), want)
+	assertSuccessfulCleanupReceipt(t, store)
+}
+
+func assertSuccessfulCleanupReceipt(t *testing.T, store *Store) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(store.JobDir(), "cleanup-receipt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt CleanupReceipt
+	if err := json.Unmarshal(raw, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Success {
+		t.Fatalf("cleanup receipt was not successful: %+v", receipt)
+	}
+	for _, category := range []string{
+		"requests_stopped", "process_rule_removed", "proxy_stopped", "bridge_stopped",
+		"driver_removed", "certificate_removed", "secrets_destroyed", "encrypted_raw_destroyed",
+	} {
+		if !receipt.Categories[category] {
+			t.Errorf("cleanup category %q was not successful", category)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(store.JobDir(), "cleanup_receipt.json")); !os.IsNotExist(err) {
+		t.Errorf("legacy cleanup receipt filename exists or could not be inspected: %v", err)
+	}
 }
 
 func TestRunRefusesWithoutAckOrInteractiveApply(t *testing.T) {
@@ -246,6 +281,7 @@ func TestPersistedCleanupUsesExactCertificateAndDriverOwnership(t *testing.T) {
 	if _, err := store.LoadRuntimeState(); err == nil {
 		t.Fatal("runtime state remained after successful cleanup")
 	}
+	assertSuccessfulCleanupReceipt(t, store)
 }
 
 func assertRuntimeEvents(t *testing.T, got, want []string) {

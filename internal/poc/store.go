@@ -344,7 +344,7 @@ func (s *Store) LoadCheckpoint() (Checkpoint, error) {
 }
 
 func (s *Store) WriteCleanupReceipt(value CleanupReceipt) error {
-	return s.WriteJSON("cleanup_receipt.json", value)
+	return s.WriteJSON("cleanup-receipt.json", value)
 }
 
 func (s *Store) WriteRuntimeState(value PersistedRuntimeState) error {
