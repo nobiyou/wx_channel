@@ -1718,6 +1718,7 @@ func (s *ProxyRequest) SocketForward(dst bufio.Writer, src *public.ReadWriteObje
 
 // Sunny  请使用 NewSunny 方法 请不要直接构造
 type Sunny struct {
+	listenHost            string
 	certCache             *Cache
 	disableTCP            bool                 //禁止TCP连接
 	certificates          []byte               //CA证书原始数据
@@ -2122,6 +2123,25 @@ func (s *Sunny) StartProcess() bool {
 	return CrossCompiled.NFapi_IsInit()
 }
 
+// SetLoopbackOnly restricts the proxy listener to the IPv4 loopback interface.
+func (s *Sunny) SetLoopbackOnly() *Sunny {
+	s.lock.Lock()
+	s.listenHost = "127.0.0.1"
+	s.lock.Unlock()
+	return s
+}
+
+// ListenHost returns the configured listener host. The zero value preserves
+// SunnyNet's legacy all-interface behavior.
+func (s *Sunny) ListenHost() string {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.listenHost == "" {
+		return "0.0.0.0"
+	}
+	return s.listenHost
+}
+
 // ProcessALLName 是否允许所有进程通过 所有 SunnyNet 通用,
 // 请注意GoLang调试时候，请不要使用此命令，因为不管开启或关闭，都会将当前所有TCP链接断开一次
 // 因为如果不断开的一次的话,已经建立的TCP链接无法抓包。
@@ -2167,6 +2187,19 @@ func (s *Sunny) ProcessCancelAll() *Sunny {
 	return s
 }
 
+// StopProcess removes the POC process rule and releases the NFAPI lifecycle.
+// The driver is unregistered only when the caller proves this job installed it.
+func (s *Sunny) StopProcess(unregister bool) error {
+	s.ProcessDelName("WeChatAppEx.exe")
+	s.ProcessCancelAll()
+	if CrossCompiled.NFapi_SunnyPointer() == uintptr(unsafe.Pointer(s)) {
+		CrossCompiled.NFapi_SunnyPointer(0)
+		CrossCompiled.NFapi_ProcessPortInt(0)
+	}
+	CrossCompiled.NFapi_IsInit(false)
+	return CrossCompiled.NFapi_Shutdown(unregister)
+}
+
 // Start 开始启动  调用 Error 获取错误信息 成功=nil
 func (s *Sunny) Start() *Sunny {
 	if s.isRun {
@@ -2181,12 +2214,13 @@ func (s *Sunny) Start() *Sunny {
 	if !s.initCertOK {
 		return s
 	}
-	tcpListen, err := net.Listen("tcp", "0.0.0.0:"+strconv.Itoa(s.port))
+	listenAddress := net.JoinHostPort(s.ListenHost(), strconv.Itoa(s.port))
+	tcpListen, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		s.Error = err
 		return s
 	}
-	udpListenAddr, err := net.ResolveUDPAddr("udp", "0.0.0.0:"+strconv.Itoa(s.port))
+	udpListenAddr, err := net.ResolveUDPAddr("udp", listenAddress)
 	if err != nil {
 		s.Error = err
 		_ = tcpListen.Close()
