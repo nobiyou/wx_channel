@@ -51,14 +51,21 @@ func (s *windowsCertificateStore) Install(ctx context.Context, certPath, fingerp
 	}
 	present, err := s.ContainsSHA256(ctx, fingerprint)
 	if err != nil {
-		return err
+		return newCertificateStoreError(certificatePrecheckCommandFailed)
 	}
 	if present {
-		return errors.New("certificate fingerprint already exists")
+		return newCertificateStoreError(certificateAlreadyPresent)
 	}
 	installed, err := s.runBoolean(ctx, certificateInstallScript, certPath, fingerprint)
-	if err != nil || !installed {
-		return errors.New("install CurrentUser root certificate")
+	if err != nil {
+		return newCertificateStoreError(certificateImportCommandFailed)
+	}
+	if !installed {
+		return newCertificateStoreError(certificateImportReportedFalse)
+	}
+	present, err = s.ContainsSHA256(ctx, fingerprint)
+	if err != nil || !present {
+		return newCertificateStoreError(certificatePostcheckFailed)
 	}
 	return nil
 }
@@ -154,5 +161,5 @@ func restrictSecretDirectory(ctx context.Context, runner CommandRunner, dir stri
 
 const certificateHashPipeline = `$sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') } finally { $sha.Dispose() }; `
 const certificateMatchScript = `$expected = $args[0].ToUpperInvariant(); $matches = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object { ` + certificateHashPipeline + `$hash -eq $expected }); [Console]::Out.Write(($matches.Count -eq 1).ToString().ToLowerInvariant())`
-const certificateInstallScript = `$path = $args[0]; $expected = $args[1].ToUpperInvariant(); $cert = @(Import-Certificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\Root -ErrorAction Stop); if ($cert.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }; $sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($cert[0].RawData))).Replace('-','') } finally { $sha.Dispose() }; if ($hash -ne $expected) { Remove-Item -LiteralPath $cert[0].PSPath -Force -ErrorAction SilentlyContinue; [Console]::Out.Write('false'); exit 0 }; [Console]::Out.Write('true')`
+const certificateInstallScript = `$WarningPreference = 'SilentlyContinue'; $InformationPreference = 'SilentlyContinue'; $ProgressPreference = 'SilentlyContinue'; $path = $args[0]; $expected = $args[1].ToUpperInvariant(); $cert = @(Import-Certificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\Root -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop); if ($cert.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }; $sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($cert[0].RawData))).Replace('-','') } finally { $sha.Dispose() }; if ($hash -ne $expected) { Remove-Item -LiteralPath $cert[0].PSPath -Force -ErrorAction SilentlyContinue; [Console]::Out.Write('false'); exit 0 }; [Console]::Out.Write('true')`
 const certificateRemoveScript = `$expected = $args[0].ToUpperInvariant(); $matches = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object { ` + certificateHashPipeline + `$hash -eq $expected }); if ($matches.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }; Remove-Item -LiteralPath $matches[0].PSPath -Force -ErrorAction Stop; [Console]::Out.Write('true')`

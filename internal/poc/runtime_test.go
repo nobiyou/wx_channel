@@ -49,6 +49,20 @@ type flakyRuntimeCertStore struct {
 	removals int
 }
 
+type ambiguousInstallCertStore struct{ events *runtimeEvents }
+
+func (s ambiguousInstallCertStore) Install(context.Context, string, string) error {
+	s.events.add("install-ca")
+	return newCertificateStoreError(certificateImportCommandFailed)
+}
+func (s ambiguousInstallCertStore) ContainsSHA256(context.Context, string) (bool, error) {
+	return true, nil
+}
+func (s ambiguousInstallCertStore) RemoveBySHA256(context.Context, string) error {
+	s.events.add("remove-ca")
+	return nil
+}
+
 func (s *flakyRuntimeCertStore) Install(context.Context, string, string) error {
 	s.events.add("install-ca")
 	return nil
@@ -148,6 +162,24 @@ func TestRuntimeCleansUpInReverseOrderOnCollectorFailure(t *testing.T) {
 	}
 	want := []string{"preflight", "create-ca", "install-ca", "start-bridge", "start-proxy", "start-driver", "collect", "stop-requests", "remove-process-rule", "stop-proxy", "stop-bridge", "remove-ca", "destroy-secrets", "write-cleanup-receipt"}
 	assertRuntimeEvents(t, events.snapshot(), want)
+	assertSuccessfulCleanupReceipt(t, store)
+}
+
+func TestRuntimeCleansCertificateWhenImportOutcomeIsAmbiguous(t *testing.T) {
+	deps, events := fakeRuntimeDeps(t, func(context.Context) error { return nil })
+	var store *Store
+	deps.StoreFactory = func(_ Options, jobID string) (*Store, error) {
+		store = newTestStore(t, jobID)
+		return store, nil
+	}
+	deps.CertStore = ambiguousInstallCertStore{events: events}
+
+	err := NewRuntime(deps).Run(context.Background(), approvedTestOptions())
+	assertCertificateErrorCode(t, err, certificateImportCommandFailed)
+	assertRuntimeEvents(t, events.snapshot(), []string{
+		"preflight", "create-ca", "install-ca", "stop-requests", "remove-ca",
+		"destroy-secrets", "write-cleanup-receipt",
+	})
 	assertSuccessfulCleanupReceipt(t, store)
 }
 
