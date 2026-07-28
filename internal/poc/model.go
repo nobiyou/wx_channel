@@ -176,14 +176,16 @@ type Manifest struct {
 }
 
 type Checkpoint struct {
-	SchemaVersion   string    `json:"schema_version"`
-	JobID           string    `json:"job_id"`
-	Phase           string    `json:"phase"`
-	SearchMarker    string    `json:"search_marker"`
-	CurrentWorkRank int       `json:"current_work_rank"`
-	Works           []Work    `json:"works"`
-	Comments        []Comment `json:"comments"`
-	SavedAt         time.Time `json:"saved_at"`
+	SchemaVersion       string    `json:"schema_version"`
+	JobID               string    `json:"job_id"`
+	Phase               string    `json:"phase"`
+	SearchMarker        string    `json:"search_marker"`
+	CurrentWorkRank     int       `json:"current_work_rank"`
+	PendingReplyRootIDs []string  `json:"pending_reply_root_ids"`
+	CurrentReplyRootID  *string   `json:"current_reply_root_id"`
+	Works               []Work    `json:"works"`
+	Comments            []Comment `json:"comments"`
+	SavedAt             time.Time `json:"saved_at"`
 }
 
 type CleanupReceipt struct {

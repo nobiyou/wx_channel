@@ -254,7 +254,7 @@ func (s *BridgeServer) deliverAPIResponse(raw json.RawMessage) error {
 	result := bridgeCallResult{}
 	if response.ErrCode != 0 {
 		if response.ErrCode == -70003 {
-			result.err = errors.New("target context mismatch")
+			result.err = NewCategorizedError(ErrorTargetContext)
 		} else {
 			result.err = errors.New("page API failed")
 		}

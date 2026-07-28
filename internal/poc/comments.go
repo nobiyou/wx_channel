@@ -34,6 +34,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 	if options.Limits.TopLevelCommentsPerWork <= 0 || options.Limits.RepliesPerWork <= 0 {
 		return nil, summary, errors.New("comment limits must be positive")
 	}
+	c.currentWorkRank = work.Locator.SearchRank
 
 	comments := make([]Comment, 0)
 	topSeen := make(map[string]struct{})
@@ -44,19 +45,73 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 	queuedRoots := make(map[string]struct{})
 	marker := ""
 	stopTop := false
+	skipTop := false
+	resumeReplyRoot := ""
+	resumeReplyMarker := ""
+	if checkpoint, ok, err := c.commentCheckpoint(work); err != nil {
+		return nil, summary, err
+	} else if ok {
+		comments = append(comments, checkpoint.Comments...)
+		for _, saved := range comments {
+			if saved.Level == 1 {
+				summary.TopLevel++
+				if saved.CommentID != nil {
+					topSeen[*saved.CommentID] = struct{}{}
+				}
+			} else if saved.Level == 2 {
+				summary.Replies++
+				if saved.CommentID != nil {
+					replySeen[*saved.CommentID] = struct{}{}
+				}
+			}
+			if saved.CommentID == nil {
+				missingSeen[fmt.Sprintf("%s:%d", saved.Source.EvidenceRef, saved.Source.Ordinal)] = struct{}{}
+			}
+		}
+		for _, rootID := range checkpoint.PendingReplyRootIDs {
+			if rootID == "" {
+				continue
+			}
+			queuedRoots[rootID] = struct{}{}
+			roots = append(roots, replyRoot{id: rootID})
+		}
+		if summary.TopLevel >= options.Limits.TopLevelCommentsPerWork {
+			markTruncated(&summary, "top_level_limit")
+			skipTop = true
+		}
+		if summary.Replies >= options.Limits.RepliesPerWork {
+			markTruncated(&summary, "reply_limit")
+		}
+		switch checkpoint.Phase {
+		case "comments_top":
+			marker = checkpoint.SearchMarker
+		case "comments_replies":
+			skipTop = true
+			resumeReplyRoot = dereferenceString(checkpoint.CurrentReplyRootID)
+			resumeReplyMarker = checkpoint.SearchMarker
+		case "comments_complete":
+			return comments, summary, nil
+		}
+	}
 
-	for !stopTop {
+	for !stopTop && !skipTop {
 		body := map[string]any{"object_id": *work.WorkID, "next_marker": marker}
 		if work.ObjectNonceID != nil {
 			body["nonce_id"] = *work.ObjectNonceID
 		}
 		raw, pageSource, err := c.call(ctx, commentListMethod, body)
 		if err != nil {
+			if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_top", roots, nil); checkpointErr != nil {
+				return comments, summary, checkpointErr
+			}
 			return comments, summary, err
 		}
 		items, nextMarker, markerPresent, _, err := parseCommentPage(raw)
 		if err != nil {
-			return comments, summary, err
+			if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_top", roots, nil); checkpointErr != nil {
+				return comments, summary, checkpointErr
+			}
+			return comments, summary, CategorizedError{Category: ErrorStructure}
 		}
 		ordinal := 0
 		for _, item := range items {
@@ -102,7 +157,11 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				}
 			}
 		}
-		if err := c.saveCommentCheckpoint(work, comments, nextMarker); err != nil {
+		checkpointPhase := "comments_top"
+		if markerPresent && nextMarker == "" {
+			checkpointPhase = "comments_replies"
+		}
+		if err := c.saveCommentCheckpoint(work, comments, nextMarker, checkpointPhase, roots, nil); err != nil {
 			return comments, summary, err
 		}
 		if stopTop || summary.TopLevel >= options.Limits.TopLevelCommentsPerWork {
@@ -126,12 +185,17 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 		marker = nextMarker
 	}
 
-	for _, root := range roots {
+	for rootIndex, root := range roots {
 		if summary.Replies >= options.Limits.RepliesPerWork {
 			markTruncated(&summary, "reply_limit")
 			break
 		}
 		marker = ""
+		if root.id == resumeReplyRoot {
+			marker = resumeReplyMarker
+			resumeReplyRoot = ""
+			resumeReplyMarker = ""
+		}
 		seenMarkers := make(map[string]struct{})
 		for {
 			raw, pageSource, err := c.call(ctx, commentListMethod, map[string]any{
@@ -140,11 +204,17 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				"next_marker": marker,
 			})
 			if err != nil {
+				if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_replies", roots[rootIndex:], &root.id); checkpointErr != nil {
+					return comments, summary, checkpointErr
+				}
 				return comments, summary, err
 			}
 			items, nextMarker, markerPresent, _, err := parseCommentPage(raw)
 			if err != nil {
-				return comments, summary, err
+				if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_replies", roots[rootIndex:], &root.id); checkpointErr != nil {
+					return comments, summary, checkpointErr
+				}
+				return comments, summary, CategorizedError{Category: ErrorStructure}
 			}
 			for index, item := range items {
 				if summary.Replies >= options.Limits.RepliesPerWork {
@@ -160,7 +230,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				comments = append(comments, reply)
 				summary.Replies++
 			}
-			if err := c.saveCommentCheckpoint(work, comments, nextMarker); err != nil {
+			if err := c.saveCommentCheckpoint(work, comments, nextMarker, "comments_replies", roots[rootIndex:], &root.id); err != nil {
 				return comments, summary, err
 			}
 			if summary.Replies >= options.Limits.RepliesPerWork {
@@ -181,6 +251,9 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			seenMarkers[nextMarker] = struct{}{}
 			marker = nextMarker
 		}
+	}
+	if err := c.saveCommentCheckpoint(work, comments, "", "comments_complete", nil, nil); err != nil {
+		return comments, summary, err
 	}
 
 	return comments, summary, nil
@@ -389,16 +462,58 @@ func appendReason(summary *CommentSummary, reason string) {
 	summary.Reasons = append(summary.Reasons, reason)
 }
 
-func (c *Collector) saveCommentCheckpoint(work Work, comments []Comment, marker string) error {
+func (c *Collector) commentCheckpoint(work Work) (Checkpoint, bool, error) {
+	checkpoint, err := c.store.LoadCheckpoint()
+	if errors.Is(err, ErrCheckpointNotFound) {
+		return Checkpoint{}, false, nil
+	}
+	if err != nil {
+		return Checkpoint{}, false, err
+	}
+	if checkpoint.SchemaVersion != SchemaVersion || checkpoint.JobID != filepath.Base(c.store.JobDir()) {
+		return Checkpoint{}, false, errors.New("checkpoint identity mismatch")
+	}
+	if len(checkpoint.Works) != 1 || !sameOptionalString(checkpoint.Works[0].WorkID, work.WorkID) || checkpoint.CurrentWorkRank != work.Locator.SearchRank {
+		return Checkpoint{}, false, nil
+	}
+	switch checkpoint.Phase {
+	case "comments_top", "comments_replies", "comments_complete":
+		return checkpoint, true, nil
+	default:
+		return Checkpoint{}, false, nil
+	}
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func dereferenceString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (c *Collector) saveCommentCheckpoint(work Work, comments []Comment, marker, phase string, roots []replyRoot, currentRoot *string) error {
+	pendingRoots := make([]string, 0, len(roots))
+	for _, root := range roots {
+		pendingRoots = append(pendingRoots, root.id)
+	}
 	checkpoint := Checkpoint{
-		SchemaVersion:   SchemaVersion,
-		JobID:           filepath.Base(c.store.JobDir()),
-		Phase:           "comments",
-		SearchMarker:    marker,
-		CurrentWorkRank: work.Locator.SearchRank,
-		Works:           []Work{work},
-		Comments:        append([]Comment(nil), comments...),
-		SavedAt:         c.clock.Now().UTC(),
+		SchemaVersion:       SchemaVersion,
+		JobID:               filepath.Base(c.store.JobDir()),
+		Phase:               phase,
+		SearchMarker:        marker,
+		CurrentWorkRank:     work.Locator.SearchRank,
+		PendingReplyRootIDs: pendingRoots,
+		CurrentReplyRootID:  cloneStringPointer(currentRoot),
+		Works:               []Work{work},
+		Comments:            append([]Comment(nil), comments...),
+		SavedAt:             c.clock.Now().UTC(),
 	}
 	return c.store.SaveCheckpoint(checkpoint)
 }

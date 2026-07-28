@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -21,33 +22,45 @@ type Clock interface {
 }
 
 type Collector struct {
-	api         PageAPI
-	evidence    *EvidenceRecorder
-	store       *Store
-	clock       Clock
-	lastRequest time.Time
-	sequence    int
+	api             PageAPI
+	evidence        *EvidenceRecorder
+	store           *Store
+	clock           Clock
+	lastRequest     time.Time
+	requestStarted  bool
+	sequence        int
+	sequenceReady   bool
+	retryPolicy     RetryPolicy
+	waiter          *WaitController
+	readySignal     func(WaitReason, int) <-chan struct{}
+	currentWorkRank int
 }
 
 func NewCollector(api PageAPI, evidence *EvidenceRecorder, store *Store, clock Clock) *Collector {
-	return &Collector{api: api, evidence: evidence, store: store, clock: clock}
+	return &Collector{api: api, evidence: evidence, store: store, clock: clock, retryPolicy: DefaultRetryPolicy()}
+}
+
+func (c *Collector) ConfigureHumanWait(waiter *WaitController, readySignal func(WaitReason, int) <-chan struct{}) {
+	if c == nil {
+		return
+	}
+	c.waiter = waiter
+	c.readySignal = readySignal
 }
 
 func (c *Collector) call(ctx context.Context, method string, body any) ([]byte, SourceRef, error) {
 	if c == nil || c.api == nil || c.evidence == nil || c.store == nil || c.clock == nil {
 		return nil, SourceRef{}, errors.New("collector dependency is missing")
 	}
-	now := c.clock.Now()
-	if c.sequence > 0 {
-		wait := c.lastRequest.Add(time.Second).Sub(now)
-		if wait > 0 {
-			if err := c.clock.Sleep(ctx, wait); err != nil {
-				return nil, SourceRef{}, err
-			}
+	if !c.sequenceReady {
+		sequence, err := c.store.MaxEvidenceSequence()
+		if err != nil {
+			return nil, SourceRef{}, err
 		}
+		c.sequence = sequence
+		c.sequenceReady = true
 	}
-	c.lastRequest = c.clock.Now()
-	raw, err := c.api.Call(ctx, method, body)
+	raw, err := c.callPage(ctx, method, body)
 	if err != nil {
 		return nil, SourceRef{}, err
 	}
@@ -63,21 +76,96 @@ func (c *Collector) call(ctx context.Context, method string, body any) ([]byte, 
 	return raw, SourceRef{Method: method, EvidenceRef: reference}, nil
 }
 
+func (c *Collector) callPage(ctx context.Context, method string, body any) ([]byte, error) {
+	retries := 0
+	targetContextRetried := false
+	for {
+		if c.requestStarted {
+			wait := c.lastRequest.Add(time.Second).Sub(c.clock.Now())
+			if wait > 0 {
+				if err := c.clock.Sleep(ctx, wait); err != nil {
+					return nil, err
+				}
+			}
+		}
+		c.lastRequest = c.clock.Now()
+		c.requestStarted = true
+		raw, err := c.api.Call(ctx, method, body)
+		if err == nil {
+			return raw, nil
+		}
+		category := ClassifyError(err)
+		if category == ErrorTargetContext && c.waiter != nil && !targetContextRetried {
+			var ready <-chan struct{}
+			if c.readySignal != nil {
+				ready = c.readySignal(WaitTargetContext, c.currentWorkRank)
+			}
+			result := c.waiter.Wait(ctx, WaitTargetContext, c.currentWorkRank, ready)
+			if result != WaitResolved {
+				return nil, HumanWaitError{Result: result}
+			}
+			targetContextRetried = true
+			continue
+		}
+		if category != ErrorTransient || retries >= c.retryPolicy.MaxRetries || retries >= len(c.retryPolicy.Backoff) {
+			return nil, CategorizedError{Category: category}
+		}
+		backoff := c.retryPolicy.Backoff[retries]
+		retries++
+		if err := c.clock.Sleep(ctx, backoff); err != nil {
+			return nil, err
+		}
+	}
+}
+
 func (c *Collector) CollectWorks(ctx context.Context, options Options) ([]Work, CoverageStatus, error) {
+	c.currentWorkRank = 0
 	seenIDs := make(map[string]struct{})
 	seenMarkers := make(map[string]struct{})
 	works := make([]Work, 0, options.Limits.Works)
 	marker := ""
 	pageNumber := 0
+	if checkpoint, ok, err := c.searchCheckpoint(); err != nil {
+		return nil, CoverageIncomplete, err
+	} else if ok {
+		works = append(works, checkpoint.Works...)
+		for _, work := range works {
+			if work.WorkID != nil {
+				seenIDs[*work.WorkID] = struct{}{}
+			}
+			if work.Locator.SearchPage > pageNumber {
+				pageNumber = work.Locator.SearchPage
+			}
+		}
+		marker = checkpoint.SearchMarker
+		if marker != "" {
+			seenMarkers[marker] = struct{}{}
+		}
+		if checkpoint.Phase == "search_complete" {
+			if len(works) >= options.Limits.Works {
+				return works[:options.Limits.Works], CoverageTargetMet, nil
+			}
+			return works, CoverageSourceExhausted, nil
+		}
+		if checkpoint.Phase == "search_incomplete" {
+			return works, CoverageIncomplete, nil
+		}
+	}
 	for len(works) < options.Limits.Works {
 		pageNumber++
 		raw, source, err := c.call(ctx, "finderSearch", map[string]any{"keyword": options.Keyword, "next_marker": marker})
 		if err != nil {
+			if checkpointErr := c.saveSearchCheckpoint("search", marker, works); checkpointErr != nil {
+				return works, CoverageIncomplete, checkpointErr
+			}
 			return works, CoverageIncomplete, err
 		}
 		items, nextMarker, markerPresent, err := parseSearchPage(raw)
 		if err != nil {
-			return works, CoverageIncomplete, err
+			if checkpointErr := c.saveSearchCheckpoint("search", marker, works); checkpointErr != nil {
+				return works, CoverageIncomplete, checkpointErr
+			}
+			return works, CoverageIncomplete, CategorizedError{Category: ErrorStructure}
 		}
 		for index, item := range items {
 			id, ok := stringField(item, "id")
@@ -93,22 +181,71 @@ func (c *Collector) CollectWorks(ctx context.Context, options Options) ([]Work, 
 			itemSource.Ordinal = index + 1
 			works = append(works, mapSearchWork(item, id, options.Keyword, rank, pageNumber, index+1, itemSource))
 			if len(works) == options.Limits.Works {
-				return works, CoverageTargetMet, nil
+				break
 			}
 		}
+		if len(works) >= options.Limits.Works {
+			if err := c.saveSearchCheckpoint("search_complete", nextMarker, works); err != nil {
+				return works, CoverageIncomplete, err
+			}
+			return works, CoverageTargetMet, nil
+		}
 		if !markerPresent {
+			if err := c.saveSearchCheckpoint("search_incomplete", "", works); err != nil {
+				return works, CoverageIncomplete, err
+			}
 			return works, CoverageIncomplete, nil
 		}
 		if nextMarker == "" {
+			if err := c.saveSearchCheckpoint("search_complete", "", works); err != nil {
+				return works, CoverageIncomplete, err
+			}
 			return works, CoverageSourceExhausted, nil
 		}
 		if _, repeated := seenMarkers[nextMarker]; repeated {
+			if err := c.saveSearchCheckpoint("search_incomplete", nextMarker, works); err != nil {
+				return works, CoverageIncomplete, err
+			}
 			return works, CoverageIncomplete, nil
+		}
+		if err := c.saveSearchCheckpoint("search", nextMarker, works); err != nil {
+			return works, CoverageIncomplete, err
 		}
 		seenMarkers[nextMarker] = struct{}{}
 		marker = nextMarker
 	}
 	return works, CoverageTargetMet, nil
+}
+
+func (c *Collector) searchCheckpoint() (Checkpoint, bool, error) {
+	checkpoint, err := c.store.LoadCheckpoint()
+	if errors.Is(err, ErrCheckpointNotFound) {
+		return Checkpoint{}, false, nil
+	}
+	if err != nil {
+		return Checkpoint{}, false, err
+	}
+	if checkpoint.SchemaVersion != SchemaVersion || checkpoint.JobID != filepath.Base(c.store.JobDir()) {
+		return Checkpoint{}, false, errors.New("checkpoint identity mismatch")
+	}
+	switch checkpoint.Phase {
+	case "search", "search_complete", "search_incomplete":
+		return checkpoint, true, nil
+	default:
+		return Checkpoint{}, false, nil
+	}
+}
+
+func (c *Collector) saveSearchCheckpoint(phase, marker string, works []Work) error {
+	return c.store.SaveCheckpoint(Checkpoint{
+		SchemaVersion:   SchemaVersion,
+		JobID:           filepath.Base(c.store.JobDir()),
+		Phase:           phase,
+		SearchMarker:    marker,
+		CurrentWorkRank: len(works),
+		Works:           append([]Work(nil), works...),
+		SavedAt:         c.clock.Now().UTC(),
+	})
 }
 
 func parseSearchPage(raw []byte) ([]map[string]any, string, bool, error) {

@@ -175,6 +175,52 @@ func TestIPRegionAndTimePreserveRawSourceSemantics(t *testing.T) {
 	}
 }
 
+func TestResumeCommentsFromLastCompletePage(t *testing.T) {
+	store := newTestStore(t, "comments-resume-job")
+	for sequence := 1; sequence <= 2; sequence++ {
+		if _, err := store.WriteEvidence(Evidence{RequestSequence: sequence, Method: commentListMethod, RedactionRuleVersion: RedactionRuleVersion}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	work := fixtureWork("fixture-resume-work", "fixture-resume-nonce", 1)
+	savedID := "fixture-saved-id"
+	workID := *work.WorkID
+	saved := []Comment{
+		{CommentID: &savedID, WorkID: &workID, Level: 1, Source: SourceRef{Method: commentListMethod, EvidenceRef: "evidence/000001.json", Ordinal: 1}},
+		{WorkID: &workID, Level: 1, Content: CommentContent{Text: stringPointer("fixture-missing")}, Source: SourceRef{Method: commentListMethod, EvidenceRef: "evidence/000002.json", Ordinal: 1}},
+	}
+	if err := store.SaveCheckpoint(Checkpoint{
+		SchemaVersion: SchemaVersion, JobID: "comments-resume-job", Phase: "comments_top", SearchMarker: "fixture-third-page",
+		CurrentWorkRank: 1, Works: []Work{work}, Comments: saved,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	thirdPage := commentPage(t, []map[string]any{
+		{"commentId": savedID, "content": "fixture-duplicate"},
+		{"content": "fixture-missing"},
+		{"commentId": "fixture-new-id", "content": "fixture-new"},
+	}, "")
+	api := &scriptedPageAPI{script: []scriptedCall{{raw: thirdPage}}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), store, &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.calls != 1 || len(api.bodies) != 1 {
+		t.Fatalf("calls=%d", api.calls)
+	}
+	body, ok := api.bodies[0].(map[string]any)
+	if !ok || body["next_marker"] != "fixture-third-page" {
+		t.Fatalf("resume body=%+v", api.bodies[0])
+	}
+	if summary.TopLevel != 4 || countCommentID(comments, savedID) != 1 || countNilCommentIDs(comments) != 2 {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+	if comments[len(comments)-1].Source.EvidenceRef != "evidence/000003.json" {
+		t.Fatalf("evidence sequence did not resume: %+v", comments[len(comments)-1].Source)
+	}
+}
+
 func fixtureWork(id, nonce string, rank int) Work {
 	return Work{WorkID: &id, ObjectNonceID: &nonce, Locator: WorkLocator{Keyword: "fixture-keyword", SearchRank: rank}}
 }
@@ -207,6 +253,16 @@ func countCommentID(comments []Comment, id string) int {
 	count := 0
 	for _, comment := range comments {
 		if comment.CommentID != nil && *comment.CommentID == id {
+			count++
+		}
+	}
+	return count
+}
+
+func countNilCommentIDs(comments []Comment) int {
+	count := 0
+	for _, comment := range comments {
+		if comment.CommentID == nil {
 			count++
 		}
 	}

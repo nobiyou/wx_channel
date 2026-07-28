@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +18,12 @@ import (
 
 const minimumRetention = 7 * 24 * time.Hour
 
+var ErrCheckpointNotFound = errors.New("checkpoint not found")
+
 var (
-	jobIDPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	outputNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*\.json$`)
+	jobIDPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	outputNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9_-]*\.json$`)
+	evidenceNamePattern = regexp.MustCompile(`^[0-9]{6}\.json$`)
 )
 
 type StoreOptions struct {
@@ -261,14 +265,74 @@ func (s *Store) WriteEvidence(value Evidence) (string, error) {
 	}
 	name := fmt.Sprintf("%06d.json", value.RequestSequence)
 	target := filepath.Join(s.evidenceDir, name)
+	if _, err := os.Lstat(target); err == nil {
+		return "", errors.New("evidence sequence already exists")
+	} else if !os.IsNotExist(err) {
+		return "", errors.New("inspect evidence target")
+	}
 	if err := s.writeJSONAt(target, value); err != nil {
 		return "", err
 	}
 	return filepath.ToSlash(filepath.Join("evidence", name)), nil
 }
 
+func (s *Store) MaxEvidenceSequence() (int, error) {
+	if err := validateExistingDirectory(s.repoRoot, s.evidenceDir); err != nil {
+		return 0, errors.New("evidence directory failed link validation")
+	}
+	entries, err := os.ReadDir(s.evidenceDir)
+	if err != nil {
+		return 0, errors.New("read evidence directory")
+	}
+	maximum := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !evidenceNamePattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return 0, errors.New("inspect evidence file")
+		}
+		sequence, err := strconv.Atoi(strings.TrimSuffix(entry.Name(), ".json"))
+		if err != nil {
+			return 0, errors.New("parse evidence sequence")
+		}
+		if sequence > maximum {
+			maximum = sequence
+		}
+	}
+	return maximum, nil
+}
+
 func (s *Store) SaveCheckpoint(value Checkpoint) error {
 	return s.WriteJSON("checkpoint.json", value)
+}
+
+func (s *Store) LoadCheckpoint() (Checkpoint, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := validateExistingDirectory(s.repoRoot, s.jobDir); err != nil {
+		return Checkpoint{}, errors.New("checkpoint directory failed link validation")
+	}
+	target := filepath.Join(s.jobDir, "checkpoint.json")
+	if err := validateOutputTarget(target); err != nil {
+		return Checkpoint{}, err
+	}
+	raw, err := os.ReadFile(target)
+	if os.IsNotExist(err) {
+		return Checkpoint{}, ErrCheckpointNotFound
+	}
+	if err != nil {
+		return Checkpoint{}, errors.New("read checkpoint")
+	}
+	if err := ScanOrdinaryOutput(raw); err != nil {
+		return Checkpoint{}, err
+	}
+	var checkpoint Checkpoint
+	if err := json.Unmarshal(raw, &checkpoint); err != nil {
+		return Checkpoint{}, errors.New("decode checkpoint")
+	}
+	return checkpoint, nil
 }
 
 func (s *Store) WriteCleanupReceipt(value CleanupReceipt) error {
