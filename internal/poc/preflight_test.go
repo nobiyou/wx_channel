@@ -3,6 +3,7 @@ package poc
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -77,5 +78,17 @@ func TestPreflightRejectsNonVM(t *testing.T) {
 	report, err := preflight.Run(context.Background(), options)
 	if err == nil || report.Passed || !errors.Is(err, ErrPreflightFailed) {
 		t.Fatalf("report=%+v err=%v", report, err)
+	}
+}
+
+func TestRunBooleanPassesArgumentsToPowerShellScript(t *testing.T) {
+	if _, err := exec.LookPath("powershell.exe"); err != nil {
+		t.Skip("Windows PowerShell is unavailable")
+	}
+
+	preflight := &Preflight{runner: ExecCommandRunner{}}
+	script := `[Console]::Out.Write((($args -join '|') -eq '127.0.0.1:2025|127.0.0.1:2026').ToString().ToLowerInvariant())`
+	if !preflight.runBoolean(context.Background(), script, "127.0.0.1:2025", "127.0.0.1:2026") {
+		t.Fatal("PowerShell script did not receive the supplied arguments")
 	}
 }

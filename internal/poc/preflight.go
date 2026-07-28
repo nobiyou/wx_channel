@@ -143,8 +143,14 @@ func (p *Preflight) checkGit(ctx context.Context, options Options) bool {
 }
 
 func (p *Preflight) runBoolean(ctx context.Context, script string, args ...string) bool {
+	if len(args) > 0 {
+		quoted := make([]string, len(args))
+		for i, arg := range args {
+			quoted[i] = "'" + strings.ReplaceAll(arg, "'", "''") + "'"
+		}
+		script = "& { " + script + " } " + strings.Join(quoted, " ")
+	}
 	commandArgs := []string{"-NoProfile", "-NonInteractive", "-Command", script}
-	commandArgs = append(commandArgs, args...)
 	output, err := p.runner.Run(ctx, "powershell.exe", commandArgs...)
 	if err != nil {
 		return false
