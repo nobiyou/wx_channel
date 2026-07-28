@@ -4,9 +4,6 @@ import (
 	_ "embed"
 )
 
-//go:embed certs/SunnyRoot.cer
-var CertData []byte
-
 //go:embed lib/FileSaver.min.js
 var FileSaverJS []byte
 

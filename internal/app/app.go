@@ -131,6 +131,7 @@ func (app *App) initDownloadRecords() error {
 
 // Run 启动应用
 func (app *App) Run() {
+	SunnyNet.TuneNetworkStackForLegacy()
 	os_env := runtime.GOOS
 
 	// 确保端口设置正确
@@ -243,6 +244,7 @@ func (app *App) Run() {
 		app.ScriptHandler,
 	}
 
+	runtimeCert := app.Sunny.ExportCert()
 	existing, err1 := certificate.CheckCertificate("SunnyNet")
 	if err1 != nil {
 		utils.HandleError(err1, "检查证书")
@@ -250,7 +252,7 @@ func (app *App) Run() {
 		existing = false
 	} else if !existing {
 		utils.Info("正在安装证书...")
-		err := certificate.InstallCertificate(assets.CertData)
+		err := certificate.InstallCertificate(runtimeCert)
 		time.Sleep(app.Cfg.CertInstallDelay)
 		if err != nil {
 			utils.HandleError(err, "证书安装")
@@ -261,7 +263,7 @@ func (app *App) Run() {
 				if err == nil {
 					certPath := filepath.Join(downloadsDir, app.Cfg.CertFile)
 					if err := utils.EnsureDir(downloadsDir); err == nil {
-						if err := os.WriteFile(certPath, assets.CertData, 0644); err == nil {
+						if err := os.WriteFile(certPath, runtimeCert, 0644); err == nil {
 							utils.Info("证书文件已保存到: %s", certPath)
 						}
 					}

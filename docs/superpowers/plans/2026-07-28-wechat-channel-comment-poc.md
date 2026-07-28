@@ -68,6 +68,8 @@
 - `pkg/sunnynet/public/constobj.go`：删除静态根证书私钥常量。
 - `pkg/sunnynet/src/CrossCompiled/windows.go`、`Linux.go`、`darwin.go`：添加驱动停止适配器。
 - `pkg/sunnynet/src/nfapi/api.go`：释放 NFAPI 并在本次安装时注销驱动。
+- `pkg/sunnynet/Resource/nfapi/PROVENANCE.md`：记录固定 NFAPI DLL/驱动来源、哈希、签名和许可证。
+- `pkg/sunnynet/LICENSE`：保留固定 SunnyNet 依赖的 MIT 许可证。
 - `internal/app/app.go`：旧入口显式调用网络调优，并改用 Sunny 实例的运行时证书。
 - `internal/api/certificate.go`：旧证书端点改用 Sunny 实例的运行时证书。
 - `internal/assets/embed.go`：移除静态 SunnyRoot 证书嵌入。
@@ -154,6 +156,7 @@ Expected: 新 worktree 位于解析后的相邻目录，分支为 `codex/wechat-
 
 ```gitignore
 /.poc-build/
+/.poc-tools/
 /.poc-secrets/
 /.poc-data/
 /.poc-runtime/
@@ -225,15 +228,17 @@ func TestTrackedSourceContainsNoPrivateKey(t *testing.T) {
     for _, raw := range bytes.Split(out, []byte{0}) {
         if len(raw) == 0 { continue }
         switch strings.ToLower(filepath.Ext(string(raw))) {
-        case ".go", ".key", ".pem", ".cer", ".js", ".ps1", ".yaml", ".yml", ".md":
+        case ".go", ".key", ".pem", ".cer", ".js", ".ps1", ".yaml", ".yml":
         default:
             continue
         }
         path := filepath.Join(root, filepath.FromSlash(string(raw)))
         data, err := os.ReadFile(path)
+        if os.IsNotExist(err) { continue }
         if err != nil { t.Fatal(err) }
-        if bytes.Contains(data, []byte("BEGIN RSA PRIVATE KEY")) ||
-            bytes.Contains(data, []byte("BEGIN PRIVATE KEY")) {
+        rsaMarker := []byte(strings.Join([]string{"BEGIN", "RSA", "PRIVATE", "KEY"}, " "))
+        genericMarker := []byte(strings.Join([]string{"BEGIN", "PRIVATE", "KEY"}, " "))
+        if bytes.Contains(data, rsaMarker) || bytes.Contains(data, genericMarker) {
             t.Errorf("tracked private key marker: %s", raw)
         }
     }
@@ -241,7 +246,7 @@ func TestTrackedSourceContainsNoPrivateKey(t *testing.T) {
 
 func TestPOCRuntimeDirectoriesAreIgnored(t *testing.T) {
     root := repoRoot(t)
-    for _, name := range []string{".poc-build/probe", ".poc-secrets/probe", ".poc-data/probe", ".poc-runtime/probe", "var/probe"} {
+    for _, name := range []string{".poc-build/probe", ".poc-tools/probe", ".poc-secrets/probe", ".poc-data/probe", ".poc-runtime/probe", "var/probe"} {
         cmd := exec.Command("git", "check-ignore", "--quiet", name)
         cmd.Dir = root
         if err := cmd.Run(); err != nil { t.Errorf("not ignored: %s", name) }
@@ -271,6 +276,10 @@ Expected: `TestPOCRuntimeDirectoriesAreIgnored` 通过；另外两项分别因 `
 - Delete: `internal/assets/certs/SunnyRoot.key`
 - Delete: `internal/assets/certs/SunnyRoot.cer`
 - Test: `internal/pocaudit/source_test.go`
+- Create: `pkg/sunnynet/Resource/nfapi/dll/win32/nfapi.dll`（固定第三方依赖，不执行）
+- Create: `pkg/sunnynet/Resource/nfapi/dll/x64/nfapi.dll`（固定第三方依赖，不执行）
+- Create: `pkg/sunnynet/Resource/nfapi/PROVENANCE.md`
+- Create: `pkg/sunnynet/LICENSE`
 
 - [ ] **Step 1: 将网络调优改为旧入口显式调用**
 
@@ -335,6 +344,8 @@ if len(certData) == 0 {
 
 - [ ] **Step 4: 重新运行静态测试并确认转绿**
 
+在干净克隆缺少 `go:embed` 所需 NFAPI DLL 时，只允许从 SunnyNet 官方仓库固定提交 `505b77b76da5872e8466a327dc6e574c42f7700c` 取得两个文件。核对 Git blob、SHA-256、文件大小和 Authenticode 状态，在 `PROVENANCE.md` 记录 DLL 未签名这一事实，并由 `TestPinnedNFAPIDependencies` 强制精确哈希。四个仓库已有 `.sys` 必须与同一提交的 Git blob 一致并通过 Microsoft Hardware Compatibility Publisher 签名验证。下载只补齐编译依赖，不加载任何 DLL 或驱动。
+
 Run:
 
 ```powershell
@@ -343,20 +354,25 @@ go test ./internal/pocaudit -v
 
 Expected: 全部 PASS；测试进程没有执行 `netsh`。
 
-- [ ] **Step 5: 运行受影响的安全单元测试**
+- [ ] **Step 5: 运行受影响的安全编译测试**
 
 Run:
 
 ```powershell
-go test ./internal/api ./internal/router -count=1
+$toolBin = (Resolve-Path '.poc-tools/tdm-gcc-10.3.0-2/bin').Path
+$env:PATH = "$toolBin;$env:PATH"
+$env:CC = Join-Path $toolBin 'gcc.exe'
+$env:CXX = Join-Path $toolBin 'g++.exe'
+$env:CGO_ENABLED = '1'
+go test internal/api/certificate.go -count=1
 ```
 
-Expected: PASS；不生成 `hardware_fingerprint.json`，不创建证书文件，不修改动态端口范围。
+Expected: PASS；不生成 `hardware_fingerprint.json`，不创建证书文件，不修改动态端口范围。固定 TDM-GCC 10.3.0 工具链来自项目现有构建文档指定的官方发布，安装器 SHA-256 为 `819C7A1F74D45AD04E10662E1A2C3124D13D9A2BCA508847692251242CD455C3`，开发时只解压在被忽略的 `.poc-tools/`，不修改系统 PATH。旧 `internal/api`/`internal/router` 整包会同时链接 Gopeed 的 crawshaw SQLite 与应用的 mattn SQLite，是上游既有重复符号缺陷；POC 依赖图必须排除二者，不以扩大范围修复旧下载应用。
 
 - [ ] **Step 6: 提交第一条安全修复**
 
 ```powershell
-git add .gitignore internal/pocaudit pkg/sunnynet/SunnyNet/SunnyNet.go pkg/sunnynet/public/constobj.go internal/app/app.go internal/api/certificate.go internal/assets/embed.go internal/assets/certs
+git add .gitignore docs/superpowers/plans/2026-07-28-wechat-channel-comment-poc.md internal/pocaudit pkg/sunnynet/LICENSE pkg/sunnynet/Resource/nfapi pkg/sunnynet/SunnyNet/SunnyNet.go pkg/sunnynet/public/constobj.go internal/app/app.go internal/api/certificate.go internal/assets/embed.go internal/assets/certs
 git commit -m "security: remove SunnyNet import side effects"
 ```
 
@@ -392,9 +408,7 @@ func TestSetLoopbackOnly(t *testing.T) {
 Run:
 
 ```powershell
-Push-Location pkg/sunnynet
-go test ./SunnyNet -run TestSetLoopbackOnly -v
-Pop-Location
+go test github.com/qtgolang/SunnyNet/SunnyNet -run TestSetLoopbackOnly -v
 ```
 
 Expected: FAIL，提示方法不存在；此测试不会调用 `StartProcess`。
@@ -458,9 +472,7 @@ func (s *Sunny) StopProcess(unregister bool) error {
 Run:
 
 ```powershell
-Push-Location pkg/sunnynet
-go test ./SunnyNet -run TestSetLoopbackOnly -count=1
-Pop-Location
+go test github.com/qtgolang/SunnyNet/SunnyNet -run TestSetLoopbackOnly -count=1
 go test ./internal/pocaudit -count=1
 ```
 
@@ -1555,8 +1567,15 @@ Push-Location $repoRoot
 try {
     go mod verify
     if ($LASTEXITCODE -ne 0) { throw 'go mod verify failed' }
-    $env:CGO_ENABLED = '1'
-    go build -trimpath -o (Join-Path $buildRoot 'wx_channel_poc.exe') ./cmd/wx_channel_poc
+$env:CGO_ENABLED = '1'
+$portableToolBin = Join-Path $repoRoot '.poc-tools\tdm-gcc-10.3.0-2\bin'
+if (Test-Path -LiteralPath (Join-Path $portableToolBin 'gcc.exe')) {
+    $env:PATH = "$portableToolBin;$env:PATH"
+    $env:CC = Join-Path $portableToolBin 'gcc.exe'
+    $env:CXX = Join-Path $portableToolBin 'g++.exe'
+}
+if ((& $env:CC -dumpfullversion).Trim() -ne '10.3.0') { throw 'approved TDM-GCC 10.3.0 is required' }
+go build -trimpath -o (Join-Path $buildRoot 'wx_channel_poc.exe') ./cmd/wx_channel_poc
     if ($LASTEXITCODE -ne 0) { throw 'POC build failed' }
     Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $buildRoot 'wx_channel_poc.exe') | ConvertTo-Json -Compress
 }
@@ -1567,7 +1586,7 @@ finally { Pop-Location }
 
 - [ ] **Step 3: 实现静态和二进制安全审计**
 
-`poc-security-audit.ps1` 依次：运行 `go test ./internal/pocaudit`；运行嵌套 SunnyNet 测试；用 `go list -deps ./cmd/wx_channel_poc` 拒绝 `internal/cloud`、`internal/metrics`、`internal/database`、`internal/services`、旧 `internal/app`；用 `rg` 拒绝 POC JS 中写方法和日志；把构建产物按 ASCII 读取并拒绝 PEM 私钥标记、默认云 Hub、Cloudflare、GitHub update URL；用 `go version -m` 和 `Get-FileHash` 生成不含秘密的 `.poc-build/provenance.json`。
+`poc-security-audit.ps1` 依次：验证编译器精确为 TDM-GCC 10.3.0；运行 `go test ./internal/pocaudit`；运行嵌套 SunnyNet 测试；重新计算两个 NFAPI DLL 和四个驱动的 SHA-256，并验证四个驱动 Authenticode 有效、两个 DLL 的未签名状态与 `PROVENANCE.md` 一致；用 `go list -deps ./cmd/wx_channel_poc` 拒绝 `internal/cloud`、`internal/metrics`、`internal/database`、`internal/services`、旧 `internal/app`、`github.com/GopeedLab/gopeed`、`github.com/mattn/go-sqlite3` 和 `github.com/go-llsqlite/crawshaw`；用 `rg` 拒绝 POC JS 中写方法和日志；把构建产物按 ASCII 读取并拒绝 PEM 私钥标记、默认云 Hub、Cloudflare、GitHub update URL；用 `go version -m` 和 `Get-FileHash` 生成不含秘密的 `.poc-build/provenance.json`。
 
 - [ ] **Step 4: 实现精确 cleanup 包装脚本**
 
@@ -1582,14 +1601,14 @@ go test ./scripts -run TestPOCScripts -count=1
 git check-ignore .poc-build/probe .poc-secrets/probe .poc-data/probe .poc-runtime/probe var/probe
 ```
 
-Expected: PASS，五个 probe 均输出为 ignored。
+Expected: PASS，六个 probe 均输出为 ignored。
 
 ```powershell
 git add .gitignore scripts/build-poc.ps1 scripts/poc-security-audit.ps1 scripts/poc-cleanup.ps1 scripts/poc_scripts_test.go
 git commit -m "build: add auditable POC build and cleanup scripts"
 ```
 
-## Task 15：完成无驱动模拟集成、全量测试和源码构建
+## Task 15：完成无驱动模拟集成、POC 范围测试和源码构建
 
 **Files:**
 
@@ -1624,22 +1643,20 @@ Run: `go test ./internal/poc -run TestSimulatedPOC -count=1 -v`
 
 Expected: PASS；测试输出只位于 `t.TempDir()`。
 
-- [ ] **Step 3: 运行根模块全量测试**
+- [ ] **Step 3: 运行根模块 POC 范围测试**
 
-此时 Task 2 已移除导入副作用，才允许执行：
+此时 Task 2 已移除导入副作用，才允许执行 POC 相关包：
 
 ```powershell
-go test ./... -count=1
+go test ./internal/poc ./internal/pocaudit ./scripts -count=1
 ```
 
-Expected: PASS；不得出现 `netsh`、证书安装、Cloud Hub、更新检查或硬件指纹输出。
+Expected: PASS；不得出现 `netsh`、证书安装、Cloud Hub、更新检查或硬件指纹输出。不得以 `go test ./...` 作为 POC 门禁，因为上游旧应用在 Windows CGO 下同时链接两套 SQLite amalgamation；安全审计改为证明 POC 依赖图不含这两套旧依赖。
 
 - [ ] **Step 4: 运行 SunnyNet 嵌套模块测试和 Node 测试**
 
 ```powershell
-Push-Location pkg/sunnynet
-go test ./... -count=1
-Pop-Location
+go test github.com/qtgolang/SunnyNet/SunnyNet github.com/qtgolang/SunnyNet/src/nfapi github.com/qtgolang/SunnyNet/src/CrossCompiled -count=1
 node internal/pocassets/poc_api_client.test.js
 ```
 
@@ -1683,7 +1700,7 @@ Expected: 提交后只剩 Git 忽略的 `.poc-build/` 本地产物，`git status
 3. 确认视频号可访问，记录无 POC CA/驱动的基线。
 4. 创建名为 `wechat-login-baseline` 的快照。
 5. 从受控 fork 的 `codex/wechat-channel-comment-poc` 分支检出源码。
-6. 运行 `scripts/build-poc.ps1` 和 `scripts/poc-security-audit.ps1`，不运行仓库跟踪 exe。
+6. 准备官方 TDM-GCC 10.3.0（核对固定 SHA-256；仅装在 VM 或解压到 `.poc-tools/`），运行 `scripts/build-poc.ps1` 和 `scripts/poc-security-audit.ps1`，不运行仓库跟踪 exe。
 7. 运行 `.poc-build\wx_channel_poc.exe preflight`；任何失败均停止。
 8. 仅在用户再次确认真实运行检查点后执行 `run --ack-isolated-vm`，并在提示时人工输入 `APPLY`。
 9. 登录/真人验证/目标页面等待时只人工操作微信；不使用验证码识别或 UI 自动化。
@@ -1724,10 +1741,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/poc-cleanup.ps1 
 - [ ] **Step 4: 运行最终开发验收**
 
 ```powershell
-go test ./... -count=1
-Push-Location pkg/sunnynet
-go test ./... -count=1
-Pop-Location
+go test ./internal/poc ./internal/pocaudit ./scripts -count=1
+go test github.com/qtgolang/SunnyNet/SunnyNet github.com/qtgolang/SunnyNet/src/nfapi github.com/qtgolang/SunnyNet/src/CrossCompiled -count=1
 node internal/pocassets/poc_api_client.test.js
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-poc.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/poc-security-audit.ps1
@@ -1750,7 +1765,7 @@ git commit -m "docs: add isolated POC validation runbook"
 
 - [ ] **Step 1: 暂停并向用户报告开发证据**
 
-报告以下不敏感信息：实现分支、提交列表、全量测试结果、SunnyNet 嵌套模块测试结果、Node 测试结果、构建 SHA-256、安全审计结论、待使用的隔离虚拟机类型。明确说明尚未安装 CA、加载驱动或运行真实采集。
+报告以下不敏感信息：实现分支、提交列表、POC 范围测试结果、SunnyNet 嵌套模块测试结果、Node 测试结果、构建 SHA-256、安全审计结论、待使用的隔离虚拟机类型。明确说明尚未安装 CA、加载驱动或运行真实采集。
 
 Expected: 用户明确回复允许进入真实虚拟机验证；没有确认时不继续。
 

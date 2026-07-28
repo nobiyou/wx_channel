@@ -35,9 +35,14 @@ import (
 	"unsafe"
 )
 
-func init() {
-	//使用全部-1个CPU性能,例如你电脑CPU是4核心 那么就使用4-1 使用3核心的的CPU性能
-	runtime.GOMAXPROCS(runtime.NumCPU() - 1)
+// TuneNetworkStackForLegacy preserves the historical application behavior.
+// Restricted callers such as wx_channel_poc must never call it.
+func TuneNetworkStackForLegacy() {
+	cores := runtime.NumCPU() - 1
+	if cores < 1 {
+		cores = 1
+	}
+	runtime.GOMAXPROCS(cores)
 	CrossCompiled.SetNetworkConnectNumber()
 }
 
@@ -1751,9 +1756,11 @@ var defaultManager = func() int {
 	i := Certificate.CreateCertificate()
 	c := Certificate.LoadCertificateContext(i)
 	if c == nil {
-		panic(errors.New("创建证书管理器错误！！"))
+		panic(errors.New("create certificate manager"))
 	}
-	c.LoadX509Certificate(public.NULL, public.RootCa, public.RootKey)
+	if !c.CreateCA("CN", "SunnyNet", "Runtime", "Beijing", "SunnyNet Runtime CA", "Beijing", 2048, 365) {
+		panic(errors.New("create runtime CA"))
+	}
 	return i
 }()
 
