@@ -2,7 +2,8 @@
 
 ## 文档状态
 
-- 状态：待评审
+- 状态：已批准
+- 批准日期：2026-07-28
 - 日期：2026-07-28
 - 上游仓库：`https://github.com/nobiyou/wx_channel`
 - 基线提交：`11d49cee1da9032230dc5c0eece79bcf03da3e82`
