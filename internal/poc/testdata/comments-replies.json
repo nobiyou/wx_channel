@@ -1,0 +1,27 @@
+{
+  "data": {
+    "commentInfo": [
+      {
+        "commentId": "fixture-reply-1",
+        "replyCommentId": "fixture-top-1",
+        "rootCommentId": "fixture-top-1",
+        "content": "fixture-duplicate-reply",
+        "contentType": 1
+      },
+      {
+        "commentId": "fixture-reply-2",
+        "replyCommentId": "fixture-top-1",
+        "rootCommentId": "fixture-top-1",
+        "content": "fixture-independent-reply",
+        "contentType": 1,
+        "username": "fixture-account-reply-2",
+        "nickname": "fixture-name-reply-2",
+        "headUrl": "https://fixture.invalid/avatar/reply-2.png?temporary=fixture",
+        "createtime": "1715760002",
+        "ipRegion": "fixture-region-reply-2"
+      }
+    ],
+    "countInfo": {"commentCount": 2},
+    "lastBuffer": ""
+  }
+}
