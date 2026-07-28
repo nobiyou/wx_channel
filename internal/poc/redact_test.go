@@ -24,7 +24,7 @@ func TestSafeURLRejectsCredentialsAndNonHTTP(t *testing.T) {
 func TestScanOutputRejectsCredentials(t *testing.T) {
 	cases := [][]byte{
 		[]byte(`{"authorization":"Bearer abc"}`),
-		[]byte(`{"text":"-----BEGIN PRIVATE KEY-----"}`),
+		[]byte(`{"text":"-----BEGIN ` + `PRIVATE KEY-----"}`),
 		[]byte(`{"avatar_url":"https://x/a?session=s"}`),
 		[]byte(`{"cookie":"secret"}`),
 		[]byte(`{"token":"secret"}`),
