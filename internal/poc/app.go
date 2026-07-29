@@ -1,12 +1,57 @@
 package poc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 )
+
+func newCertificateSmokeApproval(input io.Reader, output io.Writer) func(context.Context, CertificateSmokePlan) error {
+	return func(ctx context.Context, plan CertificateSmokePlan) error {
+		if plan.CertificateScope != "CurrentUser\\Root" {
+			return newCertificateSmokeError(smokeApprovalRejected)
+		}
+		_, _ = fmt.Fprintf(output, "Planned certificate smoke change: certificate=%s\nType CERT_APPLY to continue: ", plan.CertificateScope)
+		scanner := bufio.NewScanner(input)
+		line := make(chan string, 1)
+		go func() {
+			if scanner.Scan() {
+				line <- scanner.Text()
+			}
+			close(line)
+		}()
+		select {
+		case <-ctx.Done():
+			return newCertificateSmokeError(smokeApprovalRejected)
+		case value, ok := <-line:
+			if !ok || value != "CERT_APPLY" || scanner.Err() != nil {
+				return newCertificateSmokeError(smokeApprovalRejected)
+			}
+		}
+		return nil
+	}
+}
+
+func RunCertificateSmokeCLI(ctx context.Context, input io.Reader, output io.Writer, args []string, options Options) int {
+	flags := flag.NewFlagSet("cert-smoke", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	ack := flags.Bool("ack-isolated-vm", false, "acknowledge disposable isolated VM")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || !*ack {
+		_, _ = fmt.Fprintln(output, "cert-smoke requires --ack-isolated-vm")
+		return 2
+	}
+	options.AckIsolatedVM = true
+	options.AllowEncryptedRaw = false
+	receipt := runPlatformCertificateSmoke(ctx, input, output, options)
+	_ = json.NewEncoder(output).Encode(receipt)
+	if receipt.Success {
+		return 0
+	}
+	return 1
+}
 
 func RunPreflightCLI(ctx context.Context, output io.Writer, options Options) int {
 	options.AckIsolatedVM = true
