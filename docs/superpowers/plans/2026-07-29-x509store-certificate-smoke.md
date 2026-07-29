@@ -881,12 +881,12 @@ $env:CGO_ENABLED='1'
 $env:PATH="$toolBin;$env:PATH"
 $env:CC=Join-Path $toolBin 'gcc.exe'
 $env:CXX=Join-Path $toolBin 'g++.exe'
-go test ./... -count=1
+go test ./internal/poc ./internal/pocaudit ./scripts ./cmd/wx_channel_poc -count=1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-poc.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\poc-security-audit.ps1
 ```
 
-Expected: every Go package passes, the restricted binary is rebuilt from source, the audit prints `POC security audit passed`, and the binary receipt contains a SHA-256. Do not execute `cert-smoke` on the host.
+Expected: every approved POC package passes, the restricted binary is rebuilt from source, the audit prints `POC security audit passed`, and the binary receipt contains a SHA-256. Do not execute `cert-smoke` on the host. A repository-wide `go test ./...` is informational only: at the clean `19fe4a8` baseline, unrelated upstream packages already fail to link because `github.com/mattn/go-sqlite3` and `github.com/go-llsqlite/crawshaw` export duplicate SQLite C symbols; this pre-existing failure does not weaken the POC-scoped gate.
 
 - [ ] **Step 6: Commit the boundary and operator procedure**
 
