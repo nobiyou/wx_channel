@@ -109,13 +109,13 @@ func (s *windowsCertificateStore) RemoveBySHA256(ctx context.Context, fingerprin
 	if err != nil {
 		return err
 	}
-	matched, err := s.runBoolean(ctx, certificateMatchScript, fingerprint)
-	if err != nil || !matched {
-		return errors.New("certificate fingerprint did not match exactly one CurrentUser root")
-	}
 	removed, err := s.runBoolean(ctx, certificateRemoveScript, fingerprint)
 	if err != nil || !removed {
 		return errors.New("remove CurrentUser root certificate")
+	}
+	present, err := s.ContainsSHA256(ctx, fingerprint)
+	if err != nil || present {
+		return errors.New("verify CurrentUser root certificate removal")
 	}
 	return nil
 }
@@ -159,7 +159,75 @@ func restrictSecretDirectory(ctx context.Context, runner CommandRunner, dir stri
 	return nil
 }
 
-const certificateHashPipeline = `$sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') } finally { $sha.Dispose() }; `
-const certificateMatchScript = `$expected = $args[0].ToUpperInvariant(); $matches = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object { ` + certificateHashPipeline + `$hash -eq $expected }); [Console]::Out.Write(($matches.Count -eq 1).ToString().ToLowerInvariant())`
-const certificateInstallScript = `$WarningPreference = 'SilentlyContinue'; $InformationPreference = 'SilentlyContinue'; $ProgressPreference = 'SilentlyContinue'; $path = $args[0]; $expected = $args[1].ToUpperInvariant(); $cert = @(Import-Certificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\Root -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue -ErrorAction Stop); if ($cert.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }; $sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($cert[0].RawData))).Replace('-','') } finally { $sha.Dispose() }; if ($hash -ne $expected) { Remove-Item -LiteralPath $cert[0].PSPath -Force -ErrorAction SilentlyContinue; [Console]::Out.Write('false'); exit 0 }; [Console]::Out.Write('true')`
-const certificateRemoveScript = `$expected = $args[0].ToUpperInvariant(); $matches = @(Get-ChildItem Cert:\CurrentUser\Root | Where-Object { ` + certificateHashPipeline + `$hash -eq $expected }); if ($matches.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }; Remove-Item -LiteralPath $matches[0].PSPath -Force -ErrorAction Stop; [Console]::Out.Write('true')`
+const certificateMatchScript = `$WarningPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+$expected = $args[0].ToUpperInvariant()
+$store = [Security.Cryptography.X509Certificates.X509Store]::new(
+    [Security.Cryptography.X509Certificates.StoreName]::Root,
+    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+try {
+    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+    $matches = @($store.Certificates | Where-Object {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') }
+        finally { $sha.Dispose() }
+        $hash -eq $expected
+    })
+    if ($matches.Count -gt 1) { exit 3 }
+    [Console]::Out.Write(($matches.Count -eq 1).ToString().ToLowerInvariant())
+}
+finally { $store.Close() }`
+
+const certificateInstallScript = `$WarningPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+$path = $args[0]
+$expected = $args[1].ToUpperInvariant()
+$certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($path)
+$store = [Security.Cryptography.X509Certificates.X509Store]::new(
+    [Security.Cryptography.X509Certificates.StoreName]::Root,
+    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+try {
+    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $store.Add($certificate)
+    $matches = @($store.Certificates | Where-Object {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') }
+        finally { $sha.Dispose() }
+        $hash -eq $expected
+    })
+    [Console]::Out.Write(($matches.Count -eq 1).ToString().ToLowerInvariant())
+}
+finally {
+    $store.Close()
+    $certificate.Dispose()
+}`
+
+const certificateRemoveScript = `$WarningPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+$expected = $args[0].ToUpperInvariant()
+$store = [Security.Cryptography.X509Certificates.X509Store]::new(
+    [Security.Cryptography.X509Certificates.StoreName]::Root,
+    [Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+try {
+    $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $matches = @($store.Certificates | Where-Object {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') }
+        finally { $sha.Dispose() }
+        $hash -eq $expected
+    })
+    if ($matches.Count -eq 0) { [Console]::Out.Write('true'); exit 0 }
+    if ($matches.Count -ne 1) { [Console]::Out.Write('false'); exit 0 }
+    $store.Remove($matches[0])
+    $remaining = @($store.Certificates | Where-Object {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($sha.ComputeHash($_.RawData))).Replace('-','') }
+        finally { $sha.Dispose() }
+        $hash -eq $expected
+    })
+    [Console]::Out.Write(($remaining.Count -eq 0).ToString().ToLowerInvariant())
+}
+finally { $store.Close() }`

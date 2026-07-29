@@ -13,11 +13,12 @@ import (
 	"time"
 )
 
-func TestCertificateScriptsUseCurrentUserOnly(t *testing.T) {
+func TestCertificateScriptsUseCurrentUserX509StoreOnly(t *testing.T) {
 	combined := certificateMatchScript + certificateInstallScript + certificateRemoveScript
 	lower := strings.ToLower(combined)
 	for _, required := range []string{
-		`Cert:\CurrentUser\Root`, `-Confirm:$false`,
+		"X509Store", "StoreName]::Root", "StoreLocation]::CurrentUser",
+		"OpenFlags]::ReadWrite", ".Add(", ".Remove(", "SHA256",
 		`$WarningPreference = 'SilentlyContinue'`,
 		`$InformationPreference = 'SilentlyContinue'`,
 		`$ProgressPreference = 'SilentlyContinue'`,
@@ -26,8 +27,10 @@ func TestCertificateScriptsUseCurrentUserOnly(t *testing.T) {
 			t.Fatalf("certificate script missing %q", required)
 		}
 	}
-	if strings.Contains(lower, "localmachine") {
-		t.Fatal("certificate scripts are not restricted to CurrentUser Root")
+	for _, forbidden := range []string{"import-certificate", "certutil", "localmachine"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("certificate script contains forbidden fallback %q", forbidden)
+		}
 	}
 }
 
@@ -121,28 +124,29 @@ func TestCertificateBooleanPassesArgumentsToPowerShellScript(t *testing.T) {
 	}
 }
 
-func TestGeneratedCertificateIsAcceptedByImportCertificateWhatIf(t *testing.T) {
+func TestGeneratedCertificateCanBeLoadedByX509Certificate2(t *testing.T) {
 	if _, err := exec.LookPath("powershell.exe"); err != nil {
 		t.Skip("Windows PowerShell is unavailable")
 	}
-
-	ca, err := GenerateJobCA("job-import-whatif", time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := filepath.Join(t.TempDir(), ".poc-secrets", "job-import-whatif")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	certPath, _, err := ca.WriteSecrets(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	certPath, fingerprint := writeTestJobCertificate(t)
 	store := &windowsCertificateStore{runner: ExecCommandRunner{}}
-	script := `$null = Import-Certificate -FilePath $args[0] -CertStoreLocation Cert:\CurrentUser\Root -WhatIf -Confirm:$false -InformationAction SilentlyContinue -ErrorAction Stop; [Console]::Out.Write('true')`
-	ok, err := store.runBoolean(context.Background(), script, certPath)
+	script := `$cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($args[0]); try { $sha = [Security.Cryptography.SHA256]::Create(); try { $hash = ([BitConverter]::ToString($sha.ComputeHash($cert.RawData))).Replace('-','') } finally { $sha.Dispose() }; [Console]::Out.Write(($hash -eq $args[1]).ToString().ToLowerInvariant()) } finally { $cert.Dispose() }`
+	ok, err := store.runBoolean(context.Background(), script, certPath, fingerprint)
 	if err != nil || !ok {
-		t.Fatalf("generated certificate was not accepted by Import-Certificate -WhatIf: ok=%v err=%v", ok, err)
+		t.Fatalf("generated certificate was not accepted by X509Certificate2: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCertificateRemoveRequiresSuccessfulZeroMatchPostcheck(t *testing.T) {
+	runner := &certificateRunner{results: []certificateResult{
+		{output: []byte("true")},
+		{output: []byte("false")},
+	}}
+	store := &windowsCertificateStore{runner: runner}
+	if err := store.RemoveBySHA256(context.Background(), strings.Repeat("A", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.results) != 0 {
+		t.Fatalf("unused command results=%d", len(runner.results))
 	}
 }
