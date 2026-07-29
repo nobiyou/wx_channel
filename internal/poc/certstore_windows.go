@@ -110,12 +110,15 @@ func (s *windowsCertificateStore) RemoveBySHA256(ctx context.Context, fingerprin
 		return err
 	}
 	removed, err := s.runBoolean(ctx, certificateRemoveScript, fingerprint)
-	if err != nil || !removed {
-		return errors.New("remove CurrentUser root certificate")
+	if err != nil {
+		return newCertificateStoreError(certificateRemoveCommandFailed)
+	}
+	if !removed {
+		return newCertificateStoreError(certificateRemoveReportedFalse)
 	}
 	present, err := s.ContainsSHA256(ctx, fingerprint)
 	if err != nil || present {
-		return errors.New("verify CurrentUser root certificate removal")
+		return newCertificateStoreError(certificateRemovePostcheckFailed)
 	}
 	return nil
 }

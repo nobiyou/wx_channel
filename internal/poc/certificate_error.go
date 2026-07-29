@@ -10,6 +10,9 @@ const (
 	certificateImportCommandFailed   certificateErrorCode = "certificate_import_command_failed"
 	certificateImportReportedFalse   certificateErrorCode = "certificate_import_reported_false"
 	certificatePostcheckFailed       certificateErrorCode = "certificate_postcheck_failed"
+	certificateRemoveCommandFailed   certificateErrorCode = "certificate_remove_command_failed"
+	certificateRemoveReportedFalse   certificateErrorCode = "certificate_remove_reported_false"
+	certificateRemovePostcheckFailed certificateErrorCode = "certificate_remove_postcheck_failed"
 )
 
 type certificateStoreError struct{ code certificateErrorCode }
@@ -20,7 +23,8 @@ func newCertificateStoreError(code certificateErrorCode) error {
 	switch code {
 	case certificatePrecheckCommandFailed, certificateAlreadyPresent,
 		certificateImportCommandFailed, certificateImportReportedFalse,
-		certificatePostcheckFailed:
+		certificatePostcheckFailed, certificateRemoveCommandFailed,
+		certificateRemoveReportedFalse, certificateRemovePostcheckFailed:
 		return certificateStoreError{code: code}
 	default:
 		return errors.New("certificate store failure")
@@ -35,7 +39,8 @@ func safeCertificateErrorCode(err error) (string, bool) {
 	switch target.code {
 	case certificatePrecheckCommandFailed, certificateAlreadyPresent,
 		certificateImportCommandFailed, certificateImportReportedFalse,
-		certificatePostcheckFailed:
+		certificatePostcheckFailed, certificateRemoveCommandFailed,
+		certificateRemoveReportedFalse, certificateRemovePostcheckFailed:
 		return string(target.code), true
 	default:
 		return "", false

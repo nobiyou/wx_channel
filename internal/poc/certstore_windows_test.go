@@ -150,3 +150,30 @@ func TestCertificateRemoveRequiresSuccessfulZeroMatchPostcheck(t *testing.T) {
 		t.Fatalf("unused command results=%d", len(runner.results))
 	}
 }
+
+func TestCertificateRemoveMapsCommandFailure(t *testing.T) {
+	runner := &certificateRunner{results: []certificateResult{{err: errors.New("fixture")}}}
+	err := (&windowsCertificateStore{runner: runner}).RemoveBySHA256(
+		context.Background(), strings.Repeat("A", 64),
+	)
+	assertCertificateErrorCode(t, err, certificateRemoveCommandFailed)
+}
+
+func TestCertificateRemoveMapsReportedFalse(t *testing.T) {
+	runner := &certificateRunner{results: []certificateResult{{output: []byte("false")}}}
+	err := (&windowsCertificateStore{runner: runner}).RemoveBySHA256(
+		context.Background(), strings.Repeat("A", 64),
+	)
+	assertCertificateErrorCode(t, err, certificateRemoveReportedFalse)
+}
+
+func TestCertificateRemoveMapsPostcheckFailure(t *testing.T) {
+	runner := &certificateRunner{results: []certificateResult{
+		{output: []byte("true")},
+		{output: []byte("true")},
+	}}
+	err := (&windowsCertificateStore{runner: runner}).RemoveBySHA256(
+		context.Background(), strings.Repeat("A", 64),
+	)
+	assertCertificateErrorCode(t, err, certificateRemovePostcheckFailed)
+}
