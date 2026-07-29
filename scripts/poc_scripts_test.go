@@ -43,6 +43,9 @@ func TestCertificateSmokeLauncherHasNoCollectionOrAutomaticApproval(t *testing.T
 	if !strings.Contains(launcher, "cert-smoke --ack-isolated-vm") {
 		t.Fatal("certificate smoke launcher is missing the restricted command")
 	}
+	if !strings.Contains(launcher, "%localappdata%\\wechat-channel-comment-poc") || !strings.Contains(launcher, "%poc_work%\\source") {
+		t.Fatal("certificate smoke launcher does not target the prepared VM source tree")
+	}
 	for _, forbidden := range []string{
 		" run ", "apply", "sunnynet", "wechatappex", "127.0.0.1:2025",
 		"127.0.0.1:2026", "import-certificate", "certutil", "cert:\\",
