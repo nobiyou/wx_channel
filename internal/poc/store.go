@@ -347,6 +347,10 @@ func (s *Store) WriteCleanupReceipt(value CleanupReceipt) error {
 	return s.WriteJSON("cleanup-receipt.json", value)
 }
 
+func (s *Store) WriteCertificateSmokeReceipt(value CertificateSmokeReceipt) error {
+	return s.WriteJSON("certificate-smoke-receipt.json", value)
+}
+
 func (s *Store) WriteRuntimeState(value PersistedRuntimeState) error {
 	return s.writeJSONWithin(s.runtimeDir, filepath.Join(s.runtimeDir, "state.json"), value)
 }
