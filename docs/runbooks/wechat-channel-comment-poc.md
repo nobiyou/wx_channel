@@ -32,7 +32,21 @@
 
    任一预检或审计失败都必须停止，不得进入 `run`。
 
-## 3. 真实运行检查点
+## 3. 证书冒烟安全门
+
+`cert-smoke` 只能从刚回滚的 `wechat-login-baseline` 虚拟机运行，并且必须使用当前普通登录用户，绝不能选择“以管理员身份运行”。它只验证一次性 CA 在 `CurrentUser\Root` 中的安装、精确复核和移除；不会打开微信，也不会执行搜索或评论采集。
+
+```powershell
+.\.poc-build\wx_channel_poc.exe cert-smoke --ack-isolated-vm
+```
+
+操作员核对变更范围只有 `CurrentUser\Root` 后，必须手工输入完全一致的 `CERT_APPLY`。启动脚本不会自动提供该确认。
+
+成功必须同时满足：`preflight_passed`、`not_elevated`、`preinstall_absent`、`install_verified`、`remove_verified`、`secrets_destroyed` 和 `runtime_state_destroyed` 全部为 `true`，`success` 为 `true`，且 `error_code` 为 `null`。冒烟前后的预检基线哈希也必须完全一致。
+
+无论成功、失败或中断，均应关闭虚拟机并回滚到 `wechat-login-baseline`。证书冒烟成功不授权执行 `run`；进入真实采集前必须取得一次新的、明确的用户确认。
+
+## 4. 真实运行检查点（不由证书冒烟授权）
 
 只有在用户看过开发证据并再次明确批准真实验证后，才能执行：
 
@@ -47,7 +61,7 @@
 - 等待期间不发送微信请求。只读请求串行执行，固定至少间隔 1 秒。
 - 不在终端、聊天或工单中粘贴作品 ID、账号、昵称、正文、IP 属地、URL、Token、Cookie 或证书信息。
 
-## 4. 只查看状态和数量
+## 5. 只查看状态和数量
 
 下面的命令不打印 dataset 内容：
 
@@ -69,7 +83,7 @@ $validation = Get-Content -LiteralPath (Join-Path $jobDir.FullName 'validation.j
 
 少于 10 个作品但搜索明确耗尽时，`coverage_status` 应为 `source_exhausted_below_target`；这不等于采集能力失败。能力、覆盖和作业状态必须分别判断。
 
-## 5. 清理核验
+## 6. 清理核验
 
 1. 检查 `cleanup-receipt.json`，确认请求、代理、bridge、进程规则、任务自有驱动、CurrentUser POC CA、私钥和临时加密证据的清理状态成功。
 2. 再执行一次幂等清理并验证任务目录消失：
@@ -80,7 +94,7 @@ $validation = Get-Content -LiteralPath (Join-Path $jobDir.FullName 'validation.j
 
 3. 确认 `.poc-secrets/<job-id>`、`.poc-runtime/<job-id>` 和所有 `.enc` 文件均不存在。若无法确认驱动或证书已移除，将 `cleanup_success` 视为 false 并直接销毁虚拟机。
 
-## 6. 保留与虚拟机终结
+## 7. 保留与虚拟机终结
 
 获准复制到受控、Git 外或被 Git 忽略位置的文件仅限：
 

@@ -38,6 +38,21 @@ func TestPOCScriptsCleanupValidatesResolvedPrefixesAndDoesNotDeleteDirectly(t *t
 	}
 }
 
+func TestCertificateSmokeLauncherHasNoCollectionOrAutomaticApproval(t *testing.T) {
+	launcher := strings.ToLower(readScript(t, "run-certificate-smoke.cmd"))
+	if !strings.Contains(launcher, "cert-smoke --ack-isolated-vm") {
+		t.Fatal("certificate smoke launcher is missing the restricted command")
+	}
+	for _, forbidden := range []string{
+		" run ", "apply", "sunnynet", "wechatappex", "127.0.0.1:2025",
+		"127.0.0.1:2026", "import-certificate", "certutil", "cert:\\",
+	} {
+		if strings.Contains(launcher, forbidden) {
+			t.Fatalf("certificate smoke launcher contains forbidden text %q", forbidden)
+		}
+	}
+}
+
 func readScript(t *testing.T, name string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

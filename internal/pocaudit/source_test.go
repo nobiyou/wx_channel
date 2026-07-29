@@ -24,6 +24,38 @@ func repoRoot(t *testing.T) string {
 	return strings.TrimSpace(string(out))
 }
 
+func readRepoFile(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(name)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestCertificateStoreUsesOnlyCurrentUserX509Store(t *testing.T) {
+	source := strings.ToLower(readRepoFile(t, "internal/poc/certstore_windows.go"))
+	for _, required := range []string{"x509store", "storename]::root", "storelocation]::currentuser", ".add(", ".remove(", "sha256"} {
+		if !strings.Contains(source, required) {
+			t.Errorf("missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"import-certificate", "certutil", "localmachine"} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("forbidden certificate fallback %q", forbidden)
+		}
+	}
+}
+
+func TestCertificateSmokeSourceHasNoCollectionRuntimeDependencies(t *testing.T) {
+	production := strings.ToLower(readRepoFile(t, "internal/poc/certificate_smoke.go") + readRepoFile(t, "internal/poc/certificate_smoke_windows.go"))
+	for _, forbidden := range []string{"bridgestart", "runtimeproxy", "proxyfactory", "sunnynet", "nfapi", "wechatappex", "collectrestrictedpoc", "createtoken"} {
+		if strings.Contains(production, forbidden) {
+			t.Errorf("certificate smoke references %q", forbidden)
+		}
+	}
+}
+
 func TestSunnyNetInitDoesNotTuneNetwork(t *testing.T) {
 	root := repoRoot(t)
 	path := filepath.Join(root, "pkg", "sunnynet", "SunnyNet", "SunnyNet.go")

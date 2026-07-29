@@ -170,6 +170,7 @@ scripts/*
 !scripts/poc-security-audit.ps1
 !scripts/poc-cleanup.ps1
 !scripts/poc_scripts_test.go
+!scripts/run-certificate-smoke.cmd
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
 
