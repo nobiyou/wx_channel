@@ -1,6 +1,6 @@
 # 微信视频号评论 POC：证书安装诊断修订规格
 
-状态：已确认
+状态：已执行；结果为 `inconclusive`。`Import-Certificate` 决策已由 `2026-07-29-x509store-certificate-smoke-design.md` 取代。
 
 ## 背景
 
