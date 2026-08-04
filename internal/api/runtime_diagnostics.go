@@ -15,11 +15,13 @@ const defaultWXClientProcessName = "WeChatAppEx.exe"
 const runtimeCertificateStatusTTL = 15 * time.Second
 
 type RuntimeDiagnostics struct {
-	mu             sync.RWMutex
-	cfg            *config.Config
-	injection      RuntimeInjectionStatus
-	certificate    RuntimeCertificateStatus
-	certificateTTL time.Time
+	mu                    sync.RWMutex
+	cfg                   *config.Config
+	injection             RuntimeInjectionStatus
+	certificate           RuntimeCertificateStatus
+	certificateTTL        time.Time
+	certificateRefreshing bool
+	checkCertificate      func(string) (bool, error)
 }
 
 type RuntimeDiagnosticsSnapshot struct {
@@ -40,6 +42,7 @@ type RuntimeProxyStatus struct {
 type RuntimeCertificateStatus struct {
 	Name      string `json:"name"`
 	Installed bool   `json:"installed"`
+	Checked   bool   `json:"checked"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -67,6 +70,7 @@ func NewRuntimeDiagnostics(cfg *config.Config) *RuntimeDiagnostics {
 			Enabled:       enabled,
 			TargetProcess: target,
 		},
+		checkCertificate: certificate.CheckCertificate,
 	}
 }
 
@@ -144,7 +148,7 @@ func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 
 func (d *RuntimeDiagnostics) certificateStatus() RuntimeCertificateStatus {
 	if d == nil {
-		return checkRuntimeCertificateStatus()
+		return checkRuntimeCertificateStatus(certificate.CheckCertificate)
 	}
 
 	now := time.Now()
@@ -154,19 +158,55 @@ func (d *RuntimeDiagnostics) certificateStatus() RuntimeCertificateStatus {
 		d.mu.RUnlock()
 		return status
 	}
+	cached := d.certificate
+	hasCached := !d.certificateTTL.IsZero()
+	refreshing := d.certificateRefreshing
 	d.mu.RUnlock()
 
-	status := checkRuntimeCertificateStatus()
-	d.mu.Lock()
-	d.certificate = status
-	d.certificateTTL = now.Add(runtimeCertificateStatusTTL)
-	d.mu.Unlock()
-	return status
+	if !refreshing {
+		d.refreshCertificateStatusAsync()
+	}
+	if hasCached {
+		return cached
+	}
+	return RuntimeCertificateStatus{
+		Name:  "SunnyNet",
+		Error: "certificate check pending",
+	}
 }
 
-func checkRuntimeCertificateStatus() RuntimeCertificateStatus {
-	installed, certErr := certificate.CheckCertificate("SunnyNet")
-	status := RuntimeCertificateStatus{Name: "SunnyNet", Installed: installed}
+func (d *RuntimeDiagnostics) refreshCertificateStatusAsync() {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	if d.certificateRefreshing {
+		d.mu.Unlock()
+		return
+	}
+	d.certificateRefreshing = true
+	checkCertificate := d.checkCertificate
+	d.mu.Unlock()
+
+	go func() {
+		status := checkRuntimeCertificateStatus(checkCertificate)
+		now := time.Now()
+		d.mu.Lock()
+		d.certificate = status
+		d.certificateTTL = now.Add(runtimeCertificateStatusTTL)
+		d.certificateRefreshing = false
+		d.mu.Unlock()
+	}()
+}
+
+func checkRuntimeCertificateStatus(checkCertificate func(string) (bool, error)) RuntimeCertificateStatus {
+	if checkCertificate == nil {
+		checkCertificate = certificate.CheckCertificate
+	}
+
+	installed, certErr := checkCertificate("SunnyNet")
+	status := RuntimeCertificateStatus{Name: "SunnyNet", Installed: installed, Checked: true}
 	if certErr != nil {
 		status.Error = certErr.Error()
 	}
