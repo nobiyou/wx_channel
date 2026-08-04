@@ -28,6 +28,7 @@ type SearchService struct {
 	callAPI             func(key string, body interface{}, timeout time.Duration) ([]byte, error)
 	resolveDownloadsDir func() (string, error)
 	sphService          sharedFeedProfileService
+	runtimeDiagnostics  *RuntimeDiagnostics
 }
 
 // NewSearchService 创建搜索服务
@@ -39,6 +40,10 @@ func NewSearchService(hub *websocket.Hub) *SearchService {
 	}
 	service.sphService = services.NewSphService()
 	return service
+}
+
+func (s *SearchService) SetRuntimeDiagnostics(diagnostics *RuntimeDiagnostics) {
+	s.runtimeDiagnostics = diagnostics
 }
 
 func (s *SearchService) defaultCallAPI(key string, body interface{}, timeout time.Duration) ([]byte, error) {
@@ -943,6 +948,9 @@ func (s *SearchService) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"profile_ready_clients": profileReadyCount,
 		"comment_ready_clients": commentReadyCount,
 		"client_list":           clientStatuses,
+	}
+	if s.runtimeDiagnostics != nil {
+		status["runtime"] = s.runtimeDiagnostics.Snapshot()
 	}
 	response.Success(w, status)
 }

@@ -58,11 +58,12 @@ type App struct {
 	StaticFileHandler *handlers.StaticFileHandler
 
 	// 服务
-	WSHub          *websocket.Hub
-	SearchService  *api.SearchService
-	RadarService   *services.RadarService  // 自动轮询雷达
-	GopeedService  *services.GopeedService // Add GopeedService
-	CloudConnector *cloud.Connector
+	WSHub              *websocket.Hub
+	SearchService      *api.SearchService
+	RadarService       *services.RadarService  // 自动轮询雷达
+	GopeedService      *services.GopeedService // Add GopeedService
+	CloudConnector     *cloud.Connector
+	RuntimeDiagnostics *api.RuntimeDiagnostics
 
 	// 路由器
 	APIRouter *router.APIRouter
@@ -197,7 +198,8 @@ func (app *App) Run() {
 	app.ConsoleAPIHandler = handlers.NewConsoleAPIHandler(app.Cfg, app.WSHub, app.RadarService)
 
 	// 初始化新的 API 路由器
-	app.APIRouter = router.NewAPIRouter(app.Cfg, app.WSHub, app.Sunny)
+	app.RuntimeDiagnostics = api.NewRuntimeDiagnostics(app.Cfg)
+	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
 
 	// 初始化静态文件处理器
 	app.StaticFileHandler = handlers.NewStaticFileHandler()
@@ -334,8 +336,14 @@ func (app *App) Run() {
 		if os_env == "windows" {
 			app.Sunny.ProcessAddName("WeChatAppEx.exe")
 			if ok := app.Sunny.StartProcess(); ok {
+				if app.RuntimeDiagnostics != nil {
+					app.RuntimeDiagnostics.RecordInjectionResult(true, "")
+				}
 				utils.Info("✓ 视频号注入引擎已就绪 (WeChatAppEx.exe)")
 			} else {
+				if app.RuntimeDiagnostics != nil {
+					app.RuntimeDiagnostics.RecordInjectionResult(false, "StartProcess returned false; administrator permission may be required")
+				}
 				utils.Warn("⚠️ 注入引擎启动失败：可能需要 [管理员权限] 才能在视频号内显示按钮")
 			}
 		}

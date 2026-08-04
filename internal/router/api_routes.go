@@ -53,12 +53,18 @@ func (r *APIRouter) Handle(Conn *SunnyNet.HttpConn) bool {
 
 // NewAPIRouter 创建 API 路由器
 func NewAPIRouter(cfg *config.Config, hub *websocket.Hub, sunny *SunnyNet.Sunny) *APIRouter {
+	return NewAPIRouterWithRuntimeDiagnostics(cfg, hub, sunny, nil)
+}
+
+func NewAPIRouterWithRuntimeDiagnostics(cfg *config.Config, hub *websocket.Hub, sunny *SunnyNet.Sunny, diagnostics *api.RuntimeDiagnostics) *APIRouter {
 	mux := http.NewServeMux()
+	searchService := api.NewSearchService(hub)
+	searchService.SetRuntimeDiagnostics(diagnostics)
 
 	router := &APIRouter{
 		mux:                mux,
 		consoleHandler:     handlers.NewConsoleAPIHandler(cfg, hub, nil),
-		searchService:      api.NewSearchService(hub),
+		searchService:      searchService,
 		systemService:      api.NewSystemService(),
 		logsService:        api.NewLogsService(cfg),
 		exportService:      api.NewExportAPI(),
