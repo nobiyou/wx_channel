@@ -23,7 +23,7 @@ cert_file: SunnyRoot.cer
 cloud_enabled: true
 
 # Hub Server 的 WebSocket 地址
-cloud_hub_url: "ws://wx.dujulaoren.com/ws/client"
+cloud_hub_url: "ws://127.0.0.1:18081/ws/client"
 
 # 云端通信密钥（可选，用于加密通信）
 cloud_secret: ""

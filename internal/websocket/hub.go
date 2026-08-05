@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -28,6 +29,8 @@ type Hub struct {
 	// 负载均衡选择器
 	selector ClientSelector
 }
+
+var errClientDisconnected = errors.New("websocket client disconnected")
 
 // NewHub 创建新的 Hub
 func NewHub() *Hub {
@@ -106,11 +109,18 @@ func (h *Hub) GetClient() (*Client, error) {
 
 // GetClientForKey 获取支持指定 API 的客户端
 func (h *Hub) GetClientForKey(key string) (*Client, error) {
+	return h.getClientForKey(key, nil)
+}
+
+func (h *Hub) getClientForKey(key string, excluded map[*Client]struct{}) (*Client, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	filtered := make(map[*Client]bool)
 	for client := range h.clients {
+		if _, skip := excluded[client]; skip || client.isClosed() || client.ctx.Err() != nil {
+			continue
+		}
 		if client.SupportsKey(key) {
 			filtered[client] = true
 		}
@@ -156,12 +166,69 @@ func (h *Hub) ClientStatuses() []ClientStatus {
 	return statuses
 }
 
+func isRetryableAPICallKey(key string) bool {
+	switch key {
+	case "key:channels:contact_list",
+		"key:channels:feed_list",
+		"key:channels:feed_profile",
+		"key:channels:shared_feed_profile",
+		"key:channels:shared_feed_resolve",
+		"key:channels:fetch_feed_comment_list":
+		return true
+	default:
+		return false
+	}
+}
+
 // CallAPI 调用前端 API
 func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json.RawMessage, error) {
-	client, err := h.GetClientForKey(key)
-	if err != nil {
-		return nil, err
+	return h.CallAPIContext(context.Background(), key, body, timeout)
+}
+
+// CallAPIContext 调用前端 API，并允许调用方取消等待中的请求。
+func (h *Hub) CallAPIContext(ctx context.Context, key string, body interface{}, timeout time.Duration) (json.RawMessage, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	deadline := time.Now().Add(timeout)
+	excluded := make(map[*Client]struct{})
+	var lastDisconnect error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			if lastDisconnect != nil {
+				return nil, lastDisconnect
+			}
+			return nil, fmt.Errorf("request timeout after %v", timeout)
+		}
+
+		client, err := h.getClientForKey(key, excluded)
+		if err != nil {
+			if lastDisconnect != nil {
+				return nil, fmt.Errorf("no ready client after websocket disconnect: %w", err)
+			}
+			return nil, err
+		}
+
+		data, err := h.callAPIOnClient(ctx, client, key, body, remaining)
+		if !errors.Is(err, errClientDisconnected) {
+			return data, err
+		}
+		if !isRetryableAPICallKey(key) {
+			return nil, err
+		}
+
+		lastDisconnect = err
+		excluded[client] = struct{}{}
+		utils.LogWarn("API 请求客户端已断开，切换下一个就绪客户端: Key=%s", key)
+	}
+}
+
+func (h *Hub) callAPIOnClient(ctx context.Context, client *Client, key string, body interface{}, timeout time.Duration) (json.RawMessage, error) {
 
 	// 增加活跃请求计数
 	client.IncrementActiveRequests()
@@ -182,7 +249,8 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 		h.requestsMu.Lock()
 		delete(h.requests, reqID)
 		h.requestsMu.Unlock()
-		close(respChan) // 关闭通道防止泄漏
+		// Do not close respChan here. A late WebSocket response may already have
+		// obtained the channel from requests before this cleanup runs.
 	}()
 
 	// 构建请求消息
@@ -214,12 +282,20 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 	utils.LogInfo("发送 API 请求: ID=%s, Key=%s, Timeout=%v", reqID, key, timeout)
 
 	// 发送请求
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := client.Send(msgData); err != nil {
 		utils.LogError("发送 API 请求失败: ID=%s, Error=%v", reqID, err)
+		if client.isClosed() || client.ctx.Err() != nil {
+			return nil, fmt.Errorf("%w: %v", errClientDisconnected, err)
+		}
 		return nil, fmt.Errorf("send request failed: %w", err)
 	}
 
 	// 等待响应
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case resp, ok := <-respChan:
 		if !ok {
@@ -238,7 +314,15 @@ func (h *Hub) CallAPI(key string, body interface{}, timeout time.Duration) (json
 			reqID, duration, len(resp.Data))
 		return resp.Data, nil
 
-	case <-time.After(timeout):
+	case <-client.ctx.Done():
+		utils.LogWarn("API 调用客户端断开: ID=%s", reqID)
+		return nil, errClientDisconnected
+
+	case <-ctx.Done():
+		utils.LogWarn("API 调用已取消: ID=%s", reqID)
+		return nil, ctx.Err()
+
+	case <-timer.C:
 		utils.LogError("API 调用超时: ID=%s, Timeout=%v", reqID, timeout)
 		return nil, fmt.Errorf("request timeout after %v", timeout)
 	}

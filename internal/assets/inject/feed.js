@@ -44,6 +44,40 @@ function __get_visible_feed_op_items() {
   return [];
 }
 
+async function __wait_for_feed_comment_export__(jobId, headers) {
+  var deadline = Date.now() + 30 * 60 * 1000;
+  var lastProgress = '';
+
+  while (Date.now() < deadline) {
+    await new Promise(function (resolve) { setTimeout(resolve, 1000); });
+    var statusResponse = await fetch('/api/channels/feed/comment/export/status?job_id=' + encodeURIComponent(jobId), {
+      method: 'GET',
+      headers: headers
+    });
+    var statusResult = await statusResponse.json().catch(function () { return null; });
+    if (!statusResponse.ok || !statusResult || statusResult.code !== 0 || !statusResult.data) {
+      throw new Error((statusResult && statusResult.message) || ('HTTP ' + statusResponse.status));
+    }
+
+    var job = statusResult.data;
+    if (job.status === 'succeeded') {
+      return job.result;
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || '评论导出失败');
+    }
+
+    var progress = job.progress || {};
+    var progressText = [job.status, progress.top_level_count || 0, progress.reply_count || 0].join(':');
+    if (progressText !== lastProgress) {
+      lastProgress = progressText;
+      __wx_log({ msg: '💬 评论导出进行中：一级' + (progress.top_level_count || 0) + '，回复' + (progress.reply_count || 0) });
+    }
+  }
+
+  throw new Error('评论导出任务超过 30 分钟仍未完成');
+}
+
 async function __fetch_feed_comments__() {
   var refreshLockKey = 'feed-comment-export';
   if (window.__wx_keep_alive && typeof window.__wx_keep_alive.lockRefresh === 'function') {
@@ -105,6 +139,10 @@ async function __fetch_feed_comments__() {
 
     try {
       var exported = result.data;
+      if (exported.job_id) {
+        __wx_log({ msg: '💬 评论导出任务已创建，正在后台获取...' });
+        exported = await __wait_for_feed_comment_export__(exported.job_id, headers);
+      }
       var total = exported.total_count || 0;
       var reported = exported.reported_count || total;
       var topLevel = exported.top_level_count || 0;

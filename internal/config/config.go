@@ -110,6 +110,10 @@ type CloudflareConfig struct {
 
 var globalConfig *Config
 
+// DefaultCloudHubURL is the local Hub endpoint used when no endpoint is
+// configured. A configured cloud_hub_url still takes precedence.
+const DefaultCloudHubURL = "ws://127.0.0.1:18081/ws/client"
+
 // DatabaseConfigLoader 数据库配置加载器接口
 type DatabaseConfigLoader interface {
 	Get(key string) (string, error)
@@ -191,6 +195,9 @@ func loadConfig() *Config {
 
 	// 数据库加载覆盖（保持最高优先级）
 	loadFromDatabase(config)
+	if strings.TrimSpace(config.CloudHubURL) == "" {
+		config.CloudHubURL = DefaultCloudHubURL
+	}
 
 	// Fallback: 确保端口有效
 	if config.Port == 0 {
@@ -240,8 +247,8 @@ func setDefaults() {
 	viper.SetDefault("show_log_button", false)
 	viper.SetDefault("enable_log_interception", false) // 默认禁用日志拦截以节省内存
 
-	viper.SetDefault("cloud_enabled", true) // 默认不启用云端管理
-	viper.SetDefault("cloud_hub_url", "ws://wx.dujulaoren.com/ws/client")
+	viper.SetDefault("cloud_enabled", true) // 云端版默认启用，普通版由构建配置关闭
+	viper.SetDefault("cloud_hub_url", DefaultCloudHubURL)
 	viper.SetDefault("cloud_secret", "")
 	viper.SetDefault("machine_id", GetMachineID())
 
@@ -308,7 +315,7 @@ port: 2025                    # 服务端口
 download_dir: downloads       # 下载目录
 
 # === 云端管理 ===
-cloud_hub_url: ws://wx.dongzuren.com/ws/client
+cloud_hub_url: %s
 cloud_secret: ""
 
 # === 设备标识 ===
@@ -323,7 +330,7 @@ download_filename_template: "" # 下载文件名模板，可用 {date} {datetime
 
 # === 功能开关（可选）===
 radar_enabled: false          # 是否启用对标雷达，修改后需重启程序
-`, deviceID)
+`, DefaultCloudHubURL, deviceID)
 
 		if err := os.WriteFile(configFile, []byte(simpleConfig), 0644); err != nil {
 			fmt.Printf("Warning: Failed to create config file: %v\n", err)

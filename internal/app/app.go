@@ -312,12 +312,12 @@ func (app *App) Run() {
 	}
 
 	// 启动云端连接器（如果启用）
-	if app.Cfg.CloudEnabled {
+	if app.Cfg.CloudEnabled && strings.TrimSpace(app.Cfg.CloudHubURL) != "" {
 		app.CloudConnector = cloud.NewConnector(app.Cfg, app.WSHub)
 		app.CloudConnector.Start()
-		utils.Info("✓ 云端管理功能已启用")
+		utils.Info("✓ 云端管理功能已启用，Hub: %s", app.Cfg.CloudHubURL)
 	} else {
-		utils.Info("云端管理功能已禁用 (cloud_enabled: false)")
+		utils.Info("云端管理功能已禁用 (cloud_enabled: false 或未配置 Hub 地址)")
 	}
 
 	utils.Info("🔍 请打开需要下载的视频号页面进行下载")
@@ -467,10 +467,10 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • 检查点保存 - 评论导出过程新增 .partial.json 进度文件")
-	color.Green("    • 自动刷新保护 - 导出期间临时锁住 15 分钟页面自动刷新")
-	color.Green("    • 误报修复 - 后端已成功导出时不再弹 Failed to fetch")
-	color.Green("    • 成功提示增强 - 直接显示一级评论、回复与合计条数")
+	color.Green("    • Insight Hub 集成 - Cloud 版默认连接本地 Insight :18081")
+	color.Green("    • 云端连接稳定 - 支持断线切换与可取消 API 调用")
+	color.Green("    • 评论异步导出 - 后台任务轮询，避免长请求误报 Failed to fetch")
+	color.Green("    • 进度保护完善 - 分页、检查点与评论统计结果完整保留")
 	fmt.Println()
 }
 

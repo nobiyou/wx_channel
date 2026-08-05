@@ -234,6 +234,12 @@ func (c *Client) Send(data []byte) error {
 	}
 }
 
+func (c *Client) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 // Close 关闭客户端连接
 func (c *Client) Close() {
 	c.mu.Lock()

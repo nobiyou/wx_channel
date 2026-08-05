@@ -23,8 +23,13 @@ type PagedData struct {
 
 // Success 返回成功响应
 func Success(w http.ResponseWriter, data interface{}) {
+	SuccessWithStatus(w, http.StatusOK, data)
+}
+
+// SuccessWithStatus 返回带自定义 HTTP 状态码的成功响应。
+func SuccessWithStatus(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(Response{
 		Code:    0,
 		Message: "success",

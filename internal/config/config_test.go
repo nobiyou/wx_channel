@@ -44,6 +44,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "", cfg.DownloadFilenameTemplate)
 	assert.Equal(t, 500*time.Millisecond, cfg.SaveDelay)
 	assert.False(t, cfg.RadarEnabled)
+	assert.Equal(t, DefaultCloudHubURL, cfg.CloudHubURL)
 }
 
 func TestLoad_GeneratedConfigFileIncludesRadarEnabled(t *testing.T) {
@@ -58,6 +59,7 @@ func TestLoad_GeneratedConfigFileIncludesRadarEnabled(t *testing.T) {
 
 	assert.Contains(t, string(content), "download_filename_template: \"\"")
 	assert.Contains(t, string(content), "radar_enabled: false")
+	assert.Contains(t, string(content), "cloud_hub_url: "+DefaultCloudHubURL)
 }
 
 func TestLoad_EnvVars(t *testing.T) {
@@ -82,6 +84,7 @@ func TestLoad_ConfigFile(t *testing.T) {
 port: 8888
 version: "6.0.0"
 download_dir: "/tmp/downloads"
+cloud_hub_url: "ws://hub.example.test/ws/client"
 `)
 	if err := os.WriteFile(configFile, content, 0644); err != nil {
 		t.Fatalf("无法创建配置文件: %v", err)
@@ -95,6 +98,7 @@ download_dir: "/tmp/downloads"
 	assert.Equal(t, 8888, cfg.Port)
 	assert.Equal(t, "6.0.0", cfg.Version)
 	assert.Equal(t, "/tmp/downloads", cfg.DownloadsDir)
+	assert.Equal(t, "ws://hub.example.test/ws/client", cfg.CloudHubURL)
 }
 
 func TestSetPort(t *testing.T) {

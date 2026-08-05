@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"wx_channel/internal/config"
@@ -26,15 +27,19 @@ type sharedFeedProfileService interface {
 type SearchService struct {
 	hub                 *websocket.Hub
 	callAPI             func(key string, body interface{}, timeout time.Duration) ([]byte, error)
+	callAPIContext      func(context.Context, string, interface{}, time.Duration) ([]byte, error)
 	resolveDownloadsDir func() (string, error)
 	sphService          sharedFeedProfileService
 	runtimeDiagnostics  *RuntimeDiagnostics
+	commentJobsMu       sync.RWMutex
+	commentJobs         *CommentExportJobManager
 }
 
 // NewSearchService 创建搜索服务
 func NewSearchService(hub *websocket.Hub) *SearchService {
 	service := &SearchService{hub: hub}
 	service.callAPI = service.defaultCallAPI
+	service.callAPIContext = service.defaultCallAPIContext
 	service.resolveDownloadsDir = func() (string, error) {
 		return config.Get().GetResolvedDownloadsDir()
 	}
@@ -48,6 +53,29 @@ func (s *SearchService) SetRuntimeDiagnostics(diagnostics *RuntimeDiagnostics) {
 
 func (s *SearchService) defaultCallAPI(key string, body interface{}, timeout time.Duration) ([]byte, error) {
 	return s.hub.CallAPI(key, body, timeout)
+}
+
+func (s *SearchService) defaultCallAPIContext(ctx context.Context, key string, body interface{}, timeout time.Duration) ([]byte, error) {
+	return s.hub.CallAPIContext(ctx, key, body, timeout)
+}
+
+func (s *SearchService) callAPIWithContext(ctx context.Context, key string, body interface{}, timeout time.Duration) ([]byte, error) {
+	if s.callAPIContext != nil {
+		return s.callAPIContext(ctx, key, body, timeout)
+	}
+	if s.callAPI != nil {
+		return s.callAPI(key, body, timeout)
+	}
+	return nil, fmt.Errorf("search API caller is not configured")
+}
+
+func (s *SearchService) ensureCommentExportJobs() *CommentExportJobManager {
+	s.commentJobsMu.Lock()
+	defer s.commentJobsMu.Unlock()
+	if s.commentJobs == nil {
+		s.commentJobs = NewCommentExportJobManager(s)
+	}
+	return s.commentJobs
 }
 
 // SearchContactRequest 搜索账号请求参数
@@ -649,6 +677,19 @@ func (s *SearchService) ExportFeedComments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Production services use a bounded background task so the browser does not
+	// have to keep a single HTTP request open for every comment/reply page.
+	if s.hub != nil {
+		job, err := s.ensureCommentExportJobs().Submit(req)
+		if err != nil {
+			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		response.SuccessWithStatus(w, http.StatusAccepted, job)
+		return
+	}
+
+	// Keep direct service fixtures and focused unit tests synchronous.
 	result, err := s.exportFeedComments(req)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
@@ -663,7 +704,37 @@ func (s *SearchService) ExportFeedComments(w http.ResponseWriter, r *http.Reques
 	response.Success(w, result)
 }
 
+// CommentExportStatus returns the state of a background comment export.
+func (s *SearchService) CommentExportStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.ErrorWithStatus(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	if jobID == "" {
+		response.Error(w, http.StatusBadRequest, "job_id is required")
+		return
+	}
+	s.commentJobsMu.RLock()
+	manager := s.commentJobs
+	s.commentJobsMu.RUnlock()
+	if manager == nil {
+		response.ErrorWithStatus(w, http.StatusNotFound, http.StatusNotFound, "comment export job not found")
+		return
+	}
+	job, ok := manager.Get(jobID)
+	if !ok {
+		response.ErrorWithStatus(w, http.StatusNotFound, http.StatusNotFound, "comment export job not found")
+		return
+	}
+	response.Success(w, job)
+}
+
 func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*ExportFeedCommentsResult, error) {
+	return s.exportFeedCommentsContext(context.Background(), req, nil)
+}
+
+func (s *SearchService) exportFeedCommentsContext(ctx context.Context, req ExportFeedCommentsRequest, onProgress func(CommentExportProgress)) (*ExportFeedCommentsResult, error) {
 	downloadsDir, err := s.resolveDownloadsDir()
 	if err != nil {
 		return nil, err
@@ -674,9 +745,16 @@ func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*Expo
 		return nil, err
 	}
 
-	topLevelComments, reportedCount, err := s.fetchCommentPages(req.ObjectID, req.NonceID, "")
+	topLevelComments, reportedCount, err := s.fetchCommentPagesContext(ctx, req.ObjectID, req.NonceID, "")
 	if err != nil {
 		return nil, err
+	}
+	if onProgress != nil {
+		onProgress(CommentExportProgress{
+			Stage:         "top_level_comments",
+			TopLevelCount: len(topLevelComments),
+			ReportedCount: reportedCount,
+		})
 	}
 	if err := persistence.SaveCheckpoint(req, topLevelComments, reportedCount, 0, "finderGetCommentList.partial"); err != nil {
 		return nil, err
@@ -689,12 +767,22 @@ func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*Expo
 			continue
 		}
 
-		replies, _, err := s.fetchCommentPages(req.ObjectID, "", commentID)
+		replies, _, err := s.fetchCommentPagesContext(ctx, req.ObjectID, "", commentID)
 		if err != nil {
 			return nil, err
 		}
 		comment["levelTwoComment"] = replies
 		replyCount += len(replies)
+		if onProgress != nil {
+			onProgress(CommentExportProgress{
+				Stage:            "replies",
+				TopLevelCount:    len(topLevelComments),
+				ReplyCount:       replyCount,
+				ReportedCount:    reportedCount,
+				CompletedReplies: replyCount,
+				TotalReplies:     countReplyTargets(topLevelComments),
+			})
+		}
 
 		if err := persistence.SaveCheckpoint(req, topLevelComments, reportedCount, replyCount, "finderGetCommentList.partial"); err != nil {
 			return nil, err
@@ -724,12 +812,23 @@ func (s *SearchService) exportFeedComments(req ExportFeedCommentsRequest) (*Expo
 }
 
 func (s *SearchService) fetchCommentPages(objectID, nonceID, commentID string) ([]map[string]interface{}, int, error) {
+	return s.fetchCommentPagesContext(context.Background(), objectID, nonceID, commentID)
+}
+
+func (s *SearchService) fetchCommentPagesContext(ctx context.Context, objectID, nonceID, commentID string) ([]map[string]interface{}, int, error) {
 	items := make([]map[string]interface{}, 0, 32)
 	seen := make(map[string]struct{})
 	nextMarker := ""
 	reportedCount := 0
+	const maxCommentPages = 1000
+	const maxCommentsPerBranch = 100000
+	pageCount := 0
 
 	for {
+		pageCount++
+		if pageCount > maxCommentPages {
+			return nil, 0, fmt.Errorf("comment pagination exceeded %d pages", maxCommentPages)
+		}
 		body := websocket.FeedCommentListBody{
 			ObjectID:   objectID,
 			NonceID:    nonceID,
@@ -737,7 +836,7 @@ func (s *SearchService) fetchCommentPages(objectID, nonceID, commentID string) (
 			NextMarker: nextMarker,
 		}
 
-		raw, err := s.callAPI("key:channels:fetch_feed_comment_list", body, 60*time.Second)
+		raw, err := s.callAPIWithContext(ctx, "key:channels:fetch_feed_comment_list", body, 60*time.Second)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -771,6 +870,9 @@ func (s *SearchService) fetchCommentPages(objectID, nonceID, commentID string) (
 				item["levelTwoComment"] = []map[string]interface{}{}
 			}
 			items = append(items, item)
+			if len(items) > maxCommentsPerBranch {
+				return nil, 0, fmt.Errorf("comment export exceeded %d comments in one branch", maxCommentsPerBranch)
+			}
 			pageNewCount++
 		}
 
@@ -781,6 +883,16 @@ func (s *SearchService) fetchCommentPages(objectID, nonceID, commentID string) (
 	}
 
 	return items, reportedCount, nil
+}
+
+func countReplyTargets(comments []map[string]interface{}) int {
+	count := 0
+	for _, comment := range comments {
+		if commentHasReplies(comment) {
+			count++
+		}
+	}
+	return count
 }
 
 func commentHasReplies(comment map[string]interface{}) bool {
@@ -966,6 +1078,7 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/v1/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/v1/search/feed/comments/export", s.ExportFeedComments)
+	mux.HandleFunc("/api/v1/search/feed/comments/export/status", s.CommentExportStatus)
 	mux.HandleFunc("/api/v1/status", s.GetStatus)
 
 	// 兼容旧路由
@@ -978,6 +1091,7 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/search/feed/comments/export", s.ExportFeedComments)
+	mux.HandleFunc("/api/search/feed/comments/export/status", s.CommentExportStatus)
 	mux.HandleFunc("/api/status", s.GetStatus)
 
 	// 兼容 /api/channels 路由 (WebSocket服务器原有的路由)
@@ -990,5 +1104,6 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/channels/feed/comment/list", s.GetFeedCommentList)
 	mux.HandleFunc("/api/channels/feed/comment/export", s.ExportFeedComments)
+	mux.HandleFunc("/api/channels/feed/comment/export/status", s.CommentExportStatus)
 	mux.HandleFunc("/api/channels/status", s.GetStatus)
 }

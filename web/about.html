@@ -695,9 +695,9 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.6.9 |
+                                <strong>当前版本：</strong>v5.7.0 |
 
-                                <strong>更新时间：</strong>2026-06-19
+                                <strong>更新时间：</strong>2026-08-05
 
                             </p>
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.6.9版本 - 最新版本 -->
+                        <!-- v5.7.0版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.6.9 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.7.0 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-06-19</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-08-05</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>分段保存进度</strong>：评论导出过程中会先写入 `.partial.json` 检查点文件。
+                                    <strong>Insight Hub 集成</strong>：Cloud 版默认连接本地 `18081/ws/client`，支持配置远程 Insight 地址。
 
                                 </li>
 
@@ -2108,14 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>自动刷新保护</strong>：导出评论期间临时锁住页面 15 分钟自动刷新，减少长任务被打断。
+                                    <strong>云端连接稳定</strong>：增强 WebSocket 断线切换、API 调用取消和边缘节点状态同步。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>误报修复</strong>：后端已成功导出后，不再因为前端状态更新异常弹出失败提示。
+                                    <strong>异步评论导出</strong>：后台任务配合状态轮询，避免长请求导致 `Failed to fetch` 误报。
 
                                 </li>
 
@@ -2123,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>成功提示增强</strong>：导出完成后直接展示一级评论数、回复数和总条数。
+                                    <strong>进度保护</strong>：支持分页上限、`.partial.json` 检查点和评论统计结果保留。
 
                                 </li>
 
@@ -2131,7 +2131,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>版本展示同步</strong>：README、版本说明、About 页面与 Windows 文件版本信息统一更新到本次发布。
+                                    <strong>运行边界明确</strong>：独立 `wx_channel_hub` 不再使用，雷达默认关闭并由雷达版单独提供。
 
                                 </li>
 

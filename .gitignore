@@ -151,6 +151,9 @@ scripts/*
 !scripts/build-dual.ps1
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1
+!scripts/switch-insight-data-plane.ps1
+!scripts/switch-insight-data-plane-admin.ps1
+!scripts/switch-insight-data-plane-admin.cmd
 !scripts/insight_data_plane_script_test.go
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
