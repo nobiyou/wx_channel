@@ -25,6 +25,20 @@ func TestPOCScriptsUseOnlyRestrictedBuildTarget(t *testing.T) {
 	}
 }
 
+func TestPOCBuildAndAuditPinApprovedGoToolchain(t *testing.T) {
+	for name, source := range map[string]string{
+		"build": readScript(t, "build-poc.ps1"),
+		"audit": readScript(t, "poc-security-audit.ps1"),
+	} {
+		lower := strings.ToLower(source)
+		for _, required := range []string{"go1.24.3", "gotoolchain", "goroot", "$gopath"} {
+			if !strings.Contains(lower, required) {
+				t.Errorf("%s script does not pin the approved Go toolchain: missing %q", name, required)
+			}
+		}
+	}
+}
+
 func TestPOCScriptsCleanupValidatesResolvedPrefixesAndDoesNotDeleteDirectly(t *testing.T) {
 	cleanup := strings.ToLower(readScript(t, "poc-cleanup.ps1"))
 	resolveIndex := strings.Index(cleanup, "resolve-path")

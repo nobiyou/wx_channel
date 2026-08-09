@@ -5,21 +5,42 @@ $binaryPath = Join-Path $buildRoot 'wx_channel_poc.exe'
 $portableToolBin = Join-Path $repoRoot '.poc-tools\tdm-gcc-10.3.0-2\bin'
 $gccPath = Join-Path $portableToolBin 'gcc.exe'
 $gxxPath = Join-Path $portableToolBin 'g++.exe'
+$localGoPath = Join-Path $repoRoot '.poc-tools\go1.24.3\go\bin\go.exe'
+
+function Resolve-ApprovedGoPath {
+    $candidates = @()
+    if ($env:GOROOT) {
+        $candidates += Join-Path $env:GOROOT 'bin\go.exe'
+    }
+    $candidates += $localGoPath
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        $version = (& $candidate version | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0 -and $version -match '^go version go1\.24\.3 windows/amd64$') {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    throw 'approved Go 1.24.3 windows/amd64 toolchain is required'
+}
 
 if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) { throw 'POC binary is missing; run build-poc.ps1 first' }
 if (-not (Test-Path -LiteralPath $gccPath -PathType Leaf) -or -not (Test-Path -LiteralPath $gxxPath -PathType Leaf)) { throw 'approved portable compiler is missing' }
+$goPath = Resolve-ApprovedGoPath
+$goRoot = Split-Path -Parent (Split-Path -Parent $goPath)
 
+$env:GOROOT = $goRoot
+$env:GOTOOLCHAIN = 'local'
 $env:CGO_ENABLED = '1'
-$env:PATH = "$portableToolBin;$env:PATH"
+$env:PATH = "$(Join-Path $goRoot 'bin');$portableToolBin;$env:PATH"
 $env:CC = $gccPath
 $env:CXX = $gxxPath
 if ((& $gccPath -dumpfullversion).Trim() -ne '10.3.0') { throw 'unexpected compiler version' }
 
 Push-Location $repoRoot
 try {
-    go test ./internal/pocaudit -count=1
+    & $goPath test ./internal/pocaudit -count=1
     if ($LASTEXITCODE -ne 0) { throw 'POC source audit failed' }
-    go test github.com/qtgolang/SunnyNet/SunnyNet github.com/qtgolang/SunnyNet/src/nfapi github.com/qtgolang/SunnyNet/src/CrossCompiled -count=1
+    & $goPath test github.com/qtgolang/SunnyNet/SunnyNet github.com/qtgolang/SunnyNet/src/nfapi github.com/qtgolang/SunnyNet/src/CrossCompiled -count=1
     if ($LASTEXITCODE -ne 0) { throw 'SunnyNet scoped tests failed' }
 
     $expectedHashes = [ordered]@{
@@ -39,7 +60,7 @@ try {
         if ($relativePath.EndsWith('.dll') -and $signature.Status -ne 'NotSigned') { throw "DLL signature status differs from provenance: $relativePath" }
     }
 
-    $dependencies = @(go list -deps ./cmd/wx_channel_poc)
+    $dependencies = @(& $goPath list -deps ./cmd/wx_channel_poc)
     if ($LASTEXITCODE -ne 0) { throw 'POC dependency listing failed' }
     $forbiddenDependencies = @(
         'wx_channel/internal/cloud', 'wx_channel/internal/metrics', 'wx_channel/internal/database',
@@ -63,8 +84,9 @@ try {
     }
 
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash
-    $moduleInfo = ((go version -m $binaryPath) | Out-String).Trim()
+    $moduleInfo = ((& $goPath version -m $binaryPath) | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'read POC build metadata failed' }
+    if ($moduleInfo -notmatch '^\S+: go1\.24\.3') { throw 'POC binary was not built with approved Go 1.24.3' }
     $provenance = [ordered]@{
         schema_version = 'wx-channel-comment-poc/build-1'
         binary_sha256 = $hash

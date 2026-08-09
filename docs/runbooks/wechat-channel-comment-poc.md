@@ -12,6 +12,13 @@
 ## 2. 取得并审计源码
 
 1. 从受控 fork 检出 `codex/wechat-channel-comment-poc` 分支，核对批准的提交列表。
+   在构建前运行下面两条检查；分支名必须完全一致，POC 入口文件必须存在。不要在仅含设计文档的 `codex/wechat-channel-comment-poc-design` 工作树中构建。
+
+   ```powershell
+   git branch --show-current
+   Test-Path -LiteralPath 'cmd/wx_channel_poc/main.go'
+   ```
+
 2. 准备官方 TDM-GCC 10.3.0。安装器 SHA-256 必须为：
 
    `819C7A1F74D45AD04E10662E1A2C3124D13D9A2BCA508847692251242CD455C3`
@@ -23,6 +30,8 @@
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-poc.ps1
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/poc-security-audit.ps1
    ```
+
+   构建和审计脚本只接受 Go 1.24.3 windows/amd64，并将 `GOTOOLCHAIN` 固定为 `local`。它们优先使用 VM 准备流程设置的 `GOROOT`，其次使用 `.poc-tools/go1.24.3/go/bin/go.exe`。不要用系统 PATH 中的其他 Go 版本替代，也不要直接运行未设置 CGO 工具链的 `go test`；脚本会设置 `CGO_ENABLED=1` 和已批准的 TDM-GCC。
 
 4. 只运行刚生成的受限入口预检：
 
