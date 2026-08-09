@@ -382,6 +382,8 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ## ⚠️ 免责声明
 
+公开评论采集 POC 只能在可销毁 Windows 虚拟机中按[安全运行手册](docs/runbooks/wechat-channel-comment-poc.md)执行；不得直接运行仓库提交的可执行文件。
+
 本工具仅供学习和研究使用。请遵守相关法律法规，尊重内容创作者的版权。使用本工具下载的内容请勿用于商业用途或非法传播。
 
 ---

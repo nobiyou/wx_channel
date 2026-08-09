@@ -39,6 +39,9 @@ func NFapi_ProcessPortInt(a ...uint16) uint16 {
 func NFapi_ApiInit() bool {
 	return NFapi.ApiInit()
 }
+func NFapi_Shutdown(unregister bool) error {
+	return NFapi.Shutdown(unregister)
+}
 func NFapi_MessageBox(caption, text string, style uintptr) (result int) {
 	return NFapi.MessageBox(caption, text, style)
 }

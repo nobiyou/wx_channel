@@ -27,12 +27,45 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 )
 
 var apiLoad bool
 var apiNfInit bool
+var apiDriverRegistered bool
+var apiMu sync.Mutex
+
+// Shutdown releases NFAPI state. It unregisters the driver only when the
+// caller knows that the current job installed it.
+func Shutdown(unregister bool) error {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+
+	CancelAll()
+	if apiNfInit {
+		status, err := Api.NfFree()
+		if err != nil {
+			return fmt.Errorf("release NFAPI: %w", err)
+		}
+		if status != NF_STATUS_SUCCESS {
+			return fmt.Errorf("release NFAPI: status %d", status)
+		}
+		apiNfInit = false
+	}
+	if unregister && apiLoad && apiDriverRegistered {
+		status, err := Api.NfUnRegisterDriver(NF_DriverName)
+		if err != nil {
+			return fmt.Errorf("unregister NFAPI driver: %w", err)
+		}
+		if status != NF_STATUS_SUCCESS && status != NF_STATUS_REBOOT_REQUIRED {
+			return fmt.Errorf("unregister NFAPI driver: status %d", status)
+		}
+		apiDriverRegistered = false
+	}
+	return nil
+}
 
 func GetSystemDirectory() string {
 	buffer := C.getSystemDirectory()
@@ -58,10 +91,10 @@ func MessageBox(caption, text string, style uintptr) (result int) {
 	user32, _ := syscall.LoadLibrary("user32.dll")
 	messageBox, _ := syscall.GetProcAddress(user32, "MessageBoxW")
 	ret, _, callErr := syscall.SyscallN(messageBox, 4,
-		0,                                                          // hwnd
+		0, // hwnd
 		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(text))),    // Text
 		uintptr(unsafe.Pointer(syscall.StringToUTF16Ptr(caption))), // Caption
-		style,                                                      // type
+		style, // type
 		0,
 		0)
 	if callErr != 0 {
@@ -71,6 +104,9 @@ func MessageBox(caption, text string, style uintptr) (result int) {
 }
 
 func ApiInit() bool {
+	apiMu.Lock()
+	defer apiMu.Unlock()
+
 	if apiLoad == false {
 		DLLPath := Install()
 		er := Api.Load(DLLPath)
@@ -81,7 +117,7 @@ func ApiInit() bool {
 		apiLoad = true
 	}
 	if apiNfInit == false {
-		_, v := Api.NfRegisterDriver(NF_DriverName)
+		status, v := Api.NfRegisterDriver(NF_DriverName)
 		if v != nil {
 			errorText := v.Error()
 			errorText = strings.ReplaceAll(errorText, "Windows cannot verify the digital signature for this file. A recent hardware or software change might have installed a file that is signed incorrectly or damaged, or that might be malicious software from an unknown source.", "Windows无法验证此驱动文件的数字签名。\r\n\r\n最近的硬件或软件更改可能安装了签名错误或损坏的文件，或者可能是来自未知来源的恶意软件。")
@@ -91,6 +127,10 @@ func ApiInit() bool {
 			MessageBox("载入驱动失败：", errorText, 0x00000010)
 			return false
 		}
+		if status != NF_STATUS_SUCCESS {
+			return false
+		}
+		apiDriverRegistered = true
 		a, er := Api.NfInit()
 		if er != nil {
 			return false
