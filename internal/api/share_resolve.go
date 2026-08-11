@@ -1,25 +1,20 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"wx_channel/internal/response"
-	"wx_channel/internal/services"
 )
 
 const (
-	shareResolveModeAuto    = "auto"
-	shareResolveModePage    = "page"
-	shareResolveModeBackend = "backend"
+	shareResolveChannelPage = "page"
 )
 
 type resolveSharedFeedLinksRequest struct {
 	URLs []string `json:"urls"`
-	Mode string   `json:"mode"`
 }
 
 type resolvedSharedFeedItem struct {
@@ -57,20 +52,11 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(req.Mode))
-	if mode == "" {
-		mode = shareResolveModeAuto
-	}
-	if mode != shareResolveModeAuto && mode != shareResolveModePage && mode != shareResolveModeBackend {
-		response.Error(w, 400, "invalid mode")
-		return
-	}
 	if len(req.URLs) == 0 {
 		response.Error(w, 400, "urls is required")
 		return
 	}
 
-	backendEnabled := s.sphService != nil && s.sphService.Enabled()
 	resolved := make([]resolvedSharedFeedItem, 0, len(req.URLs))
 	failed := make([]failedSharedFeedItem, 0)
 
@@ -91,7 +77,7 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 			continue
 		}
 
-		item, err := s.resolveSharedFeedLink(r.Context(), inputURL, mode)
+		item, err := s.resolveSharedFeedLink(inputURL)
 		if err != nil {
 			failed = append(failed, failedSharedFeedItem{
 				InputURL: inputURL,
@@ -104,97 +90,18 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 	}
 
 	response.Success(w, map[string]interface{}{
-		"mode":           mode,
-		"backendEnabled": backendEnabled,
-		"resolved":       resolved,
-		"failed":         failed,
+		"resolved": resolved,
+		"failed":   failed,
 	})
 }
 
-func (s *SearchService) resolveSharedFeedLink(ctx context.Context, inputURL, mode string) (resolvedSharedFeedItem, error) {
-	switch mode {
-	case shareResolveModeBackend:
-		return s.resolveSharedFeedViaBackend(ctx, inputURL)
-	case shareResolveModePage:
-		return s.resolveSharedFeedViaPage(inputURL)
-	case shareResolveModeAuto:
-		var backendErr error
-		if s.sphService != nil && s.sphService.Enabled() {
-			item, err := s.resolveSharedFeedViaBackend(ctx, inputURL)
-			if err == nil {
-				return item, nil
-			}
-			backendErr = err
-		}
-
-		item, err := s.resolveSharedFeedViaPage(inputURL)
-		if err == nil {
-			return item, nil
-		}
-		if backendErr != nil {
-			return resolvedSharedFeedItem{Channel: shareResolveModePage}, fmt.Errorf("backend parse failed: %v; page parse failed: %v", backendErr, err)
-		}
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, err
-	default:
-		return resolvedSharedFeedItem{}, fmt.Errorf("invalid mode")
-	}
-}
-
-func (s *SearchService) resolveSharedFeedViaBackend(ctx context.Context, inputURL string) (resolvedSharedFeedItem, error) {
-	if s.sphService == nil || !s.sphService.Enabled() {
-		return resolvedSharedFeedItem{Channel: shareResolveModeBackend}, fmt.Errorf("cloudflare.sphHostname or cloudflare.sphCookie not configured")
-	}
-
-	resp, err := s.sphService.FetchVideoProfile(ctx, inputURL)
-	if err != nil {
-		return resolvedSharedFeedItem{Channel: shareResolveModeBackend}, err
-	}
-
-	return buildResolvedSharedFeedItemFromBackend(inputURL, resp), nil
-}
-
-func (s *SearchService) resolveSharedFeedViaPage(inputURL string) (resolvedSharedFeedItem, error) {
+func (s *SearchService) resolveSharedFeedLink(inputURL string) (resolvedSharedFeedItem, error) {
 	data, err := s.fetchSharedFeedResolveProfile(GetFeedProfileRequest{URL: inputURL})
 	if err != nil {
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, err
+		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, err
 	}
 
 	return buildResolvedSharedFeedItemFromPage(inputURL, data)
-}
-
-func buildResolvedSharedFeedItemFromBackend(inputURL string, resp *services.SphFeedResponse) resolvedSharedFeedItem {
-	item := resolvedSharedFeedItem{
-		InputURL:   inputURL,
-		Channel:    shareResolveModeBackend,
-		ID:         strings.TrimSpace(resp.Data.SceneInfo.DynamicExportID),
-		Title:      strings.TrimSpace(resp.Data.FeedInfo.Description),
-		AuthorName: strings.TrimSpace(resp.Data.AuthorInfo.Nickname),
-		URL:        strings.TrimSpace(resp.Data.FeedInfo.OriginVideoURL),
-		CoverURL:   strings.TrimSpace(resp.Data.FeedInfo.CoverURL),
-		Headers: map[string]string{
-			"Origin":  "https://channels.weixin.qq.com",
-			"Referer": "https://channels.weixin.qq.com/finder-preview/pages/feed",
-		},
-	}
-	if item.ID == "" {
-		item.ID = "shared_feed"
-	}
-	if item.URL == "" {
-		item.URL = strings.TrimSpace(resp.Data.FeedInfo.VideoURL)
-	}
-	if item.URL == "" {
-		item.URL = strings.TrimSpace(resp.Data.FeedInfo.H264VideoInfo.VideoURL)
-	}
-	if item.URL == "" {
-		item.URL = strings.TrimSpace(resp.Data.FeedInfo.H265VideoInfo.VideoURL)
-	}
-	if item.Title == "" {
-		item.Title = item.ID
-	}
-	if item.AuthorName == "" {
-		item.AuthorName = "未知作者"
-	}
-	return item
 }
 
 func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedSharedFeedItem, error) {
@@ -204,14 +111,14 @@ func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedS
 		Data    map[string]interface{} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, fmt.Errorf("decode page response: %w", err)
+		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, fmt.Errorf("decode page response: %w", err)
 	}
 	if payload.ErrCode != 0 {
 		message := strings.TrimSpace(payload.ErrMsg)
 		if message == "" {
 			message = fmt.Sprintf("errCode=%d", payload.ErrCode)
 		}
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, fmt.Errorf("%s", message)
+		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, fmt.Errorf("%s", message)
 	}
 
 	object, _ := payload.Data["object"].(map[string]interface{})
@@ -221,7 +128,7 @@ func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedS
 
 	item := resolvedSharedFeedItem{
 		InputURL:   inputURL,
-		Channel:    shareResolveModePage,
+		Channel:    shareResolveChannelPage,
 		ID:         strings.TrimSpace(stringValue(object["id"])),
 		Title:      strings.TrimSpace(stringValue(objectDesc["description"])),
 		AuthorName: firstNonEmptyString(stringValue(object["nickname"]), stringValue(contact["nickname"])),
@@ -245,7 +152,7 @@ func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedS
 
 	media := firstMediaMap(objectDesc["media"])
 	if media == nil {
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, fmt.Errorf("page response missing media")
+		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, fmt.Errorf("page response missing media")
 	}
 
 	item.URL = buildPageMediaURL(media)
@@ -271,7 +178,7 @@ func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedS
 	)
 
 	if item.URL == "" {
-		return resolvedSharedFeedItem{Channel: shareResolveModePage}, fmt.Errorf("page response missing media url")
+		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, fmt.Errorf("page response missing media url")
 	}
 
 	return item, nil

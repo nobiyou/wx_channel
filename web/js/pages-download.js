@@ -1863,42 +1863,6 @@ function updateQueueItemProgress(progressData) {
 // Batch Download Functions
 // ============================================
 let batchProgressInterval = null;
-let batchSharedFeedStatus = {
-    backendEnabled: false,
-    backendType: 'none'
-};
-
-async function loadBatchPageContext() {
-    try {
-        const result = await ApiClient.getSettings();
-        if (result.success && result.data) {
-            batchSharedFeedStatus.backendEnabled = !!result.data.sharedFeedBackendEnabled;
-            batchSharedFeedStatus.backendType = result.data.sharedFeedBackendType || 'none';
-        } else {
-            batchSharedFeedStatus.backendEnabled = false;
-            batchSharedFeedStatus.backendType = 'none';
-        }
-    } catch (e) {
-        batchSharedFeedStatus.backendEnabled = false;
-        batchSharedFeedStatus.backendType = 'none';
-        console.error('Failed to load batch shared-feed settings:', e);
-    }
-
-    updateSharedFeedBackendHint();
-}
-
-function updateSharedFeedBackendHint() {
-    const hint = document.getElementById('sharedFeedBackendHint');
-    if (!hint) return;
-
-    if (batchSharedFeedStatus.backendEnabled) {
-        const label = batchSharedFeedStatus.backendType === 'worker' ? 'Worker' : 'Cookie';
-        hint.textContent = `后端解析可用（${label}）。自动模式会优先走纯后端，失败后回退到视频号页面。`;
-        return;
-    }
-
-    hint.textContent = '后端解析未配置。自动模式将仅在后端不可用时尝试视频号页面；如需纯后端，请在 config.yaml 配置 cloudflare.sphCookie 或 cloudflare.sphHostname。';
-}
 
 function clearSharedFeedInputs() {
     const input = document.getElementById('sharedFeedUrlList');
@@ -1946,7 +1910,7 @@ function mapResolvedShareItemsToBatchVideos(items) {
         resolution: item.resolution || '',
         durationMs: item.durationMs || 0,
         size: item.size || 0,
-        pageSource: item.channel === 'backend' ? 'batch_console_share_backend' : 'batch_console_share_page'
+        pageSource: 'batch_console_share_page'
     }));
 }
 
@@ -1986,20 +1950,14 @@ function appendVideosToBatchInput(videos) {
 
 async function resolveSharedFeedLinks() {
     const urls = parseSharedFeedUrls();
-    const mode = document.getElementById('sharedFeedResolveMode')?.value || 'auto';
 
     if (urls.length === 0) {
         showMessage('请输入至少一个分享链接', 'warning');
         return;
     }
 
-    if (mode === 'backend' && !batchSharedFeedStatus.backendEnabled) {
-        showMessage('当前未配置 Cookie/纯后端解析，请先在 config.yaml 配置 sphCookie 或 sphHostname', 'warning');
-        return;
-    }
-
     try {
-        const result = await ApiClient.resolveSharedFeedLinks(urls, mode);
+        const result = await ApiClient.resolveSharedFeedLinks(urls);
         if (!result.success || !result.data) {
             showMessage('解析失败: ' + (result.error || '未知错误'), 'error');
             return;
@@ -2014,13 +1972,8 @@ async function resolveSharedFeedLinks() {
 
         const successCount = resolved.length;
         const failedCount = failed.length;
-        const backendCount = resolved.filter(item => item.channel === 'backend').length;
-        const pageCount = resolved.filter(item => item.channel === 'page').length;
 
         let summary = `已解析 ${successCount} 条`;
-        if (backendCount > 0 || pageCount > 0) {
-            summary += `，其中后端 ${backendCount} 条，页面 ${pageCount} 条`;
-        }
         if (failedCount > 0) {
             const sampleErrors = failed.slice(0, 3).map(item => item.error).join('；');
             summary += `；失败 ${failedCount} 条`;

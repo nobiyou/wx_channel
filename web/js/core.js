@@ -306,8 +306,8 @@ const ApiClient = {
     // Settings
     async getSettings() { return await this.request('GET', '/settings'); },
     async updateSettings(settings) { return await this.request('PUT', '/settings', settings); },
-    async resolveSharedFeedLinks(urls, mode = 'auto') {
-        const result = await this.request('POST', '/search/share/resolve', { urls, mode });
+    async resolveSharedFeedLinks(urls) {
+        const result = await this.request('POST', '/search/share/resolve', { urls });
         if (result && result.code === 0) {
             return {
                 success: true,

@@ -97,7 +97,7 @@ const (
 // Settings 表示应用程序设置
 type Settings struct {
 	DownloadDir                 string `json:"downloadDir"`
-	DownloadFilenameWithVideoID bool `json:"downloadFilenameWithVideoId"`
+	DownloadFilenameWithVideoID bool   `json:"downloadFilenameWithVideoId"`
 	DownloadFilenameTemplate    string `json:"downloadFilenameTemplate,omitempty"`
 	ChunkSize                   int64  `json:"chunkSize"`
 	ConcurrentLimit             int    `json:"concurrentLimit"`
@@ -105,8 +105,6 @@ type Settings struct {
 	AutoCleanupDays             int    `json:"autoCleanupDays"`
 	MaxRetries                  int    `json:"maxRetries"`
 	RadarEnabled                bool   `json:"radarEnabled"`
-	SharedFeedBackendEnabled    bool   `json:"sharedFeedBackendEnabled"`
-	SharedFeedBackendType       string `json:"sharedFeedBackendType,omitempty"`
 	Theme                       string `json:"theme"`
 }
 

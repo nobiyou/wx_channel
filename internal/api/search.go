@@ -13,15 +13,9 @@ import (
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/response"
-	"wx_channel/internal/services"
 	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
 )
-
-type sharedFeedProfileService interface {
-	Enabled() bool
-	FetchVideoProfile(ctx context.Context, shareURL string) (*services.SphFeedResponse, error)
-}
 
 // SearchService 搜索服务
 type SearchService struct {
@@ -29,7 +23,6 @@ type SearchService struct {
 	callAPI             func(key string, body interface{}, timeout time.Duration) ([]byte, error)
 	callAPIContext      func(context.Context, string, interface{}, time.Duration) ([]byte, error)
 	resolveDownloadsDir func() (string, error)
-	sphService          sharedFeedProfileService
 	runtimeDiagnostics  *RuntimeDiagnostics
 	commentJobsMu       sync.RWMutex
 	commentJobs         *CommentExportJobManager
@@ -43,7 +36,6 @@ func NewSearchService(hub *websocket.Hub) *SearchService {
 	service.resolveDownloadsDir = func() (string, error) {
 		return config.Get().GetResolvedDownloadsDir()
 	}
-	service.sphService = services.NewSphService()
 	return service
 }
 
@@ -382,22 +374,6 @@ func (s *SearchService) fetchSharedFeedResolveProfile(req GetFeedProfileRequest)
 	return s.callAPI("key:channels:shared_feed_resolve", body, 60*time.Second)
 }
 
-func (s *SearchService) tryFetchSharedFeedProfile(ctx context.Context, req GetFeedProfileRequest) (interface{}, bool, error) {
-	if !isSharedFeedURL(req.URL) {
-		return nil, false, nil
-	}
-	if s.sphService == nil || !s.sphService.Enabled() {
-		return nil, false, nil
-	}
-
-	resp, err := s.sphService.FetchVideoProfile(ctx, normalizeFeedProfileURL(req.URL))
-	if err != nil {
-		return nil, true, err
-	}
-
-	return services.BuildSharedFeedProfileCompatResponse(resp), true, nil
-}
-
 // GetFeedCommentListRequest 获取视频评论列表请求参数
 type GetFeedCommentListRequest struct {
 	ObjectID   string `json:"object_id"`
@@ -502,14 +478,6 @@ func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if result, handled, err := s.tryFetchSharedFeedProfile(r.Context(), req); handled {
-		if err == nil {
-			response.Success(w, result)
-			return
-		}
-		utils.LogWarn("[parse_sph] feed profile backend parse failed, fallback to page API: %v", err)
-	}
-
 	data, err := s.fetchFeedProfile(req, false)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
@@ -530,32 +498,6 @@ func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, result)
 }
 
-// ParseSph 通过纯后端链路解析分享链接
-func (s *SearchService) ParseSph(w http.ResponseWriter, r *http.Request) {
-	req, err := decodeGetFeedProfileRequest(r)
-	if err != nil {
-		response.Error(w, 400, "Invalid request body")
-		return
-	}
-
-	if req.URL == "" {
-		response.Error(w, 400, "url is required")
-		return
-	}
-	if s.sphService == nil || !s.sphService.Enabled() {
-		response.Error(w, 400, "cloudflare.sphHostname or cloudflare.sphCookie not configured")
-		return
-	}
-
-	feedResp, err := s.sphService.FetchVideoProfile(r.Context(), normalizeFeedProfileURL(req.URL))
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	response.Success(w, feedResp)
-}
-
 // GetSharedFeedProfile 获取分享链接视频详情
 func (s *SearchService) GetSharedFeedProfile(w http.ResponseWriter, r *http.Request) {
 	req, err := decodeGetFeedProfileRequest(r)
@@ -567,14 +509,6 @@ func (s *SearchService) GetSharedFeedProfile(w http.ResponseWriter, r *http.Requ
 	if req.URL == "" {
 		response.Error(w, 400, "url is required")
 		return
-	}
-
-	if result, handled, err := s.tryFetchSharedFeedProfile(r.Context(), req); handled {
-		if err == nil {
-			response.Success(w, result)
-			return
-		}
-		utils.LogWarn("[parse_sph] shared feed backend parse failed, fallback to page API: %v", err)
 	}
 
 	data, err := s.fetchFeedProfile(req, true)
@@ -1074,7 +1008,6 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/search/feed", s.GetFeedList)
 	mux.HandleFunc("/api/v1/search/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/v1/search/shared_feed/profile", s.GetSharedFeedProfile)
-	mux.HandleFunc("/api/v1/search/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/v1/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/v1/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/v1/search/feed/comments/export", s.ExportFeedComments)
@@ -1087,7 +1020,6 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/search/feed", s.GetFeedList)
 	mux.HandleFunc("/api/search/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/search/shared_feed/profile", s.GetSharedFeedProfile)
-	mux.HandleFunc("/api/search/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/search/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/search/feed/comments", s.GetFeedCommentList)
 	mux.HandleFunc("/api/search/feed/comments/export", s.ExportFeedComments)
@@ -1100,7 +1032,6 @@ func (s *SearchService) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/channels/contact/feed/list", s.GetFeedList)
 	mux.HandleFunc("/api/channels/feed/profile", s.GetFeedProfile)
 	mux.HandleFunc("/api/channels/shared_feed/profile", s.GetSharedFeedProfile)
-	mux.HandleFunc("/api/channels/parse_sph", s.ParseSph)
 	mux.HandleFunc("/api/channels/share/resolve", s.ResolveSharedFeedLinks)
 	mux.HandleFunc("/api/channels/feed/comment/list", s.GetFeedCommentList)
 	mux.HandleFunc("/api/channels/feed/comment/export", s.ExportFeedComments)

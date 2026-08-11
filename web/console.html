@@ -622,17 +622,8 @@
                         <label>分享链接下载</label>
                         <textarea id="sharedFeedUrlList" rows="5" placeholder="每行一个视频号分享链接，例如 https://weixin.qq.com/sph/xxxx"
                             style="font-family: monospace; font-size: 13px;"></textarea>
-                        <div class="form-hint" id="sharedFeedBackendHint">支持自动、视频号页面、Cookie纯后端 三种解析模式</div>
                     </div>
                     <div class="form-group" style="display: flex; gap: 16px; flex-wrap: wrap; align-items: end; margin-bottom: 20px;">
-                        <div style="min-width: 220px; flex: 1;">
-                            <label for="sharedFeedResolveMode">解析模式</label>
-                            <select id="sharedFeedResolveMode" class="filter-btn" style="width: 100%;">
-                                <option value="auto">自动（推荐）</option>
-                                <option value="page">视频号页面</option>
-                                <option value="backend">Cookie纯后端</option>
-                            </select>
-                        </div>
                         <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                             <button class="btn btn-primary" onclick="resolveSharedFeedLinks()">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
