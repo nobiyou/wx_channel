@@ -528,6 +528,7 @@ func TestLtaooProbeRunbookHasSafetySequence(t *testing.T) {
 		"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "cleanup-ltaoo-probe.ps1",
 		"INSTALL", "CurrentUser\\Root", "verified_two_pages", "inconclusive_no_second_page",
 		"cleanup_success", "Clash", "system: false", "tun: false",
+		"status_schema", "readiness_proof", "channels.available",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("runbook missing %q", required)

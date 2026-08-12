@@ -68,6 +68,15 @@ $shareUrl = $null
 
 摘要只包含计数、状态、长度和哈希，不包含分享链接、作品 ID、评论 ID、原始游标、昵称、正文、头像 URL 或原始响应。
 
+### 状态协议兼容
+
+探针识别两种 `/api/status` 结构：
+
+- 新版必须同时报告 API 和代理监听成功，摘要记录 `status_schema=modern`、`readiness_proof=listeners_and_profile`。
+- 已验证旧版的 `channels.available` 存在恒为 `false` 的实现缺陷。探针只用非空版本和该字段的存在确认旧版结构，再以共享页面 profile 成功和有效 `oid/nid` 证明页面 WebSocket 可用；摘要记录 `status_schema=legacy`、`readiness_proof=profile`。
+
+未知或残缺状态结构立即以 `status_schema_error` 停止。新版监听失败以 `ltaoo_not_ready` 停止。两种模式都不会因为状态兼容而增加重试、回复请求或第三页请求。
+
 ## 3. 无论结果如何都清理
 
 成功、不确定、失败、手工取消或准备后不再继续时，都运行：
