@@ -157,6 +157,12 @@ $repoRootValue = $null
 $runRoot = $null
 $manifestPath = $null
 $currentStage = "startup"
+$certPath = $null
+$keyPath = $null
+$configPath = $null
+$process = $null
+$resolvedExe = $null
+$exeHash = $null
 
 try {
     if ($ApiPort -lt 1 -or $ApiPort -gt 65535 -or $ProxyPort -lt 1 -or $ProxyPort -gt 65535 -or $ApiPort -eq $ProxyPort) {
@@ -290,11 +296,11 @@ cert:
     $currentStage = "process_start"
     $argumentLine = '-c "' + $configPath + '"'
     $process = Start-Process -FilePath $resolvedExe -ArgumentList $argumentLine -WorkingDirectory $runRoot -PassThru -WindowStyle Hidden
-    Start-Sleep -Milliseconds 500
-    if ($process.HasExited) { throw "ltaoo_exited_early" }
     $manifest.ltaoo.pid = $process.Id
     $manifest.ltaoo.process_start_time = $process.StartTime.ToUniversalTime().ToString("o")
     Write-JsonAtomic $manifest $manifestPath
+    Start-Sleep -Milliseconds 500
+    if ($process.HasExited) { throw "ltaoo_exited_early" }
 
     [pscustomobject]@{
         run_id = $runId
@@ -309,13 +315,42 @@ cert:
         "private_acl_not_exclusive", "confirmation_rejected", "ca_install_failed", "ltaoo_exited_early"
     )
     $reasonCode = if ($_.Exception.Message -in $known) { $_.Exception.Message } else { "unexpected_" + $currentStage }
+    if ($null -ne $process -and -not $process.HasExited -and $null -ne $resolvedExe -and $null -ne $exeHash) {
+        try {
+            $liveHash = (Get-FileHash -LiteralPath $process.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($liveHash -eq $exeHash) {
+                Stop-Process -Id $process.Id -Force
+                Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+            } else {
+                $reasonCode = "rollback_failed"
+            }
+        } catch { $reasonCode = "rollback_failed" }
+    }
     if ($null -ne $manifestPath -and [IO.File]::Exists($manifestPath)) {
         try {
             $cleanupText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "cleanup-ltaoo-probe.ps1")
             if ($cleanupText.Contains("# LTAOO_PROBE_CLEANUP_READY=1")) {
-                & (Join-Path $PSScriptRoot "cleanup-ltaoo-probe.ps1") -RunId $runId -RepoRoot $repoRootValue | Out-Null
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "cleanup-ltaoo-probe.ps1") -RunId $runId -RepoRoot $repoRootValue | Out-Null
+                if ($LASTEXITCODE -ne 0) { $reasonCode = "rollback_failed" }
             }
-        } catch { }
+        } catch { $reasonCode = "rollback_failed" }
+    } elseif ($null -ne $runRoot) {
+        try {
+            foreach ($localTarget in @($keyPath, $certPath, $configPath)) {
+                if ($null -ne $localTarget -and [IO.File]::Exists($localTarget)) {
+                    $fullTarget = [IO.Path]::GetFullPath($localTarget)
+                    if ($fullTarget.StartsWith($runRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+                        Remove-Item -LiteralPath $fullTarget -Force
+                    } else {
+                        $reasonCode = "rollback_failed"
+                    }
+                }
+            }
+            $localSecrets = Join-Path $runRoot "secrets"
+            if ([IO.Directory]::Exists($localSecrets) -and @(Get-ChildItem -Force -LiteralPath $localSecrets).Count -eq 0) {
+                Remove-Item -LiteralPath $localSecrets -Force
+            }
+        } catch { $reasonCode = "rollback_failed" }
     }
     [pscustomobject]@{ run_id = $runId; status = "failed"; reason_code = $reasonCode } | ConvertTo-Json -Compress
     exit 1

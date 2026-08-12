@@ -236,18 +236,35 @@ func TestPrepareScriptHasConstrainedConfiguration(t *testing.T) {
 		"CurrentUser\\Root", "skipInstallRootCert: true", "system: false", "tun: false",
 		"127.0.0.1", "Get-NetRoute", "Get-NetTCPConnection", "CertificateRequest",
 		"Pkcs8PrivateBlob", "certutil.exe", "-user", "-addstore", "Root", "Cert:\\LocalMachine\\Root",
-		"wx_channel", ".tmp_runtime\\ltaoo-probe", "cleanup_not_implemented",
+		"wx_channel", ".tmp_runtime\\ltaoo-probe", "cleanup_not_implemented", "rollback_failed",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("missing safety element %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"Cert:\\LocalMachine\\Root\\", "system: true", "tun: true", "Set-ItemProperty", "Set-NetRoute", "New-NetRoute",
+		"Cert:\\LocalMachine\\Root\\", "system: true", "tun: true", "Set-ItemProperty", "Set-NetRoute", "New-NetRoute", "Remove-Item -Recurse",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("forbidden preparation behavior %q", forbidden)
 		}
+	}
+}
+
+func TestPrepareRejectsNobiyouExecutableBeforePreparation(t *testing.T) {
+	exePath := filepath.Join(probeRepoRoot(t), "wx_channel.exe")
+	if _, err := os.Stat(exePath); err != nil {
+		t.Skip("tracked nobiyou executable is not present")
+	}
+	output, err := runProbeScript(t, "prepare-ltaoo-probe.ps1", "-LtaooExePath", exePath, "-RepoRoot", probeRepoRoot(t))
+	if err == nil {
+		t.Fatalf("nobiyou executable accepted: %s", output)
+	}
+	if !strings.Contains(string(output), "nobiyou_executable_rejected") {
+		t.Fatalf("wrong rejection: %s", output)
+	}
+	if strings.Contains(string(output), exePath) {
+		t.Fatal("executable path leaked in output")
 	}
 }
 
@@ -359,6 +376,18 @@ func TestLtaooProbeRunbookHasSafetySequence(t *testing.T) {
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("runbook missing %q", required)
+		}
+	}
+}
+
+func TestLtaooProbeScriptsParseInWindowsPowerShell(t *testing.T) {
+	for _, name := range []string{"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "cleanup-ltaoo-probe.ps1"} {
+		path := filepath.Join(probeRepoRoot(t), "scripts", name)
+		quotedPath := strings.ReplaceAll(path, "'", "''")
+		command := fmt.Sprintf(`$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('%s',[ref]$tokens,[ref]$errors); if($errors.Count){ $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }`, quotedPath)
+		output, err := exec.Command(probePowerShell(t), "-NoProfile", "-Command", command).CombinedOutput()
+		if err != nil {
+			t.Errorf("%s does not parse: %v\n%s", name, err, output)
 		}
 	}
 }
