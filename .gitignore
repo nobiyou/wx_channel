@@ -168,6 +168,7 @@ scripts/*
 !scripts/insight_data_plane_script_test.go
 !scripts/prepare-ltaoo-probe.ps1
 !scripts/probe-ltaoo-comments.ps1
+!scripts/probe-ltaoo-replies.ps1
 !scripts/cleanup-ltaoo-probe.ps1
 !scripts/ltaoo_probe_script_test.go
 !scripts/build-poc.ps1

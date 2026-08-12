@@ -84,6 +84,7 @@ func TestLtaooProbeScriptsExist(t *testing.T) {
 	for _, name := range []string{
 		"prepare-ltaoo-probe.ps1",
 		"probe-ltaoo-comments.ps1",
+		"probe-ltaoo-replies.ps1",
 		"cleanup-ltaoo-probe.ps1",
 	} {
 		if _, err := os.Stat(filepath.Join(probeRepoRoot(t), "scripts", name)); err != nil {
@@ -537,7 +538,7 @@ func TestLtaooProbeRunbookHasSafetySequence(t *testing.T) {
 }
 
 func TestLtaooProbeScriptsParseInWindowsPowerShell(t *testing.T) {
-	for _, name := range []string{"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "cleanup-ltaoo-probe.ps1"} {
+	for _, name := range []string{"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "probe-ltaoo-replies.ps1", "cleanup-ltaoo-probe.ps1"} {
 		path := filepath.Join(probeRepoRoot(t), "scripts", name)
 		quotedPath := strings.ReplaceAll(path, "'", "''")
 		command := fmt.Sprintf(`$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('%s',[ref]$tokens,[ref]$errors); if($errors.Count){ $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }`, quotedPath)
