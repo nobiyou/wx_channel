@@ -1023,6 +1023,26 @@ func TestLtaooProbeRunbookHasSafetySequence(t *testing.T) {
 	}
 }
 
+func TestLtaooReplyProbeRunbookHasSafetySequence(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(probeRepoRoot(t), "docs", "LTAOO_REPLY_TWO_PAGE_PROBE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		"prepare-ltaoo-probe.ps1", "probe-ltaoo-replies.ps1", "cleanup-ltaoo-probe.ps1",
+		"INSTALL", "CurrentUser\\Root", "reply-probe-summary.json",
+		"verified_reply_two_pages", "inconclusive_no_eligible_root",
+		"inconclusive_no_second_reply_page", "reply_relation_mismatch",
+		"comment_request_count", "reply_request_count", "cleanup_success",
+		"Clash", "system: false", "tun: false", "status_schema", "readiness_proof",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("reply runbook missing %q", required)
+		}
+	}
+}
+
 func TestLtaooProbeScriptsParseInWindowsPowerShell(t *testing.T) {
 	for _, name := range []string{"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "probe-ltaoo-replies.ps1", "cleanup-ltaoo-probe.ps1"} {
 		path := filepath.Join(probeRepoRoot(t), "scripts", name)
