@@ -343,6 +343,57 @@ func TestReplyProbeSelectsFirstEligibleRootAndFetchesExactlyTwoReplyPages(t *tes
 	}
 }
 
+func TestReplyProbeStopsOnExplicitRelationMismatch(t *testing.T) {
+	const rootID = "relation-root-secret"
+	commentRequests := 0
+	replyPageTwoRequested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"relation-oid","objectNonceId":"relation-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			commentRequests++
+			if r.URL.Query().Get("comment_id") == "" {
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":%q,"expandCommentCount":2,"levelTwoComment":[]}],"lastBuffer":""}}}`, rootID)
+				return
+			}
+			if r.URL.Query().Get("next_marker") != "" {
+				replyPageTwoRequested = true
+			}
+			fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"relation-reply-secret","replyCommentId":"wrong-root-secret","rootCommentId":%q}],"lastBuffer":"must-not-be-used"}}}`, rootID)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-relation-mismatch"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/relation-secret", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("relation mismatch accepted: %s", output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.Status != "failed" || summary.ReasonCode != "reply_relation_mismatch" || summary.CommentRequestCount != 2 || summary.ReplyRequestCount != 1 {
+		t.Fatalf("unexpected mismatch result: %+v output=%s", summary, output)
+	}
+	if len(summary.ReplyPages) != 1 || summary.ReplyPages[0].RelationMismatchCount != 1 || summary.Totals.RelationMismatchCount != 1 {
+		t.Fatalf("mismatch evidence missing: %+v", summary)
+	}
+	if commentRequests != 2 || replyPageTwoRequested {
+		t.Fatalf("probe continued after mismatch: requests=%d pageTwo=%v", commentRequests, replyPageTwoRequested)
+	}
+	for _, secret := range []string{rootID, "relation-reply-secret", "wrong-root-secret", "must-not-be-used", "relation-secret"} {
+		if strings.Contains(string(output), secret) {
+			t.Errorf("terminal leaked mismatch secret: %q", secret)
+		}
+	}
+}
+
 func TestProbeAcceptsLegacyStatusAndUsesProfileAsReadinessProof(t *testing.T) {
 	const shareURL = "https://weixin.qq.com/sph/LegacyFixtureShareSecret"
 	const oid = "legacy-oid-secret"
