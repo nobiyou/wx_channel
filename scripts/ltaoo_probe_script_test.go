@@ -377,7 +377,8 @@ func TestReplyProbeStopsOnExplicitRelationMismatch(t *testing.T) {
 		t.Fatalf("relation mismatch accepted: %s", output)
 	}
 	var summary replyProbeSummary
-	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	summaryPath := filepath.Join(runRoot, "reply-probe-summary.json")
+	readJSONFile(t, summaryPath, &summary)
 	if summary.Status != "failed" || summary.ReasonCode != "reply_relation_mismatch" || summary.CommentRequestCount != 2 || summary.ReplyRequestCount != 1 {
 		t.Fatalf("unexpected mismatch result: %+v output=%s", summary, output)
 	}
@@ -387,9 +388,280 @@ func TestReplyProbeStopsOnExplicitRelationMismatch(t *testing.T) {
 	if commentRequests != 2 || replyPageTwoRequested {
 		t.Fatalf("probe continued after mismatch: requests=%d pageTwo=%v", commentRequests, replyPageTwoRequested)
 	}
+	failureRaw, readErr := os.ReadFile(summaryPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
 	for _, secret := range []string{rootID, "relation-reply-secret", "wrong-root-secret", "must-not-be-used", "relation-secret"} {
-		if strings.Contains(string(output), secret) {
-			t.Errorf("terminal leaked mismatch secret: %q", secret)
+		if strings.Contains(string(output), secret) || strings.Contains(string(failureRaw), secret) {
+			t.Errorf("mismatch secret leaked: %q", secret)
+		}
+	}
+}
+
+func TestReplyProbeTreatsEmptyEmbeddedListAsZero(t *testing.T) {
+	commentRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"empty-embedded-oid","objectNonceId":"empty-embedded-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			commentRequests++
+			if r.URL.Query().Get("comment_id") == "" {
+				fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"empty-embedded-root","expandCommentCount":1,"levelTwoComment":[]}],"lastBuffer":""}}}`)
+				return
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[],"lastBuffer":""}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-empty-embedded"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/empty-embedded", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err != nil {
+		t.Fatalf("empty embedded list rejected: %v\n%s", err, output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.Status != "inconclusive_no_second_reply_page" || summary.SelectedRoot == nil || summary.SelectedRoot.EmbeddedReplyCount != 0 || commentRequests != 2 {
+		t.Fatalf("empty list did not count as zero: %+v requests=%d", summary, commentRequests)
+	}
+}
+
+func TestReplyProbeStopsWhenNoEligibleRoot(t *testing.T) {
+	commentRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"no-root-oid","objectNonceId":"no-root-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			commentRequests++
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"","expandCommentCount":9,"levelTwoComment":[]},{"commentId":"fully-embedded","expandCommentCount":1,"levelTwoComment":[{"commentId":"embedded"}]},{"commentId":"invalid-count","expandCommentCount":"1","levelTwoComment":[]},{"commentId":"negative-count","expandCommentCount":-1,"levelTwoComment":[]}],"lastBuffer":"unused-top-marker"}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-no-root"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/no-root-secret", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err != nil {
+		t.Fatalf("inconclusive probe failed: %v\n%s", err, output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.Status != "inconclusive_no_eligible_root" || summary.ReasonCode != "top_page_has_no_eligible_root" ||
+		summary.TopLevelRequestCount != 1 || summary.ReplyRequestCount != 0 || summary.CommentRequestCount != 1 ||
+		summary.SelectedRoot != nil || len(summary.ReplyPages) != 0 || commentRequests != 1 {
+		t.Fatalf("unexpected no-root result: %+v requests=%d", summary, commentRequests)
+	}
+}
+
+func TestReplyProbeStopsWhenReplyPageOneHasNoMarker(t *testing.T) {
+	commentRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"single-page-oid","objectNonceId":"single-page-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			commentRequests++
+			if r.URL.Query().Get("comment_id") == "" {
+				fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"single-page-root","expandCommentCount":2,"levelTwoComment":[]}],"lastBuffer":""}}}`)
+				return
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"single-reply","replyCommentId":"single-page-root","rootCommentId":"0"}],"lastBuffer":""}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-no-second-page"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/single-page-secret", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err != nil {
+		t.Fatalf("single reply page probe failed: %v\n%s", err, output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.Status != "inconclusive_no_second_reply_page" || summary.ReasonCode != "reply_page_one_has_no_marker" ||
+		summary.TopLevelRequestCount != 1 || summary.ReplyRequestCount != 1 || summary.CommentRequestCount != 2 ||
+		summary.CursorContinuity || summary.SecondReplyRequestCursorHash != "" || len(summary.ReplyPages) != 1 || commentRequests != 2 {
+		t.Fatalf("unexpected single-page result: %+v requests=%d", summary, commentRequests)
+	}
+}
+
+func TestReplyProbeProfileFailureDoesNotRequestComments(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"channels":{"available":false},"version":"legacy-fixture"}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":7,"data":{}}}`)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-profile-failure"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/profile-failure", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("profile failure accepted: %s", output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.StatusSchema != "legacy" || summary.ReadinessProof != "profile" || summary.ReasonCode != "profile_business_error" ||
+		summary.CommentRequestCount != 0 || summary.TopLevelRequestCount != 0 || summary.ReplyRequestCount != 0 || requestCount != 2 {
+		t.Fatalf("unexpected profile failure: %+v requests=%d", summary, requestCount)
+	}
+}
+
+func TestReplyProbeRejectsUnknownStatusBeforeProfile(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/status" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"code":0,"data":{"ready":true}}`)
+	}))
+	defer server.Close()
+
+	runID := "test-reply-unknown-status"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/unknown-status", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("unknown status accepted: %s", output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.ReasonCode != "status_schema_error" || summary.CommentRequestCount != 0 || requestCount != 1 {
+		t.Fatalf("unexpected status rejection: %+v requests=%d", summary, requestCount)
+	}
+}
+
+func TestReplyProbeTopPageFailureDoesNotRequestReplies(t *testing.T) {
+	commentRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"top-fail-oid","objectNonceId":"top-fail-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			commentRequests++
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":12,"data":{}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-top-failure"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/top-failure", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("top-page failure accepted: %s", output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.ReasonCode != "top_page_business_error" || summary.TopLevelRequestCount != 1 || summary.ReplyRequestCount != 0 || summary.CommentRequestCount != 1 || commentRequests != 1 {
+		t.Fatalf("unexpected top-page failure: %+v requests=%d", summary, commentRequests)
+	}
+}
+
+func TestReplyProbeRejectsRemoteAPIBase(t *testing.T) {
+	const shareURL = "https://weixin.qq.com/sph/reply-remote-secret"
+	runID := "test-reply-remote"
+	writeProbeManifest(t, runID, "http://127.0.0.1:2022")
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", shareURL, "-RepoRoot", probeRepoRoot(t), "-ApiBase", "http://192.0.2.10:2022")
+	if err == nil {
+		t.Fatalf("remote API base accepted: %s", output)
+	}
+	if !strings.Contains(string(output), "api_base_not_loopback") || strings.Contains(string(output), shareURL) {
+		t.Fatalf("wrong or leaking failure: %s", output)
+	}
+}
+
+func TestReplyProbeCountsTransportAttemptBeforeFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"transport-oid","objectNonceId":"transport-nid"}}}}`)
+		case "/api/channels/feed/comment/list":
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("test server cannot hijack connection")
+			}
+			connection, _, err := hijacker.Hijack()
+			if err != nil {
+				t.Errorf("hijack failed: %v", err)
+				return
+			}
+			_ = connection.Close()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-transport-failure"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/transport-failure", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("transport failure accepted: %s", output)
+	}
+	var summary replyProbeSummary
+	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
+	if summary.ReasonCode != "top_page_request_failed" || summary.TopLevelRequestCount != 1 || summary.ReplyRequestCount != 0 || summary.CommentRequestCount != 1 {
+		t.Fatalf("attempt was not counted: %+v", summary)
+	}
+}
+
+func TestReplyProbeHasHardRequestCeiling(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(probeRepoRoot(t), "scripts", "probe-ltaoo-replies.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		"Assert-CommentRequestBudget", "$CommentCount -ge 3", "$TopCount -ge 1", "$ReplyCount -ge 2",
+		"comment_request_limit_exceeded", "reply-probe-summary.json",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("reply probe ceiling missing %q", required)
+		}
+	}
+	lower := strings.ToLower(text)
+	for _, forbidden := range []string{"while (", "do {"} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("reply probe contains unbounded construct %q", forbidden)
 		}
 	}
 }

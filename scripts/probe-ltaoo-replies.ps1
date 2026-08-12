@@ -210,7 +210,8 @@ function Select-EligibleRoot {
         $commentId = [string]$comment.commentId
         if ([string]::IsNullOrWhiteSpace($commentId)) { continue }
         $embeddedValue = if (Test-ObjectProperty $comment "levelTwoComment") { Get-ObjectItems $comment.levelTwoComment } else { $null }
-        $embedded = @($embeddedValue)
+        [object[]]$embedded = @()
+        if ($null -ne $embeddedValue) { $embedded = @($embeddedValue) }
         $expand = if (Test-ObjectProperty $comment "expandCommentCount") { ConvertTo-NonNegativeInt64 $comment.expandCommentCount } else { $null }
         if ($null -ne $expand -and $expand -gt $embedded.Count) {
             return [pscustomobject]@{ comment = $comment; comment_id = $commentId; expand_count = $expand; embedded = $embedded }
