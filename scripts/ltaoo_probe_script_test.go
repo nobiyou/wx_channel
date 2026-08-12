@@ -180,6 +180,169 @@ func TestProbeFetchesExactlyTwoPagesAndRedacts(t *testing.T) {
 	}
 }
 
+type replyProbeSummary struct {
+	Status                       string `json:"status"`
+	ReasonCode                   string `json:"reason_code"`
+	StatusSchema                 string `json:"status_schema"`
+	ReadinessProof               string `json:"readiness_proof"`
+	TopLevelRequestCount         int    `json:"top_level_request_count"`
+	ReplyRequestCount            int    `json:"reply_request_count"`
+	CommentRequestCount          int    `json:"comment_request_count"`
+	SecondReplyRequestCursorHash string `json:"second_reply_request_cursor_hash"`
+	CursorContinuity             bool   `json:"cursor_continuity"`
+	TopPage                      struct {
+		CommentCount      int  `json:"comment_count"`
+		EligibleRootFound bool `json:"eligible_root_found"`
+	} `json:"top_page"`
+	SelectedRoot *struct {
+		CommentIDHash          string   `json:"comment_id_hash"`
+		ExpandCommentCount     int64    `json:"expand_comment_count"`
+		EmbeddedReplyCount     int      `json:"embedded_reply_count"`
+		EmbeddedMissingIDCount int      `json:"embedded_missing_id_count"`
+		EmbeddedReplyIDHashes  []string `json:"embedded_reply_id_hashes"`
+	} `json:"selected_root"`
+	ReplyPages []struct {
+		PageNumber                   int      `json:"page_number"`
+		ReplyCount                   int      `json:"reply_count"`
+		MissingIDCount               int      `json:"missing_id_count"`
+		ReplyIDHashes                []string `json:"reply_id_hashes"`
+		PageDuplicateCount           int      `json:"page_duplicate_count"`
+		CrossReplyPageDuplicateCount int      `json:"cross_reply_page_duplicate_count"`
+		EmbeddedDuplicateCount       int      `json:"embedded_duplicate_count"`
+		RelationMatchCount           int      `json:"relation_match_count"`
+		RelationGapCount             int      `json:"relation_gap_count"`
+		RelationMismatchCount        int      `json:"relation_mismatch_count"`
+		LastBufferPresent            bool     `json:"last_buffer_present"`
+		LastBufferHash               string   `json:"last_buffer_hash"`
+	} `json:"reply_pages"`
+	Totals struct {
+		ReplyCount                   int `json:"reply_count"`
+		MissingIDCount               int `json:"missing_id_count"`
+		PageDuplicateCount           int `json:"page_duplicate_count"`
+		CrossReplyPageDuplicateCount int `json:"cross_reply_page_duplicate_count"`
+		EmbeddedDuplicateCount       int `json:"embedded_duplicate_count"`
+		RelationMatchCount           int `json:"relation_match_count"`
+		RelationGapCount             int `json:"relation_gap_count"`
+		RelationMismatchCount        int `json:"relation_mismatch_count"`
+	} `json:"totals"`
+}
+
+func TestReplyProbeSelectsFirstEligibleRootAndFetchesExactlyTwoReplyPages(t *testing.T) {
+	const shareURL = "https://weixin.qq.com/sph/ReplyFixtureShareSecret"
+	const oid = "reply-fixture-oid-secret"
+	const nid = "reply-fixture-nid-secret"
+	const rootID = "selected-root-secret"
+	const embeddedOne = "embedded-reply-one-secret"
+	const embeddedTwo = "embedded-reply-two-secret"
+	const marker = "reply+cursor/with=reserved"
+	const bait = "NEVER_PERSIST_REPLY_BODY_OR_NICKNAME"
+
+	var mu sync.Mutex
+	commentRequests := 0
+	replyRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"msg":"ok","data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			if got := r.URL.Query().Get("url"); got != shareURL {
+				t.Errorf("share URL = %q", got)
+			}
+			fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":%q,"objectNonceId":%q}}}}`, oid, nid)
+		case "/api/channels/feed/comment/list":
+			mu.Lock()
+			commentRequests++
+			requestNumber := commentRequests
+			mu.Unlock()
+			if requestNumber > 3 {
+				t.Errorf("unexpected fourth comment request: %s", r.URL.RequestURI())
+				http.Error(w, "request budget exceeded", http.StatusTooManyRequests)
+				return
+			}
+			if r.URL.Query().Get("oid") != oid || r.URL.Query().Get("nid") != nid {
+				t.Errorf("missing oid/nid")
+			}
+			commentID := r.URL.Query().Get("comment_id")
+			nextMarker := r.URL.Query().Get("next_marker")
+			if commentID == "" {
+				if nextMarker != "" {
+					t.Errorf("top-level marker must be empty, got %q", nextMarker)
+				}
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"","expandCommentCount":9,"levelTwoComment":[]},{"commentId":"fully-embedded-root","expandCommentCount":1,"levelTwoComment":[{"commentId":"embedded-full"}]},{"commentId":"invalid-count-root","expandCommentCount":"NaN","levelTwoComment":[]},{"commentId":%q,"expandCommentCount":6,"levelTwoComment":[{"commentId":%q,"content":%q},{"commentId":%q,"nickname":%q}]},{"commentId":"later-eligible-root","expandCommentCount":99,"levelTwoComment":[]}],"lastBuffer":"TOP_LEVEL_MARKER_MUST_NOT_BE_USED"}}}`, rootID, embeddedOne, bait, embeddedTwo, bait)
+				return
+			}
+			mu.Lock()
+			replyRequests++
+			mu.Unlock()
+			if commentID != rootID {
+				t.Errorf("wrong root selected: %q", commentID)
+			}
+			switch nextMarker {
+			case "":
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":%q,"replyCommentId":%q,"rootCommentId":%q,"content":%q},{"commentId":"page-one-unique","replyCommentId":"0","rootCommentId":%q},{"commentId":"page-one-unique","replyCommentId":%q},{"commentId":"","replyCommentId":%q,"rootCommentId":%q}],"lastBuffer":%q}}}`, embeddedOne, rootID, rootID, bait, rootID, rootID, rootID, rootID, marker)
+			case marker:
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"page-one-unique","replyCommentId":%q,"rootCommentId":%q},{"commentId":"page-two-unique","replyCommentId":%q,"rootCommentId":%q}],"lastBuffer":"DO_NOT_REQUEST_REPLY_PAGE_THREE"}}}`, rootID, rootID, rootID, rootID)
+			default:
+				t.Errorf("unexpected reply marker %q", nextMarker)
+				http.Error(w, "bad marker", http.StatusBadRequest)
+			}
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-reply-two-pages"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-replies.ps1", "-RunId", runID, "-ShareUrl", shareURL, "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err != nil {
+		t.Fatalf("reply probe failed: %v\n%s", err, output)
+	}
+	raw, err := os.ReadFile(filepath.Join(runRoot, "reply-probe-summary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{shareURL, oid, nid, rootID, embeddedOne, embeddedTwo, marker, bait,
+		"fully-embedded-root", "invalid-count-root", "later-eligible-root", "page-one-unique", "page-two-unique",
+		"TOP_LEVEL_MARKER_MUST_NOT_BE_USED", "DO_NOT_REQUEST_REPLY_PAGE_THREE"} {
+		if strings.Contains(string(raw), secret) || strings.Contains(string(output), secret) {
+			t.Errorf("reply secret leaked: %q", secret)
+		}
+	}
+	var summary replyProbeSummary
+	if err := json.Unmarshal(raw, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "verified_reply_two_pages" || summary.ReasonCode != "reply_two_pages_verified" {
+		t.Fatalf("unexpected result: %+v", summary)
+	}
+	if summary.StatusSchema != "modern" || summary.ReadinessProof != "listeners_and_profile" {
+		t.Fatalf("unexpected readiness: %+v", summary)
+	}
+	if summary.TopLevelRequestCount != 1 || summary.ReplyRequestCount != 2 || summary.CommentRequestCount != 3 {
+		t.Fatalf("unexpected budgets: %+v", summary)
+	}
+	if !summary.CursorContinuity || summary.SecondReplyRequestCursorHash == "" || summary.SecondReplyRequestCursorHash != summary.ReplyPages[0].LastBufferHash {
+		t.Fatalf("cursor continuity not proven: %+v", summary)
+	}
+	if summary.SelectedRoot == nil || summary.SelectedRoot.ExpandCommentCount != 6 || summary.SelectedRoot.EmbeddedReplyCount != 2 {
+		t.Fatalf("wrong root selected: %+v", summary.SelectedRoot)
+	}
+	if len(summary.ReplyPages) != 2 || summary.ReplyPages[0].PageDuplicateCount != 1 || summary.ReplyPages[0].EmbeddedDuplicateCount != 1 || summary.ReplyPages[1].CrossReplyPageDuplicateCount != 1 {
+		t.Fatalf("wrong duplicate evidence: %+v", summary.ReplyPages)
+	}
+	if summary.Totals.RelationMatchCount != 10 || summary.Totals.RelationGapCount != 2 || summary.Totals.RelationMismatchCount != 0 {
+		t.Fatalf("wrong relation evidence: %+v", summary.Totals)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if commentRequests != 3 || replyRequests != 2 {
+		t.Fatalf("server observed comment=%d reply=%d", commentRequests, replyRequests)
+	}
+}
+
 func TestProbeAcceptsLegacyStatusAndUsesProfileAsReadinessProof(t *testing.T) {
 	const shareURL = "https://weixin.qq.com/sph/LegacyFixtureShareSecret"
 	const oid = "legacy-oid-secret"
