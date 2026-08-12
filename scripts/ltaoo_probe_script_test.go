@@ -250,3 +250,98 @@ func TestPrepareScriptHasConstrainedConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func writeCleanupFixture(t *testing.T, runID string, privateKeyOverride string) string {
+	t.Helper()
+	runRoot := filepath.Join(probeRepoRoot(t), ".tmp_runtime", "ltaoo-probe", runID)
+	secrets := filepath.Join(runRoot, "secrets")
+	if err := os.MkdirAll(secrets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	certPath := filepath.Join(secrets, "ca-cert.pem")
+	keyPath := filepath.Join(secrets, "ca-key.pem")
+	configPath := filepath.Join(runRoot, "ltaoo-probe.yaml")
+	for path, body := range map[string]string{certPath: "cert", keyPath: "key", configPath: "config"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if privateKeyOverride != "" {
+		keyPath = privateKeyOverride
+	}
+	baseline := `{"schema_version":1,"user_proxy_sha256":"x","winhttp_proxy_sha256":"x","route_table_sha256":"x","current_user_roots_sha256":"x","local_machine_roots_sha256":"x","probe_listeners_sha256":"x","related_processes_sha256":"x"}`
+	if err := os.WriteFile(filepath.Join(runRoot, "baseline.json"), []byte(baseline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf(`{"schema_version":1,"run_id":%q,"runtime_root":%q,"ca":{"store":"CurrentUser\\Root","thumbprint":"","certificate_file":%q,"private_key_file":%q},"ltaoo":{"pid":0,"process_start_time":"","executable_sha256":"","config_file":%q,"api_base":"http://127.0.0.1:2022","proxy_endpoint":"127.0.0.1:2023"}}`, runID, runRoot, certPath, keyPath, configPath)
+	if err := os.WriteFile(filepath.Join(runRoot, "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return runRoot
+}
+
+func TestCleanupIsIdempotentForRunOwnedFiles(t *testing.T) {
+	runID := "test-cleanup-idempotent"
+	runRoot := writeCleanupFixture(t, runID, "")
+	t.Cleanup(func() { cleanupProbeTestRun(t, runRoot) })
+	for attempt := 0; attempt < 2; attempt++ {
+		output, err := runProbeScript(t, "cleanup-ltaoo-probe.ps1", "-RunId", runID, "-RepoRoot", probeRepoRoot(t))
+		if err != nil {
+			t.Fatalf("cleanup %d failed: %v\n%s", attempt+1, err, output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runRoot, "secrets", "ca-key.pem")); !os.IsNotExist(err) {
+		t.Fatal("private key remains")
+	}
+	if _, err := os.Stat(filepath.Join(runRoot, "ltaoo-probe.yaml")); !os.IsNotExist(err) {
+		t.Fatal("config remains")
+	}
+	var receipt struct {
+		CleanupSuccess bool `json:"cleanup_success"`
+	}
+	readJSONFile(t, filepath.Join(runRoot, "cleanup-receipt.json"), &receipt)
+	if !receipt.CleanupSuccess {
+		t.Fatal("cleanup receipt reports failure")
+	}
+}
+
+func TestCleanupRejectsExternalManifestTarget(t *testing.T) {
+	external := filepath.Join(t.TempDir(), "must-survive.key")
+	if err := os.WriteFile(external, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runID := "test-cleanup-external"
+	runRoot := writeCleanupFixture(t, runID, external)
+	t.Cleanup(func() { cleanupProbeTestRun(t, runRoot) })
+	if output, err := runProbeScript(t, "cleanup-ltaoo-probe.ps1", "-RunId", runID, "-RepoRoot", probeRepoRoot(t)); err == nil {
+		t.Fatalf("external target accepted: %s", output)
+	}
+	if _, err := os.Stat(external); err != nil {
+		t.Fatalf("external target was changed: %v", err)
+	}
+}
+
+func TestCleanupScriptSecuritySurface(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(probeRepoRoot(t), "scripts", "cleanup-ltaoo-probe.ps1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		"# LTAOO_PROBE_CLEANUP_READY=1",
+		"CurrentUser\\Root", "process_start_time", "executable_sha256", "Get-FileHash",
+		"-user", "-delstore", "Remove-Item -LiteralPath", "cleanup_success",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("cleanup missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"Cert:\\LocalMachine\\Root\\", "uninstall_by_name", "Remove-Item -Recurse",
+		"Set-ItemProperty", "Set-NetRoute", "New-NetRoute",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("cleanup contains forbidden %q", forbidden)
+		}
+	}
+}

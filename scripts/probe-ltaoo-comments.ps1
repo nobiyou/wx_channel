@@ -63,16 +63,18 @@ function Get-SaltedTextHash {
 function Write-JsonAtomic {
     param([object]$Value, [string]$Path)
     $temporary = $Path + "." + [Guid]::NewGuid().ToString("N") + ".tmp"
+    $backup = $temporary + ".bak"
     $json = $Value | ConvertTo-Json -Depth 10
     [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
     try {
         if ([IO.File]::Exists($Path)) {
-            [IO.File]::Replace($temporary, $Path, $null)
+            [IO.File]::Replace($temporary, $Path, $backup)
         } else {
             [IO.File]::Move($temporary, $Path)
         }
     } finally {
         if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+        if ([IO.File]::Exists($backup)) { [IO.File]::Delete($backup) }
     }
 }
 

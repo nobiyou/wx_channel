@@ -25,7 +25,7 @@ function Get-Sha256Hex {
 }
 
 function Get-CanonicalHash {
-    param([object]$Value)
+    param([Parameter()][AllowNull()][AllowEmptyCollection()][object]$Value)
     $json = $Value | ConvertTo-Json -Compress -Depth 8
     return Get-Sha256Hex ([Text.Encoding]::UTF8.GetBytes($json))
 }
@@ -33,12 +33,14 @@ function Get-CanonicalHash {
 function Write-JsonAtomic {
     param([object]$Value, [string]$Path)
     $temporary = $Path + "." + [Guid]::NewGuid().ToString("N") + ".tmp"
+    $backup = $temporary + ".bak"
     [IO.File]::WriteAllText($temporary, ($Value | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
     try {
-        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary, $Path, $null) }
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary, $Path, $backup) }
         else { [IO.File]::Move($temporary, $Path) }
     } finally {
         if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+        if ([IO.File]::Exists($backup)) { [IO.File]::Delete($backup) }
     }
 }
 
@@ -84,18 +86,18 @@ function Get-ProbeBaseline {
     foreach ($process in @(Get-Process | Where-Object { $_.ProcessName -match 'clash|wechat|wx_video_download' } | Sort-Object ProcessName, Id)) {
         $started = ""
         try { $started = $process.StartTime.ToUniversalTime().ToString("o") } catch { $started = "unavailable" }
-        $processes.Add([ordered]@{ name = $process.ProcessName; id = $process.Id; started = $started })
+        [void]$processes.Add([ordered]@{ name = $process.ProcessName; id = $process.Id; started = $started })
     }
     return [ordered]@{
         schema_version = 1
         captured_at = [DateTimeOffset]::UtcNow.ToString("o")
         user_proxy_sha256 = Get-CanonicalHash $userProxy
         winhttp_proxy_sha256 = Get-CanonicalHash $winHttp
-        route_table_sha256 = Get-CanonicalHash $routes
-        current_user_roots_sha256 = Get-CanonicalHash $currentRoots
-        local_machine_roots_sha256 = Get-CanonicalHash $machineRoots
-        probe_listeners_sha256 = Get-CanonicalHash $listeners
-        related_processes_sha256 = Get-CanonicalHash @($processes)
+        route_table_sha256 = Get-CanonicalHash -Value (, $routes)
+        current_user_roots_sha256 = Get-CanonicalHash -Value (, $currentRoots)
+        local_machine_roots_sha256 = Get-CanonicalHash -Value (, $machineRoots)
+        probe_listeners_sha256 = Get-CanonicalHash -Value (, $listeners)
+        related_processes_sha256 = Get-CanonicalHash -Value (, @($processes))
         api_port_in_use = [bool](@($listeners | Where-Object { $_.LocalPort -eq $SelectedApiPort }).Count)
         proxy_port_in_use = [bool](@($listeners | Where-Object { $_.LocalPort -eq $SelectedProxyPort }).Count)
     }
