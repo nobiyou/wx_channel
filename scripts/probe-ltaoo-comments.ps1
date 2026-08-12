@@ -109,6 +109,54 @@ function Assert-BusinessSuccess {
     }
 }
 
+function Test-ObjectProperty {
+    param([object]$Object, [string]$Name)
+    return $null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name
+}
+
+function Get-LtaooStatusEvidence {
+    param([object]$Response)
+    try {
+        if (-not (Test-ObjectProperty $Response "body")) { throw "status_schema_error" }
+        $body = $Response.body
+        if (-not (Test-ObjectProperty $body "code")) { throw "status_schema_error" }
+        if ([int]$body.code -ne 0) { throw "ltaoo_not_ready" }
+        if (-not (Test-ObjectProperty $body "data") -or $null -eq $body.data) { throw "status_schema_error" }
+        $data = $body.data
+
+        $hasApi = Test-ObjectProperty $data "api"
+        $hasProxy = Test-ObjectProperty $data "proxy"
+        if ($hasApi -or $hasProxy) {
+            if (-not $hasApi -or -not $hasProxy -or $null -eq $data.api -or $null -eq $data.proxy) { throw "status_schema_error" }
+            if (-not (Test-ObjectProperty $data.api "listening") -or -not (Test-ObjectProperty $data.proxy "listening")) { throw "status_schema_error" }
+            if ($data.api.listening -isnot [bool] -or $data.proxy.listening -isnot [bool]) { throw "status_schema_error" }
+            return [pscustomobject]@{
+                status_schema = "modern"
+                readiness_proof = "listeners_and_profile"
+                profile_allowed = [bool]($data.api.listening -and $data.proxy.listening)
+            }
+        }
+
+        $hasChannels = Test-ObjectProperty $data "channels"
+        $hasVersion = Test-ObjectProperty $data "version"
+        if ($hasChannels -or $hasVersion) {
+            if (-not $hasChannels -or -not $hasVersion -or $null -eq $data.channels) { throw "status_schema_error" }
+            if (-not (Test-ObjectProperty $data.channels "available")) { throw "status_schema_error" }
+            if ($data.version -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$data.version)) { throw "status_schema_error" }
+            return [pscustomobject]@{
+                status_schema = "legacy"
+                readiness_proof = "profile"
+                profile_allowed = $true
+            }
+        }
+
+        throw "status_schema_error"
+    } catch {
+        if ($_.Exception.Message -in @("ltaoo_not_ready", "status_schema_error")) { throw }
+        throw "status_schema_error"
+    }
+}
+
 function New-PageSummary {
     param([object]$Response, [byte[]]$Salt, [Collections.Generic.HashSet[string]]$PriorIds)
     $comments = @()
@@ -147,6 +195,8 @@ $runRoot = $null
 $summaryPath = $null
 $client = $null
 $commentRequestCount = 0
+$statusSchema = ""
+$readinessProof = ""
 $reasonCode = "unexpected_failure"
 $currentStage = "startup"
 
@@ -171,9 +221,10 @@ try {
 
     $currentStage = "status"
     $status = Invoke-LocalJsonGet $client ($apiBaseValue + "/api/status") "status"
-    if ([int]$status.body.code -ne 0 -or -not [bool]$status.body.data.api.listening -or -not [bool]$status.body.data.proxy.listening) {
-        throw "ltaoo_not_ready"
-    }
+    $statusEvidence = Get-LtaooStatusEvidence $status
+    $statusSchema = [string]$statusEvidence.status_schema
+    $readinessProof = [string]$statusEvidence.readiness_proof
+    if (-not [bool]$statusEvidence.profile_allowed) { throw "ltaoo_not_ready" }
 
     $currentStage = "profile"
     $profileUrl = $apiBaseValue + "/api/channels/feed/profile?url=" + [Uri]::EscapeDataString($ShareUrl)
@@ -231,6 +282,8 @@ try {
         oid_sha256 = Get-TextHash $oid
         nid_sha256 = Get-TextHash $nid
         status_http = $status.status_code
+        status_schema = $statusSchema
+        readiness_proof = $readinessProof
         profile_http = $profile.status_code
         profile_business_code = [int]$profile.body.data.errCode
         pages = @($pages)
@@ -262,6 +315,8 @@ try {
             status = "failed"
             reason_code = $reasonCode
         }
+        if (-not [string]::IsNullOrEmpty($statusSchema)) { $failure["status_schema"] = $statusSchema }
+        if (-not [string]::IsNullOrEmpty($readinessProof)) { $failure["readiness_proof"] = $readinessProof }
         Write-JsonAtomic $failure $summaryPath
     }
     [pscustomobject]@{ run_id = $RunId; status = "failed"; reason_code = $reasonCode } | ConvertTo-Json -Compress

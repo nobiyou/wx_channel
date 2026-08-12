@@ -152,6 +152,8 @@ func TestProbeFetchesExactlyTwoPagesAndRedacts(t *testing.T) {
 	}
 	var summary struct {
 		Status              string `json:"status"`
+		StatusSchema        string `json:"status_schema"`
+		ReadinessProof      string `json:"readiness_proof"`
 		CommentRequestCount int    `json:"comment_request_count"`
 		CursorContinuity    bool   `json:"cursor_continuity"`
 		Pages               []struct {
@@ -164,6 +166,9 @@ func TestProbeFetchesExactlyTwoPagesAndRedacts(t *testing.T) {
 	if summary.Status != "verified_two_pages" || summary.CommentRequestCount != 2 || !summary.CursorContinuity {
 		t.Fatalf("unexpected summary: %+v", summary)
 	}
+	if summary.StatusSchema != "modern" || summary.ReadinessProof != "listeners_and_profile" {
+		t.Fatalf("unexpected readiness evidence: %+v", summary)
+	}
 	if len(summary.Pages) != 2 || summary.Pages[0].CommentCount != 1 || summary.Pages[1].CommentCount != 1 {
 		t.Fatalf("unexpected pages: %+v", summary.Pages)
 	}
@@ -171,6 +176,156 @@ func TestProbeFetchesExactlyTwoPagesAndRedacts(t *testing.T) {
 	defer mu.Unlock()
 	if len(requests) != 4 {
 		t.Fatalf("request count = %d, want status + profile + two comment pages", len(requests))
+	}
+}
+
+func TestProbeAcceptsLegacyStatusAndUsesProfileAsReadinessProof(t *testing.T) {
+	const shareURL = "https://weixin.qq.com/sph/LegacyFixtureShareSecret"
+	const oid = "legacy-oid-secret"
+	const nid = "legacy-nid-secret"
+	const marker = "legacy-cursor+/=secret"
+	const bait = "NEVER_PERSIST_LEGACY_COMMENT_BODY"
+
+	var mu sync.Mutex
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.URL.RequestURI())
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"channels":{"available":false},"version":"legacy-fixture"}}`)
+		case "/api/channels/feed/profile":
+			if got := r.URL.Query().Get("url"); got != shareURL {
+				t.Errorf("share URL = %q", got)
+			}
+			fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":%q,"objectNonceId":%q}}}}`, oid, nid)
+		case "/api/channels/feed/comment/list":
+			if r.URL.Query().Get("oid") != oid || r.URL.Query().Get("nid") != nid {
+				t.Errorf("missing oid/nid")
+			}
+			switch r.URL.Query().Get("next_marker") {
+			case "":
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"legacy-comment-one","content":%q}],"lastBuffer":%q}}}`, bait, marker)
+			case marker:
+				fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"legacy-comment-two","content":%q}],"lastBuffer":""}}}`, bait)
+			default:
+				t.Errorf("unexpected marker %q", r.URL.Query().Get("next_marker"))
+			}
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runID := "test-legacy-two-pages"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-comments.ps1", "-RunId", runID, "-ShareUrl", shareURL, "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err != nil {
+		t.Fatalf("legacy probe failed: %v\n%s", err, output)
+	}
+	raw, err := os.ReadFile(filepath.Join(runRoot, "probe-summary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{shareURL, oid, nid, marker, bait, "legacy-comment-one", "legacy-comment-two"} {
+		if strings.Contains(string(raw), secret) || strings.Contains(string(output), secret) {
+			t.Errorf("legacy secret leaked: %q", secret)
+		}
+	}
+	var summary struct {
+		Status              string `json:"status"`
+		StatusSchema        string `json:"status_schema"`
+		ReadinessProof      string `json:"readiness_proof"`
+		CommentRequestCount int    `json:"comment_request_count"`
+		CursorContinuity    bool   `json:"cursor_continuity"`
+	}
+	if err := json.Unmarshal(raw, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Status != "verified_two_pages" || summary.StatusSchema != "legacy" || summary.ReadinessProof != "profile" || summary.CommentRequestCount != 2 || !summary.CursorContinuity {
+		t.Fatalf("unexpected legacy summary: %+v", summary)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 4 {
+		t.Fatalf("request count = %d, want status + profile + two comment pages", len(requests))
+	}
+}
+
+func TestProbeRejectsUnusableStatusBeforeProfile(t *testing.T) {
+	tests := []struct {
+		name, statusBody, reasonCode string
+	}{
+		{"modern listener is false", `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":false}}}`, "ltaoo_not_ready"},
+		{"legacy version is empty", `{"code":0,"data":{"channels":{"available":false},"version":""}}`, "status_schema_error"},
+		{"unknown schema", `{"code":0,"data":{"ready":true}}`, "status_schema_error"},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount++
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path != "/api/status" {
+					t.Errorf("unexpected request %s", r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				fmt.Fprint(w, test.statusBody)
+			}))
+			defer server.Close()
+			runID := fmt.Sprintf("test-unusable-status-%d", index)
+			runRoot := writeProbeManifest(t, runID, server.URL)
+			output, err := runProbeScript(t, "probe-ltaoo-comments.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/test", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+			if err == nil {
+				t.Fatalf("unusable status accepted: %s", output)
+			}
+			var summary struct {
+				ReasonCode          string `json:"reason_code"`
+				CommentRequestCount int    `json:"comment_request_count"`
+			}
+			readJSONFile(t, filepath.Join(runRoot, "probe-summary.json"), &summary)
+			if summary.ReasonCode != test.reasonCode || summary.CommentRequestCount != 0 || requestCount != 1 {
+				t.Fatalf("unexpected rejection: summary=%+v requests=%d output=%s", summary, requestCount, output)
+			}
+		})
+	}
+}
+
+func TestProbeLegacyProfileFailureDoesNotRequestComments(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			fmt.Fprint(w, `{"code":0,"data":{"channels":{"available":false},"version":"legacy-fixture"}}`)
+		case "/api/channels/feed/profile":
+			fmt.Fprint(w, `{"code":0,"data":{"errCode":7,"data":{}}}`)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	runID := "test-legacy-profile-failure"
+	runRoot := writeProbeManifest(t, runID, server.URL)
+	output, err := runProbeScript(t, "probe-ltaoo-comments.ps1", "-RunId", runID, "-ShareUrl", "https://weixin.qq.com/sph/test", "-RepoRoot", probeRepoRoot(t), "-ApiBase", server.URL)
+	if err == nil {
+		t.Fatalf("profile failure accepted: %s", output)
+	}
+	var summary struct {
+		StatusSchema        string `json:"status_schema"`
+		ReadinessProof      string `json:"readiness_proof"`
+		ReasonCode          string `json:"reason_code"`
+		CommentRequestCount int    `json:"comment_request_count"`
+	}
+	readJSONFile(t, filepath.Join(runRoot, "probe-summary.json"), &summary)
+	if summary.StatusSchema != "legacy" || summary.ReadinessProof != "profile" || summary.ReasonCode != "profile_business_error" || summary.CommentRequestCount != 0 || requestCount != 2 {
+		t.Fatalf("unexpected profile failure: summary=%+v requests=%d output=%s", summary, requestCount, output)
 	}
 }
 
