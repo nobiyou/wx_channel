@@ -345,3 +345,20 @@ func TestCleanupScriptSecuritySurface(t *testing.T) {
 		}
 	}
 }
+
+func TestLtaooProbeRunbookHasSafetySequence(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(probeRepoRoot(t), "docs", "LTAOO_TWO_PAGE_PROBE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, required := range []string{
+		"prepare-ltaoo-probe.ps1", "probe-ltaoo-comments.ps1", "cleanup-ltaoo-probe.ps1",
+		"INSTALL", "CurrentUser\\Root", "verified_two_pages", "inconclusive_no_second_page",
+		"cleanup_success", "Clash", "system: false", "tun: false",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("runbook missing %q", required)
+		}
+	}
+}
