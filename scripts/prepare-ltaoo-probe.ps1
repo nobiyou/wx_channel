@@ -245,7 +245,7 @@ proxy:
   skipInstallRootCert: true
 cert:
   file: "$certYaml"
-  keyFile: "$keyYaml"
+  key: "$keyYaml"
   name: "WXChannelsPOC-$runId"
 "@
     [IO.File]::WriteAllText($configPath, $yaml, [Text.UTF8Encoding]::new($false))

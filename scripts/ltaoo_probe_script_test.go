@@ -236,14 +236,14 @@ func TestPrepareScriptHasConstrainedConfiguration(t *testing.T) {
 		"CurrentUser\\Root", "skipInstallRootCert: true", "system: false", "tun: false",
 		"127.0.0.1", "Get-NetRoute", "Get-NetTCPConnection", "CertificateRequest",
 		"Pkcs8PrivateBlob", "certutil.exe", "-user", "-addstore", "Root", "Cert:\\LocalMachine\\Root",
-		"wx_channel", ".tmp_runtime\\ltaoo-probe", "cleanup_not_implemented", "rollback_failed",
+		"wx_channel", ".tmp_runtime\\ltaoo-probe", "cleanup_not_implemented", "rollback_failed", "  key: \"$keyYaml\"",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("missing safety element %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"Cert:\\LocalMachine\\Root\\", "system: true", "tun: true", "Set-ItemProperty", "Set-NetRoute", "New-NetRoute", "Remove-Item -Recurse",
+		"Cert:\\LocalMachine\\Root\\", "system: true", "tun: true", "keyFile:", "Set-ItemProperty", "Set-NetRoute", "New-NetRoute", "Remove-Item -Recurse",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("forbidden preparation behavior %q", forbidden)

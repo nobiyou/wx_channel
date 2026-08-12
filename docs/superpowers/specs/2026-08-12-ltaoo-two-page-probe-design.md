@@ -125,7 +125,7 @@ proxy:
 
 cert:
   file: <本次 ca-cert.pem 的绝对路径>
-  keyFile: <本次 ca-key.pem 的绝对路径>
+  key: <本次 ca-key.pem 的绝对路径>
   name: <包含 run_id 的唯一名称>
 ```
 

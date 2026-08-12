@@ -610,7 +610,7 @@ proxy:
   skipInstallRootCert: true
 cert:
   file: "D:/resolved/run/secrets/ca-cert.pem"
-  keyFile: "D:/resolved/run/secrets/ca-key.pem"
+  key: "D:/resolved/run/secrets/ca-key.pem"
   name: "WXChannelsPOC-run-id"
 ```
 
