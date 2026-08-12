@@ -1,0 +1,42 @@
+{
+  "data": {
+    "commentInfo": [
+      {
+        "commentId": "fixture-top-1",
+        "content": "fixture-top-text",
+        "contentType": 1,
+        "expandCommentCount": 2,
+        "username": "fixture-account-top",
+        "nickname": "fixture-name-top",
+        "headUrl": "https://fixture.invalid/avatar/top.png?temporary=fixture",
+        "createtime": "1715760000",
+        "ipRegionInfo": {"regionText": "fixture-region-nested"},
+        "levelTwoComment": [
+          {
+            "commentId": "fixture-reply-1",
+            "replyCommentId": "fixture-top-1",
+            "rootCommentId": "fixture-top-1",
+            "content": "fixture-embedded-reply",
+            "contentType": 1,
+            "username": "fixture-account-reply-1",
+            "nickname": "fixture-name-reply-1",
+            "createtime": "1715760001",
+            "ipRegion": "fixture-region-fallback"
+          }
+        ]
+      },
+      {
+        "content": "fixture-media-comment",
+        "contentType": 2,
+        "expandCommentCount": 1,
+        "username": "fixture-account-no-id",
+        "nickname": "fixture-name-no-id",
+        "headUrl": "https://fixture.invalid/avatar/no-id.png?temporary=fixture",
+        "createtime": "fixture-invalid-time",
+        "ipRegion": "fixture-region-media"
+      }
+    ],
+    "countInfo": {"commentCount": 2},
+    "lastBuffer": "fixture-top-page-2"
+  }
+}

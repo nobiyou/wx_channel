@@ -16,6 +16,18 @@ logs/
 .codegraph/
 .codex-cache/
 .tmp_runtime/
+
+# Restricted WeChat comment POC build, secrets, runtime state, and results
+/.poc-build/
+/.poc-tools/
+/.poc-secrets/
+/.poc-data/
+/.poc-runtime/
+/var/
+*.poc-token
+*.poc-cookie
+*.raw-response.json
+*.raw-evidence.enc
 # ==================== 压缩文件 ====================
 # 所有压缩文件
 *.zip
@@ -32,6 +44,8 @@ logs/
 !wx_channel_radar.exe
 *.exe~
 *.dll
+!pkg/sunnynet/Resource/nfapi/dll/win32/nfapi.dll
+!pkg/sunnynet/Resource/nfapi/dll/x64/nfapi.dll
 *.so
 *.dylib
 
@@ -156,6 +170,11 @@ scripts/*
 !scripts/probe-ltaoo-comments.ps1
 !scripts/cleanup-ltaoo-probe.ps1
 !scripts/ltaoo_probe_script_test.go
+!scripts/build-poc.ps1
+!scripts/poc-security-audit.ps1
+!scripts/poc-cleanup.ps1
+!scripts/poc_scripts_test.go
+!scripts/run-certificate-smoke.cmd
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
 
