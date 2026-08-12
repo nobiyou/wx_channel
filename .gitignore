@@ -152,6 +152,10 @@ scripts/*
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1
 !scripts/insight_data_plane_script_test.go
+!scripts/prepare-ltaoo-probe.ps1
+!scripts/probe-ltaoo-comments.ps1
+!scripts/cleanup-ltaoo-probe.ps1
+!scripts/ltaoo_probe_script_test.go
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
 
