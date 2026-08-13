@@ -234,23 +234,73 @@ function Assert-CommentRequestBudget {
     }
 }
 
-function Get-RelationEvidence {
-    param([object]$Reply, [string]$RootId)
-    $match = 0
-    $gap = 0
-    $mismatch = 0
-    foreach ($name in @("replyCommentId", "rootCommentId")) {
-        $property = $Reply.PSObject.Properties[$name]
-        $value = if ($null -eq $property) { "" } else { [string]$property.Value }
-        if ([string]::IsNullOrEmpty($value) -or $value -eq "0") {
-            $gap++
-        } elseif ($value -ceq $RootId) {
-            $match++
-        } else {
-            $mismatch++
+function Get-RelationValue {
+    param([object]$Reply, [string]$Name)
+    $property = $Reply.PSObject.Properties[$Name]
+    if ($null -eq $property) { return "" }
+    return [string]$property.Value
+}
+
+function Get-ImmediateRelationSafety {
+    param([object[]]$Replies, [string]$RootId)
+    $rootMismatch = 0
+    $parentSelf = 0
+    foreach ($reply in $Replies) {
+        $replyId = Get-RelationValue $reply "commentId"
+        $sourceRootId = Get-RelationValue $reply "rootCommentId"
+        $parentId = Get-RelationValue $reply "replyCommentId"
+        if (-not [string]::IsNullOrEmpty($sourceRootId) -and $sourceRootId -ne "0" -and $sourceRootId -cne $RootId) {
+            $rootMismatch++
+        }
+        if (-not [string]::IsNullOrEmpty($replyId) -and $parentId -ceq $replyId) {
+            $parentSelf++
         }
     }
-    return [pscustomobject]@{ match = $match; gap = $gap; mismatch = $mismatch }
+    return [pscustomobject]@{ root_mismatch = $rootMismatch; parent_self = $parentSelf }
+}
+
+function Get-ReplyRelationEvidence {
+    param(
+        [object[]]$Replies,
+        [string]$RootId,
+        [Collections.Generic.HashSet[string]]$KnownReplyIds
+    )
+    $evidence = [ordered]@{
+        root_match = 0
+        root_gap = 0
+        root_mismatch = 0
+        parent_root = 0
+        parent_known = 0
+        parent_unresolved = 0
+        parent_gap = 0
+        parent_self = 0
+    }
+    foreach ($reply in $Replies) {
+        $replyId = Get-RelationValue $reply "commentId"
+        $sourceRootId = Get-RelationValue $reply "rootCommentId"
+        $parentId = Get-RelationValue $reply "replyCommentId"
+
+        if ([string]::IsNullOrEmpty($sourceRootId) -or $sourceRootId -eq "0") {
+            $evidence.root_gap++
+        } elseif ($sourceRootId -ceq $RootId) {
+            $evidence.root_match++
+        } else {
+            $evidence.root_mismatch++
+        }
+
+        if ([string]::IsNullOrEmpty($parentId) -or $parentId -eq "0") {
+            $evidence.parent_gap++
+        } elseif (-not [string]::IsNullOrEmpty($replyId) -and $parentId -ceq $replyId) {
+            $evidence.parent_self++
+        } elseif ($parentId -ceq $RootId) {
+            $evidence.parent_root++
+        } elseif ($KnownReplyIds.Contains($parentId)) {
+            $evidence.parent_known++
+        } else {
+            $evidence.parent_unresolved++
+        }
+    }
+    return [pscustomobject]$evidence
 }
 
 function New-EmbeddedSummary {
@@ -288,9 +338,6 @@ function New-ReplyPageSummary {
     $crossDuplicates = 0
     $embeddedDuplicates = 0
     $missingIds = 0
-    $relationMatches = 0
-    $relationGaps = 0
-    $relationMismatches = 0
 
     foreach ($reply in $replies) {
         $replyId = if (Test-ObjectProperty $reply "commentId") { [string]$reply.commentId } else { "" }
@@ -302,15 +349,10 @@ function New-ReplyPageSummary {
             if ($EmbeddedIds.Contains($replyId)) { $embeddedDuplicates++ }
             $hashes.Add((Get-SaltedTextHash $Salt $replyId))
         }
-        $relation = Get-RelationEvidence $reply $RootId
-        $relationMatches += $relation.match
-        $relationGaps += $relation.gap
-        $relationMismatches += $relation.mismatch
     }
     foreach ($replyId in $pageIds) { [void]$PriorReplyPageIds.Add($replyId) }
 
-    return [pscustomobject]@{
-        summary = [ordered]@{
+    $summary = [ordered]@{
             page_number = $PageNumber
             http_status = $Response.status_code
             business_code = [int]$Response.body.data.errCode
@@ -320,15 +362,68 @@ function New-ReplyPageSummary {
             page_duplicate_count = $pageDuplicates
             cross_reply_page_duplicate_count = $crossDuplicates
             embedded_duplicate_count = $embeddedDuplicates
-            relation_match_count = $relationMatches
-            relation_gap_count = $relationGaps
-            relation_mismatch_count = $relationMismatches
+            root_relation_match_count = 0
+            root_relation_gap_count = 0
+            root_relation_mismatch_count = 0
+            parent_to_root_count = 0
+            parent_to_known_reply_count = 0
+            parent_unresolved_count = 0
+            parent_gap_count = 0
+            parent_self_reference_count = 0
+            relation_match_count = 0
+            relation_gap_count = 0
+            relation_mismatch_count = 0
             last_buffer_present = -not [string]::IsNullOrEmpty($marker)
             last_buffer_length = $marker.Length
             last_buffer_hash = if ([string]::IsNullOrEmpty($marker)) { "" } else { Get-SaltedTextHash $Salt $marker }
-        }
+    }
+    return [pscustomobject]@{
+        summary = $summary
+        replies = $replies
+        ids = $pageIds
         marker = $marker
-        has_relation_mismatch = $relationMismatches -gt 0
+    }
+}
+
+function Set-ReplyRelationEvidence {
+    param(
+        [object]$Observation,
+        [string]$RootId,
+        [Collections.Generic.HashSet[string]]$KnownReplyIds
+    )
+    $evidence = Get-ReplyRelationEvidence $Observation.replies $RootId $KnownReplyIds
+    $summary = $Observation.summary
+    $summary.root_relation_match_count = $evidence.root_match
+    $summary.root_relation_gap_count = $evidence.root_gap
+    $summary.root_relation_mismatch_count = $evidence.root_mismatch
+    $summary.parent_to_root_count = $evidence.parent_root
+    $summary.parent_to_known_reply_count = $evidence.parent_known
+    $summary.parent_unresolved_count = $evidence.parent_unresolved
+    $summary.parent_gap_count = $evidence.parent_gap
+    $summary.parent_self_reference_count = $evidence.parent_self
+    $summary.relation_match_count = $evidence.root_match + $evidence.parent_root + $evidence.parent_known
+    $summary.relation_gap_count = $evidence.root_gap + $evidence.parent_gap + $evidence.parent_unresolved
+    $summary.relation_mismatch_count = $evidence.root_mismatch + $evidence.parent_self
+}
+
+function New-ReplyTotals {
+    return [pscustomobject][ordered]@{
+        reply_count = 0
+        missing_id_count = 0
+        page_duplicate_count = 0
+        cross_reply_page_duplicate_count = 0
+        embedded_duplicate_count = 0
+        root_relation_match_count = 0
+        root_relation_gap_count = 0
+        root_relation_mismatch_count = 0
+        parent_to_root_count = 0
+        parent_to_known_reply_count = 0
+        parent_unresolved_count = 0
+        parent_gap_count = 0
+        parent_self_reference_count = 0
+        relation_match_count = 0
+        relation_gap_count = 0
+        relation_mismatch_count = 0
     }
 }
 
@@ -339,9 +434,33 @@ function Add-ReplyPageTotals {
     $Totals.page_duplicate_count += [int]$Page.page_duplicate_count
     $Totals.cross_reply_page_duplicate_count += [int]$Page.cross_reply_page_duplicate_count
     $Totals.embedded_duplicate_count += [int]$Page.embedded_duplicate_count
+    $Totals.root_relation_match_count += [int]$Page.root_relation_match_count
+    $Totals.root_relation_gap_count += [int]$Page.root_relation_gap_count
+    $Totals.root_relation_mismatch_count += [int]$Page.root_relation_mismatch_count
+    $Totals.parent_to_root_count += [int]$Page.parent_to_root_count
+    $Totals.parent_to_known_reply_count += [int]$Page.parent_to_known_reply_count
+    $Totals.parent_unresolved_count += [int]$Page.parent_unresolved_count
+    $Totals.parent_gap_count += [int]$Page.parent_gap_count
+    $Totals.parent_self_reference_count += [int]$Page.parent_self_reference_count
     $Totals.relation_match_count += [int]$Page.relation_match_count
     $Totals.relation_gap_count += [int]$Page.relation_gap_count
     $Totals.relation_mismatch_count += [int]$Page.relation_mismatch_count
+}
+
+function Get-ReplyEvidenceState {
+    param(
+        [Collections.Generic.List[object]]$Observations,
+        [string]$RootId,
+        [Collections.Generic.HashSet[string]]$KnownReplyIds
+    )
+    $pages = [Collections.Generic.List[object]]::new()
+    $totals = New-ReplyTotals
+    foreach ($observation in $Observations) {
+        Set-ReplyRelationEvidence $observation $RootId $KnownReplyIds
+        [void]$pages.Add($observation.summary)
+        Add-ReplyPageTotals $totals $observation.summary
+    }
+    return [pscustomobject]@{ pages = $pages; totals = $totals }
 }
 
 $repoRootValue = $null
@@ -365,16 +484,9 @@ $topPage = $null
 $replyPageOne = $null
 $replyPageTwo = $null
 $replyPages = [Collections.Generic.List[object]]::new()
-$totals = [pscustomobject][ordered]@{
-    reply_count = 0
-    missing_id_count = 0
-    page_duplicate_count = 0
-    cross_reply_page_duplicate_count = 0
-    embedded_duplicate_count = 0
-    relation_match_count = 0
-    relation_gap_count = 0
-    relation_mismatch_count = 0
-}
+$replyObservations = [Collections.Generic.List[object]]::new()
+$knownReplyIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$totals = New-ReplyTotals
 
 try {
     $currentStage = "manifest"
@@ -445,6 +557,7 @@ try {
             embedded_reply_id_hashes = @($embedded.hashes)
         }
         $priorReplyPageIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($embeddedId in $embedded.ids) { [void]$knownReplyIds.Add($embeddedId) }
         $replyBaseUrl = $topPageUrl + "&comment_id=" + [Uri]::EscapeDataString($root.comment_id)
 
         $currentStage = "reply_page_one"
@@ -454,9 +567,14 @@ try {
         $replyPageOne = Invoke-LocalJsonGet $client $replyBaseUrl "reply_page_one"
         Assert-BusinessSuccess $replyPageOne "reply_page_one"
         $replyPageOneResult = New-ReplyPageSummary $replyPageOne "reply_page_one" 1 $root.comment_id $salt $embedded.ids $priorReplyPageIds
-        $replyPages.Add($replyPageOneResult.summary)
-        Add-ReplyPageTotals $totals $replyPageOneResult.summary
-        if ($replyPageOneResult.has_relation_mismatch) { throw "reply_relation_mismatch" }
+        [void]$replyObservations.Add($replyPageOneResult)
+        foreach ($replyId in $replyPageOneResult.ids) { [void]$knownReplyIds.Add($replyId) }
+        $evidenceState = Get-ReplyEvidenceState $replyObservations $root.comment_id $knownReplyIds
+        $replyPages = $evidenceState.pages
+        $totals = $evidenceState.totals
+        $relationSafety = Get-ImmediateRelationSafety $replyPageOneResult.replies $root.comment_id
+        if ($relationSafety.root_mismatch -gt 0) { throw "reply_root_relation_mismatch" }
+        if ($relationSafety.parent_self -gt 0) { throw "reply_parent_self_reference" }
 
         $replyMarker = [string]$replyPageOneResult.marker
         $finalStatus = "inconclusive_no_second_reply_page"
@@ -472,9 +590,14 @@ try {
             $replyPageTwo = Invoke-LocalJsonGet $client $replyPageTwoUrl "reply_page_two"
             Assert-BusinessSuccess $replyPageTwo "reply_page_two"
             $replyPageTwoResult = New-ReplyPageSummary $replyPageTwo "reply_page_two" 2 $root.comment_id $salt $embedded.ids $priorReplyPageIds
-            $replyPages.Add($replyPageTwoResult.summary)
-            Add-ReplyPageTotals $totals $replyPageTwoResult.summary
-            if ($replyPageTwoResult.has_relation_mismatch) { throw "reply_relation_mismatch" }
+            [void]$replyObservations.Add($replyPageTwoResult)
+            foreach ($replyId in $replyPageTwoResult.ids) { [void]$knownReplyIds.Add($replyId) }
+            $evidenceState = Get-ReplyEvidenceState $replyObservations $root.comment_id $knownReplyIds
+            $replyPages = $evidenceState.pages
+            $totals = $evidenceState.totals
+            $relationSafety = Get-ImmediateRelationSafety $replyPageTwoResult.replies $root.comment_id
+            if ($relationSafety.root_mismatch -gt 0) { throw "reply_root_relation_mismatch" }
+            if ($relationSafety.parent_self -gt 0) { throw "reply_parent_self_reference" }
             $cursorContinuity = $secondReplyRequestCursorHash -eq [string]$replyPageOneResult.summary.last_buffer_hash
             if (-not $cursorContinuity) { throw "reply_cursor_continuity_failed" }
             $finalStatus = "verified_reply_two_pages"
@@ -516,7 +639,8 @@ try {
         "profile_request_failed", "profile_business_error", "top_page_http_error", "top_page_schema_error", "top_page_request_failed",
         "top_page_business_error", "reply_page_one_http_error", "reply_page_one_schema_error", "reply_page_one_request_failed",
         "reply_page_one_business_error", "reply_page_two_http_error", "reply_page_two_schema_error", "reply_page_two_request_failed",
-        "reply_page_two_business_error", "reply_relation_mismatch", "reply_cursor_continuity_failed", "comment_request_limit_exceeded"
+        "reply_page_two_business_error", "reply_root_relation_mismatch", "reply_parent_self_reference",
+        "reply_cursor_continuity_failed", "comment_request_limit_exceeded"
     )
     if ($_.Exception.Message -in $allowed) { $reasonCode = $_.Exception.Message } else { $reasonCode = "unexpected_" + $currentStage }
     if ($null -ne $summaryPath -and $null -ne $runRoot -and [IO.Directory]::Exists($runRoot)) {
