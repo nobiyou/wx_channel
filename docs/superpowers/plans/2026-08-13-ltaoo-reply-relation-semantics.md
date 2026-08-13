@@ -321,7 +321,7 @@ git commit -m "docs: explain ltaoo reply relation evidence"
 **Files:**
 - Verify: `scripts/probe-ltaoo-replies.ps1`
 - Verify: `scripts/ltaoo_probe_script_test.go`
-- Verify: documentation changed in Task 4
+- Verify: documentation changed in Task 3
 
 - [ ] **Step 1: Parse the script with Windows PowerShell 5.1**
 
@@ -375,4 +375,4 @@ If no correction is required, do not create an empty commit.
 
 ## Live-run gate after this plan
 
-Do not perform a live run as part of implementation. After Task 5 passes, present the automated evidence and request separate approval for one new `run_id`. The live probe must still use the audited ltaoo commit, a temporary CurrentUser CA, exact Clash backup/restore, a `/sph/` clipboard link, no more than three comment requests, and independent residue verification.
+Do not perform a live run as part of implementation. After Task 4 passes, present the automated evidence and request separate approval for one new `run_id`. The live probe must still use the audited ltaoo commit, a temporary CurrentUser CA, exact Clash backup/restore, a `/sph/` clipboard link, no more than three comment requests, and independent residue verification.
