@@ -1,6 +1,6 @@
 # ltaoo Reply Relation Semantics Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace the incorrect “both relationship fields must equal the selected root” rule with separate root and direct-parent semantics while preserving redaction, request ceilings, cursor continuity, and compatibility totals.
 
@@ -24,7 +24,7 @@
 - Modify: `scripts/ltaoo_probe_script_test.go:205-235`
 - Modify: `scripts/ltaoo_probe_script_test.go:240-345`
 
-- [ ] **Step 1: Extend the test summary types**
+- [x] **Step 1: Extend the test summary types**
 
 Add these fields to both the reply-page and totals structs in `replyProbeSummary`:
 
@@ -39,7 +39,7 @@ ParentGapCount              int `json:"parent_gap_count"`
 ParentSelfReferenceCount    int `json:"parent_self_reference_count"`
 ```
 
-- [ ] **Step 2: Add a cross-page parent fixture to the happy-path test**
+- [x] **Step 2: Add a cross-page parent fixture to the happy-path test**
 
 Change the two reply responses so page one contains a forward parent reference and an unresolved parent, while page two contains the referenced parent and a backward reference:
 
@@ -77,7 +77,7 @@ if got := summary.Totals; got.RootRelationMatchCount != 6 ||
 
 Add `"page-two-parent"`, `"outside-bounded-window"`, and all other new raw fixture values to the existing leak scan.
 
-- [ ] **Step 3: Replace the old mismatch test with explicit root-conflict and parent-self contracts**
+- [x] **Step 3: Replace the old mismatch test with explicit root-conflict and parent-self contracts**
 
 Rename the old test to `TestReplyProbeStopsOnExplicitRootRelationMismatch`. Its reply must use a valid parent and a conflicting explicit root:
 
@@ -97,11 +97,11 @@ Add `TestReplyProbeStopsOnParentSelfReference` with:
 
 Assert `reason_code=reply_parent_self_reference`, `ParentSelfReferenceCount=1`, `RelationMismatchCount=1`, and no page-two request despite a non-empty marker.
 
-- [ ] **Step 4: Add an unresolved-parent continuation contract**
+- [x] **Step 4: Add an unresolved-parent continuation contract**
 
 Create `TestReplyProbeAllowsUnresolvedParentAndFetchesSecondPage`. Page one contains an explicit parent ID absent from both bounded pages and a non-empty marker; page two succeeds. Assert `verified_reply_two_pages`, three comment requests, `ParentUnresolvedCount=1`, and `RelationMismatchCount=0`.
 
-- [ ] **Step 5: Run all new relation tests and verify RED**
+- [x] **Step 5: Run all new relation tests and verify RED**
 
 Run:
 
@@ -111,7 +111,7 @@ go test ./scripts -run 'TestReplyProbe(SelectsFirstEligibleRootAndFetchesExactly
 
 Expected: FAIL because the current probe rejects valid non-root parents, lacks the two new failure codes, or emits zero granular counters.
 
-- [ ] **Step 6: Commit the failing contracts**
+- [x] **Step 6: Commit the failing contracts**
 
 ```powershell
 git add scripts/ltaoo_probe_script_test.go
@@ -124,7 +124,7 @@ git commit -m "test: specify ltaoo parent relation semantics"
 - Modify: `scripts/probe-ltaoo-replies.ps1:235-345`
 - Modify: `scripts/probe-ltaoo-replies.ps1:365-485`
 
-- [ ] **Step 1: Replace `Get-RelationEvidence` with field and safety helpers**
+- [x] **Step 1: Replace `Get-RelationEvidence` with field and safety helpers**
 
 ```powershell
 function Get-RelationValue {
@@ -153,7 +153,7 @@ function Get-ImmediateRelationSafety {
 }
 ```
 
-- [ ] **Step 2: Add the deferred granular classifier**
+- [x] **Step 2: Add the deferred granular classifier**
 
 ```powershell
 function Get-ReplyRelationEvidence {
@@ -186,7 +186,7 @@ function Get-ReplyRelationEvidence {
 }
 ```
 
-- [ ] **Step 3: Preserve raw replies only in an in-memory page observation**
+- [x] **Step 3: Preserve raw replies only in an in-memory page observation**
 
 Change `New-ReplyPageSummary` to return `replies = $replies` and remove the old relation loop. Initialize the new and compatibility fields in `summary` to zero:
 
@@ -217,7 +217,7 @@ return [pscustomobject]@{
 
 Initialize `$replyObservations = [Collections.Generic.List[object]]::new()` before the main `try`, and add each observation immediately after its response is parsed. This keeps the current page available to the catch block even when an immediate safety check fails.
 
-- [ ] **Step 4: Add a finalizer that overwrites page counters and recomputes totals**
+- [x] **Step 4: Add a finalizer that overwrites page counters and recomputes totals**
 
 ```powershell
 function Set-ReplyRelationEvidence {
@@ -240,7 +240,7 @@ function Set-ReplyRelationEvidence {
 
 Extend `Add-ReplyPageTotals` and the `$totals` initializer with every granular field. Before recomputing totals, reset all totals to zero and add every page exactly once; do not double-add duplicate counters.
 
-- [ ] **Step 5: Apply safety checks before page two and classify against the final bounded union**
+- [x] **Step 5: Apply safety checks before page two and classify against the final bounded union**
 
 After parsing each reply page, add its IDs to a `KnownReplyIds` set that starts with embedded IDs. Run:
 
@@ -260,7 +260,7 @@ Replace `reply_relation_mismatch` in the allowed reason list with:
 
 Leave `comment_request_limit_exceeded` and every existing HTTP, schema, business, cursor, and loopback failure code unchanged.
 
-- [ ] **Step 6: Run all relation tests and verify GREEN**
+- [x] **Step 6: Run all relation tests and verify GREEN**
 
 ```powershell
 go test ./scripts -run 'TestReplyProbe(SelectsFirstEligibleRootAndFetchesExactlyTwoReplyPages|StopsOnExplicitRootRelationMismatch|StopsOnParentSelfReference|AllowsUnresolvedParentAndFetchesSecondPage)' -v -count=1
@@ -268,7 +268,7 @@ go test ./scripts -run 'TestReplyProbe(SelectsFirstEligibleRootAndFetchesExactly
 
 Expected: PASS with the accepted parent cases reaching page two, both hard failures stopping before page two, and exact granular totals.
 
-- [ ] **Step 7: Commit the implementation**
+- [x] **Step 7: Commit the implementation**
 
 ```powershell
 git add scripts/probe-ltaoo-replies.ps1
@@ -282,7 +282,7 @@ git commit -m "feat: classify ltaoo reply parent relations"
 - Modify: `docs/superpowers/specs/2026-08-13-ltaoo-reply-two-page-probe-design.md`
 - Modify: `docs/superpowers/plans/2026-08-13-ltaoo-reply-two-page-probe.md`
 
-- [ ] **Step 1: Replace the old equality rule in the runbook**
+- [x] **Step 1: Replace the old equality rule in the runbook**
 
 Document the eight granular counters, the compatibility formulas, and these stop rules:
 
@@ -292,7 +292,7 @@ replyCommentId 等于自身 commentId -> reply_parent_self_reference
 replyCommentId 指向未获取对象 -> parent_unresolved_count，仅记录，不额外请求
 ```
 
-- [ ] **Step 2: Mark old design and plan text as superseded**
+- [x] **Step 2: Mark old design and plan text as superseded**
 
 Add a short note next to the old two-field relation rule in both historical documents:
 
@@ -302,7 +302,7 @@ Add a short note next to the old two-field relation rule in both historical docu
 
 Do not rewrite the historical commit sequence.
 
-- [ ] **Step 3: Run the runbook contract test**
+- [x] **Step 3: Run the runbook contract test**
 
 ```powershell
 go test ./scripts -run TestLtaooReplyProbeRunbookHasSafetySequence -v -count=1
@@ -310,7 +310,7 @@ go test ./scripts -run TestLtaooReplyProbeRunbookHasSafetySequence -v -count=1
 
 Expected: PASS after updating any required-token list in the test to include both new failure codes and `parent_unresolved_count`.
 
-- [ ] **Step 4: Commit documentation**
+- [x] **Step 4: Commit documentation**
 
 ```powershell
 git add docs/LTAOO_REPLY_TWO_PAGE_PROBE.md docs/superpowers/specs/2026-08-13-ltaoo-reply-two-page-probe-design.md docs/superpowers/plans/2026-08-13-ltaoo-reply-two-page-probe.md scripts/ltaoo_probe_script_test.go
@@ -324,7 +324,7 @@ git commit -m "docs: explain ltaoo reply relation evidence"
 - Verify: `scripts/ltaoo_probe_script_test.go`
 - Verify: documentation changed in Task 3
 
-- [ ] **Step 1: Parse the script with Windows PowerShell 5.1**
+- [x] **Step 1: Parse the script with Windows PowerShell 5.1**
 
 ```powershell
 $errors = $null
@@ -338,7 +338,7 @@ if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
 
 Expected: exit 0 and no parser errors.
 
-- [ ] **Step 2: Run all script tests**
+- [x] **Step 2: Run all script tests**
 
 ```powershell
 go test ./scripts -v -count=1
@@ -346,15 +346,15 @@ go test ./scripts -v -count=1
 
 Expected: PASS, including the new relationship tests and all existing request-limit, redaction, cursor, cleanup, and preparation tests.
 
-- [ ] **Step 3: Check for leaks and obsolete failure logic**
+- [x] **Step 3: Check for leaks and obsolete failure logic**
 
 ```powershell
 rg -n 'reply_relation_mismatch|wrong-root-secret|outside-bounded-window|self-reply-secret' scripts docs
 ```
 
-Expected: fixture secrets occur only in Go tests; the obsolete reason code occurs only in an explicit superseded-history note, if retained at all.
+Expected: fixture secrets occur only in Go tests and this implementation plan. The obsolete reason code occurs only in the explicitly superseded historical design/plan and this plan's replacement instruction; it must not occur in the runtime script, current tests, or operator runbook.
 
-- [ ] **Step 4: Check repository integrity**
+- [x] **Step 4: Check repository integrity**
 
 ```powershell
 git diff --check
@@ -363,7 +363,7 @@ git status --short --branch
 
 Expected: no whitespace errors and no uncommitted implementation changes after the final commit.
 
-- [ ] **Step 5: Commit any verification-only corrections**
+- [x] **Step 5: Commit any verification-only corrections**
 
 If Steps 1-4 require a correction, make the smallest change, rerun the exact failing command and the full suite, then commit:
 
