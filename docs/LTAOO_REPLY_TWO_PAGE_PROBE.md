@@ -103,7 +103,15 @@ try {
 | `inconclusive_no_second_reply_page` | 评论接口 2，回复 1 | 回复第一页可用，但没有第二页游标 | 清理后换回复更多的公开样本和新 `run_id` |
 | `failed` | 以摘要计数为准，最多 3 | 状态、profile、结构、请求、游标、安全边界或显式关系失败 | 按 `reason_code` 诊断，不运行完整采集器 |
 
-独立回复页中的 `replyCommentId` 和 `rootCommentId` 若存在且不是 `"0"`，必须显式等于选定根评论 ID。缺失、空值或 `"0"` 只记能力缺口；明确不同则以 `reply_relation_mismatch` 立即失败，不再发送下一次评论请求。
+关系字段按不同语义处理：`rootCommentId` 是来源根，若存在、非空且不是 `"0"`，必须等于选定根评论 ID；显式冲突以 `reply_root_relation_mismatch` 立即失败。`replyCommentId` 是直接父项，可以指向选定根评论或任一已观察回复；指向受限窗口外对象时只增加 `parent_unresolved_count`，不会为了寻找父项增加请求。只有父项等于自身 `commentId` 时，才以 `reply_parent_self_reference` 立即失败。
+
+每页和总计分别记录：`root_relation_match_count`、`root_relation_gap_count`、`root_relation_mismatch_count`、`parent_to_root_count`、`parent_to_known_reply_count`、`parent_unresolved_count`、`parent_gap_count`、`parent_self_reference_count`。兼容计数按以下方式汇总：
+
+- `relation_match_count = root match + parent to root + parent to known reply`；
+- `relation_gap_count = root gap + parent gap + parent unresolved`；
+- `relation_mismatch_count = root mismatch + parent self reference`。
+
+所有原始父 ID、根 ID 和回复 ID 只存在于进程内存；摘要只保留计数与既有带盐哈希。
 
 ## 6. 无论结果如何都清理
 

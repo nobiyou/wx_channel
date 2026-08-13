@@ -392,6 +392,8 @@ git commit -m "feat: probe two reply pages through ltaoo"
 
 ## Task 4: Implement duplicate and explicit relation evidence
 
+> 本任务的原始关系分类已由 `docs/superpowers/specs/2026-08-13-ltaoo-reply-relation-semantics-design.md` 修订；实现与验收以修订规格及其实施计划为准。以下内容保留为历史执行记录。
+
 **Files:**
 
 - Modify: `scripts/probe-ltaoo-replies.ps1`

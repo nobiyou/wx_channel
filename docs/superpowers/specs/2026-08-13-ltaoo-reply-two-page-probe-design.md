@@ -71,6 +71,8 @@
 
 ## 7. 去重与关系观察
 
+> 本节原始的“两字段均等于根评论”规则已由 `docs/superpowers/specs/2026-08-13-ltaoo-reply-relation-semantics-design.md` 修订；实现与验收以修订规格为准。
+
 探针在内存中维护以下集合：
 
 - 选定根评论的内嵌回复 ID；

@@ -1172,7 +1172,8 @@ func TestLtaooReplyProbeRunbookHasSafetySequence(t *testing.T) {
 		"prepare-ltaoo-probe.ps1", "probe-ltaoo-replies.ps1", "cleanup-ltaoo-probe.ps1",
 		"INSTALL", "CurrentUser\\Root", "reply-probe-summary.json",
 		"verified_reply_two_pages", "inconclusive_no_eligible_root",
-		"inconclusive_no_second_reply_page", "reply_relation_mismatch",
+		"inconclusive_no_second_reply_page", "reply_root_relation_mismatch",
+		"reply_parent_self_reference", "parent_unresolved_count",
 		"comment_request_count", "reply_request_count", "cleanup_success",
 		"Clash", "system: false", "tun: false", "status_schema", "readiness_proof",
 	} {
