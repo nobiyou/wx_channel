@@ -55,20 +55,21 @@ case "":
         embeddedOne, rootID, rootID, bait, rootID, rootID, rootID, marker)
 case marker:
     fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[`+
+        `{"commentId":"page-one-child","replyCommentId":%q,"rootCommentId":%q},`+
         `{"commentId":"page-two-parent","replyCommentId":%q,"rootCommentId":%q},`+
         `{"commentId":"page-two-child","replyCommentId":"page-one-child","rootCommentId":%q}`+
         `],"lastBuffer":"DO_NOT_REQUEST_REPLY_PAGE_THREE"}}}`,
-        rootID, rootID, rootID)
+        rootID, rootID, rootID, rootID, rootID)
 ```
 
 Assert the granular totals and compatibility totals:
 
 ```go
-if got := summary.Totals; got.RootRelationMatchCount != 5 ||
+if got := summary.Totals; got.RootRelationMatchCount != 6 ||
     got.RootRelationGapCount != 2 || got.RootRelationMismatchCount != 0 ||
-    got.ParentToRootCount != 3 || got.ParentToKnownReplyCount != 2 ||
+    got.ParentToRootCount != 4 || got.ParentToKnownReplyCount != 2 ||
     got.ParentUnresolvedCount != 1 || got.ParentGapCount != 1 ||
-    got.ParentSelfReferenceCount != 0 || got.RelationMatchCount != 10 ||
+    got.ParentSelfReferenceCount != 0 || got.RelationMatchCount != 12 ||
     got.RelationGapCount != 4 || got.RelationMismatchCount != 0 {
     t.Fatalf("wrong granular relation evidence: %+v", got)
 }
