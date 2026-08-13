@@ -190,6 +190,9 @@ type replyProbeSummary struct {
 	CommentRequestCount          int    `json:"comment_request_count"`
 	SecondReplyRequestCursorHash string `json:"second_reply_request_cursor_hash"`
 	CursorContinuity             bool   `json:"cursor_continuity"`
+	StatusHTTP                   int    `json:"status_http"`
+	ProfileHTTP                  int    `json:"profile_http"`
+	ProfileBusinessCode          int    `json:"profile_business_code"`
 	TopPage                      struct {
 		CommentCount      int  `json:"comment_count"`
 		EligibleRootFound bool `json:"eligible_root_found"`
@@ -530,6 +533,7 @@ func TestReplyProbeProfileFailureDoesNotRequestComments(t *testing.T) {
 	var summary replyProbeSummary
 	readJSONFile(t, filepath.Join(runRoot, "reply-probe-summary.json"), &summary)
 	if summary.StatusSchema != "legacy" || summary.ReadinessProof != "profile" || summary.ReasonCode != "profile_business_error" ||
+		summary.StatusHTTP != http.StatusOK || summary.ProfileHTTP != http.StatusOK || summary.ProfileBusinessCode != 7 ||
 		summary.CommentRequestCount != 0 || summary.TopLevelRequestCount != 0 || summary.ReplyRequestCount != 0 || requestCount != 2 {
 		t.Fatalf("unexpected profile failure: %+v requests=%d", summary, requestCount)
 	}

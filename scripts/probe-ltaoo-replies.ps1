@@ -359,6 +359,11 @@ $cursorContinuity = $false
 $secondReplyRequestCursorHash = ""
 $topPageSummary = $null
 $selectedRootSummary = $null
+$status = $null
+$profile = $null
+$topPage = $null
+$replyPageOne = $null
+$replyPageTwo = $null
 $replyPages = [Collections.Generic.List[object]]::new()
 $totals = [pscustomobject][ordered]@{
     reply_count = 0
@@ -529,6 +534,31 @@ try {
         }
         if (-not [string]::IsNullOrEmpty($statusSchema)) { $failure["status_schema"] = $statusSchema }
         if (-not [string]::IsNullOrEmpty($readinessProof)) { $failure["readiness_proof"] = $readinessProof }
+        if ($null -ne $status) { $failure["status_http"] = $status.status_code }
+        if ($null -ne $profile) {
+            $failure["profile_http"] = $profile.status_code
+            if (Test-ObjectProperty $profile.body "data" -and Test-ObjectProperty $profile.body.data "errCode") {
+                $failure["profile_business_code"] = [int]$profile.body.data.errCode
+            }
+        }
+        if ($null -ne $topPage) {
+            $failure["top_page_http"] = $topPage.status_code
+            if (Test-ObjectProperty $topPage.body "data" -and Test-ObjectProperty $topPage.body.data "errCode") {
+                $failure["top_page_business_code"] = [int]$topPage.body.data.errCode
+            }
+        }
+        if ($null -ne $replyPageOne) {
+            $failure["reply_page_one_http"] = $replyPageOne.status_code
+            if (Test-ObjectProperty $replyPageOne.body "data" -and Test-ObjectProperty $replyPageOne.body.data "errCode") {
+                $failure["reply_page_one_business_code"] = [int]$replyPageOne.body.data.errCode
+            }
+        }
+        if ($null -ne $replyPageTwo) {
+            $failure["reply_page_two_http"] = $replyPageTwo.status_code
+            if (Test-ObjectProperty $replyPageTwo.body "data" -and Test-ObjectProperty $replyPageTwo.body.data "errCode") {
+                $failure["reply_page_two_business_code"] = [int]$replyPageTwo.body.data.errCode
+            }
+        }
         if ($null -ne $topPageSummary) { $failure["top_page"] = $topPageSummary }
         if ($null -ne $selectedRootSummary) { $failure["selected_root"] = $selectedRootSummary }
         if ($replyPages.Count -gt 0) { $failure["reply_pages"] = @($replyPages); $failure["totals"] = $totals }
