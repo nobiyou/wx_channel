@@ -74,7 +74,8 @@ try {
     -ShareUrl $shareUrl
 } finally {
   $shareUrl = $null
-  Set-Clipboard -Value ''
+  Add-Type -AssemblyName System.Windows.Forms
+  [System.Windows.Forms.Clipboard]::Clear()
   & powershell.exe -NoProfile -ExecutionPolicy Bypass `
     -File scripts/cleanup-ltaoo-probe.ps1 `
     -RunId $run.run_id
