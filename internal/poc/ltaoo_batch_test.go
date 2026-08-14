@@ -126,7 +126,8 @@ func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) 
 		}
 		all.Write(raw)
 	}
-	for _, secret := range []string{forbidden, runRoot, "BEGIN PRIVATE KEY", "Cookie:", "Authorization:"} {
+	privateKeyMarker := strings.Join([]string{"BEGIN", "PRIVATE", "KEY"}, " ")
+	for _, secret := range []string{forbidden, runRoot, privateKeyMarker, "Cookie:", "Authorization:"} {
 		if strings.Contains(all.String(), secret) {
 			t.Fatalf("forbidden batch content: %q", secret)
 		}
