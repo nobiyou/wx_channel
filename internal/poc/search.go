@@ -16,6 +16,14 @@ type PageAPI interface {
 	Call(context.Context, string, any) ([]byte, error)
 }
 
+type CollectorStore interface {
+	JobDir() string
+	WriteEvidence(Evidence) (string, error)
+	MaxEvidenceSequence() (int, error)
+	SaveCheckpoint(Checkpoint) error
+	LoadCheckpoint() (Checkpoint, error)
+}
+
 type Clock interface {
 	Now() time.Time
 	Sleep(context.Context, time.Duration) error
@@ -24,7 +32,7 @@ type Clock interface {
 type Collector struct {
 	api             PageAPI
 	evidence        *EvidenceRecorder
-	store           *Store
+	store           CollectorStore
 	clock           Clock
 	lastRequest     time.Time
 	requestStarted  bool
@@ -36,7 +44,7 @@ type Collector struct {
 	currentWorkRank int
 }
 
-func NewCollector(api PageAPI, evidence *EvidenceRecorder, store *Store, clock Clock) *Collector {
+func NewCollector(api PageAPI, evidence *EvidenceRecorder, store CollectorStore, clock Clock) *Collector {
 	return &Collector{api: api, evidence: evidence, store: store, clock: clock, retryPolicy: DefaultRetryPolicy()}
 }
 

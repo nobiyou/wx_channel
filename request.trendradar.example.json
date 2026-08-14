@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "run_id": "example-run-20260814",
+  "keyword": "示例监控主题",
+  "content_urls": [
+    "https://weixin.qq.com/sph/example"
+  ],
+  "limits": {
+    "works": 1,
+    "top_level_comments_per_work": 100,
+    "replies_per_comment": 20,
+    "replies_per_work": 200
+  },
+  "output_root": "C:\\TrendRadarPrivateRuntime\\example-run-20260814\\batch"
+}

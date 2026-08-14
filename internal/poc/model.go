@@ -154,6 +154,7 @@ type Issue struct {
 	Stage      string `json:"stage"`
 	Code       string `json:"code"`
 	InputIndex int    `json:"input_index,omitempty"`
+	WorkID     string `json:"work_id,omitempty"`
 }
 
 type Validation struct {
