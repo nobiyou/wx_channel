@@ -249,14 +249,6 @@ function Test-LtaooProcessIdentity {
 function Get-LtaooClashController {
     param([Parameter(Mandatory = $true)][string]$Text)
     $controllerMatch = [Text.RegularExpressions.Regex]::Match($Text, '(?m)^external-controller:[ \t]*["'']?([^"''#\r\n]+)["'']?[ \t]*(?:#.*)?$')
-    if (-not $controllerMatch.Success) { throw 'clash_controller_missing' }
-    $authority = $controllerMatch.Groups[1].Value.Trim()
-    $uri = $null
-    if (-not [Uri]::TryCreate(('http://' + $authority), [UriKind]::Absolute, [ref]$uri)) { throw 'clash_controller_invalid' }
-    $ip = $null
-    if (-not [Net.IPAddress]::TryParse($uri.Host, [ref]$ip) -or -not [Net.IPAddress]::IsLoopback($ip) -or $uri.Port -lt 1) {
-        throw 'clash_controller_not_loopback'
-    }
     $secret = ''
     $secretMatch = [Text.RegularExpressions.Regex]::Match($Text, '(?m)^secret:[ \t]*(?:"([^"]*)"|''([^'']*)''|([^#\r\n]*))[ \t]*(?:#.*)?$')
     if ($secretMatch.Success) {
@@ -264,7 +256,38 @@ function Get-LtaooClashController {
             if ($secretMatch.Groups[$groupIndex].Success) { $secret = $secretMatch.Groups[$groupIndex].Value.Trim(); break }
         }
     }
-    return [pscustomobject]@{ Uri = $uri.GetLeftPart([UriPartial]::Authority); Secret = $secret }
+    if ($controllerMatch.Success) {
+        $authority = $controllerMatch.Groups[1].Value.Trim()
+        $uri = $null
+        if (-not [Uri]::TryCreate(('http://' + $authority), [UriKind]::Absolute, [ref]$uri)) { throw 'clash_controller_invalid' }
+        $ip = $null
+        if (-not [Net.IPAddress]::TryParse($uri.Host, [ref]$ip) -or -not [Net.IPAddress]::IsLoopback($ip) -or $uri.Port -lt 1) {
+            throw 'clash_controller_not_loopback'
+        }
+        return [pscustomobject]@{
+            Kind = 'http'
+            Uri = $uri.GetLeftPart([UriPartial]::Authority)
+            PipeName = ''
+            Secret = $secret
+        }
+    }
+
+    $pipeMatch = [Text.RegularExpressions.Regex]::Match($Text, '(?m)^external-controller-pipe:[ \t]*(?:"([^"]+)"|''([^'']+)''|([^#\r\n]+))[ \t]*(?:#.*)?$')
+    if (-not $pipeMatch.Success) { throw 'clash_controller_missing' }
+    $pipePath = ''
+    foreach ($groupIndex in @(1, 2, 3)) {
+        if ($pipeMatch.Groups[$groupIndex].Success) { $pipePath = $pipeMatch.Groups[$groupIndex].Value.Trim(); break }
+    }
+    $pipePrefix = '\\.\pipe\'
+    if (-not $pipePath.StartsWith($pipePrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'clash_controller_pipe_invalid' }
+    $pipeName = $pipePath.Substring($pipePrefix.Length)
+    if ($pipeName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'clash_controller_pipe_invalid' }
+    return [pscustomobject]@{
+        Kind = 'pipe'
+        Uri = ''
+        PipeName = $pipeName
+        Secret = $secret
+    }
 }
 
 function Test-LtaooClashConfig {
@@ -272,8 +295,9 @@ function Test-LtaooClashConfig {
         [Parameter(Mandatory = $true)][string]$ClashExePath,
         [Parameter(Mandatory = $true)][string]$ConfigPath
     )
-    if ($ConfigPath.Contains('"')) { throw 'unsupported_path_character' }
-    $arguments = '-t -f "' + $ConfigPath + '"'
+    $dataDirectory = [IO.Path]::GetDirectoryName($ConfigPath)
+    if ($ConfigPath.Contains('"') -or $dataDirectory.Contains('"')) { throw 'unsupported_path_character' }
+    $arguments = '-t -d "' + $dataDirectory + '" -f "' + $ConfigPath + '"'
     $process = Start-Process -FilePath $ClashExePath -ArgumentList $arguments -PassThru -Wait -WindowStyle Hidden
     if ($process.ExitCode -ne 0) { throw 'clash_config_invalid' }
 }
@@ -283,11 +307,53 @@ function Invoke-LtaooClashReload {
         [Parameter(Mandatory = $true)][object]$Controller,
         [Parameter(Mandatory = $true)][string]$ConfigPath
     )
+    $body = @{ path = $ConfigPath } | ConvertTo-Json -Compress
+    if ([string]$Controller.Kind -ceq 'pipe') {
+        Invoke-LtaooClashPipeReload -PipeName ([string]$Controller.PipeName) -Secret ([string]$Controller.Secret) -Body $body
+        return
+    }
+    if ([string]$Controller.Kind -cne 'http') { throw 'clash_controller_invalid' }
     $headers = @{}
     if (-not [string]::IsNullOrEmpty([string]$Controller.Secret)) { $headers.Authorization = 'Bearer ' + [string]$Controller.Secret }
-    $body = @{ path = $ConfigPath } | ConvertTo-Json -Compress
     $response = Invoke-WebRequest -UseBasicParsing -Method Put -Uri ([string]$Controller.Uri + '/configs?force=true') -Headers $headers -ContentType 'application/json' -Body $body
     if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { throw 'clash_reload_failed' }
+}
+
+function Invoke-LtaooClashPipeReload {
+    param(
+        [Parameter(Mandatory = $true)][string]$PipeName,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Secret,
+        [Parameter(Mandatory = $true)][string]$Body
+    )
+    if ($PipeName -notmatch '^[A-Za-z0-9._-]{1,128}$') { throw 'clash_controller_pipe_invalid' }
+    $bodyBytes = [Text.UTF8Encoding]::new($false).GetBytes($Body)
+    $authorization = ''
+    if (-not [string]::IsNullOrEmpty($Secret)) { $authorization = 'Authorization: Bearer ' + $Secret + "`r`n" }
+    $head = 'PUT /configs?force=true HTTP/1.1' + "`r`n" +
+        'Host: localhost' + "`r`n" + $authorization +
+        'Content-Type: application/json' + "`r`n" +
+        'Content-Length: ' + $bodyBytes.Length + "`r`n" +
+        'Connection: close' + "`r`n`r`n"
+    $headBytes = [Text.ASCIIEncoding]::new().GetBytes($head)
+    $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', $PipeName, [IO.Pipes.PipeDirection]::InOut, [IO.Pipes.PipeOptions]::Asynchronous)
+    try {
+        $pipe.Connect(5000)
+        $pipe.Write($headBytes, 0, $headBytes.Length)
+        $pipe.Write($bodyBytes, 0, $bodyBytes.Length)
+        $pipe.Flush()
+        $buffer = [byte[]]::new(4096)
+        $readTask = $pipe.ReadAsync($buffer, 0, $buffer.Length)
+        if (-not $readTask.Wait(5000)) { throw 'clash_reload_timeout' }
+        $read = $readTask.Result
+        if ($read -le 0) { throw 'clash_reload_failed' }
+        $responseHead = [Text.ASCIIEncoding]::new().GetString($buffer, 0, $read)
+        $statusMatch = [Text.RegularExpressions.Regex]::Match($responseHead, '^HTTP/1\.[01] ([0-9]{3})')
+        if (-not $statusMatch.Success) { throw 'clash_reload_failed' }
+        $statusCode = [int]$statusMatch.Groups[1].Value
+        if ($statusCode -lt 200 -or $statusCode -ge 300) { throw 'clash_reload_failed' }
+    } finally {
+        $pipe.Dispose()
+    }
 }
 
 function Write-LtaooBytesAtomic {

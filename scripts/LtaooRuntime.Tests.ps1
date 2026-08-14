@@ -2,6 +2,22 @@ $modulePath = Join-Path $PSScriptRoot 'LtaooRuntime.psm1'
 Import-Module $modulePath -Force
 
 Describe 'TrendRadar ltaoo Clash runtime transform' {
+    It 'accepts a local Clash Verge named-pipe controller when HTTP is disabled' {
+        $config = "external-controller: ''`nexternal-controller-pipe: '\\.\pipe\verge-mihomo'`nsecret: fixture-secret`n"
+
+        $controller = Get-LtaooClashController -Text $config
+
+        $controller.Kind | Should BeExactly 'pipe'
+        $controller.PipeName | Should BeExactly 'verge-mihomo'
+        $controller.Uri | Should BeExactly ''
+        $controller.Secret | Should BeExactly 'fixture-secret'
+    }
+
+    It 'rejects remote or nested named-pipe controller paths' {
+        { Get-LtaooClashController -Text "external-controller-pipe: '\\server\pipe\verge-mihomo'`n" } | Should Throw
+        { Get-LtaooClashController -Text "external-controller-pipe: '\\.\pipe\nested\verge-mihomo'`n" } | Should Throw
+    }
+
     It 'adds one loopback proxy and ordered process rules while preserving CRLF' {
         $baseline = "mixed-port: 7890`r`nproxies:`r`n  - name: existing`r`n    type: http`r`n    server: 127.0.0.1`r`n    port: 8080`r`nrules:`r`n  - MATCH,DIRECT`r`n"
         $updated = Add-LtaooClashBlock -Text $baseline -RunId 'fixture-run-1' -ProxyPort 2023
