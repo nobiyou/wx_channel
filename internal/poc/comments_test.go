@@ -104,28 +104,130 @@ func TestExactTopLevelLimitStillMarksTruncated(t *testing.T) {
 }
 
 func TestRepliesStopAt200PerWorkAndMarksTruncated(t *testing.T) {
-	top := []map[string]any{{"commentId": "fixture-root", "content": "fixture-root", "contentType": 1, "expandCommentCount": 201}}
-	replies := make([]map[string]any, 201)
-	for index := range replies {
-		replies[index] = map[string]any{
-			"commentId":      fmt.Sprintf("fixture-reply-%03d", index+1),
-			"replyCommentId": "fixture-root",
-			"rootCommentId":  "fixture-root",
-			"content":        "fixture-reply-limit",
-			"contentType":    1,
+	top := make([]map[string]any, 10)
+	responses := make([][]byte, 1, 11)
+	for rootIndex := range top {
+		rootID := fmt.Sprintf("fixture-root-%02d", rootIndex+1)
+		top[rootIndex] = map[string]any{"commentId": rootID, "content": "fixture-root", "contentType": 1, "expandCommentCount": 21}
+		replies := make([]map[string]any, 21)
+		for replyIndex := range replies {
+			replies[replyIndex] = map[string]any{
+				"commentId":      fmt.Sprintf("fixture-reply-%02d-%03d", rootIndex+1, replyIndex+1),
+				"replyCommentId": rootID,
+				"rootCommentId":  rootID,
+				"content":        "fixture-reply-limit",
+				"contentType":    1,
+			}
 		}
+		responses = append(responses, commentPage(t, replies, ""))
 	}
-	api := &fixturePageAPI{responses: [][]byte{commentPage(t, top, ""), commentPage(t, replies, "")}}
+	responses[0] = commentPage(t, top, "")
+	api := &fixturePageAPI{responses: responses}
 	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-limit-job"), &fixtureClock{})
 	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), fixtureWork("fixture-work-4", "fixture-nonce-4", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(comments) != 201 || summary.TopLevel != 1 || summary.Replies != 200 || !summary.Truncated || !containsReason(summary.Reasons, "reply_limit") {
+	if len(comments) != 210 || summary.TopLevel != 10 || summary.Replies != 200 || !summary.Truncated ||
+		!containsReason(summary.Reasons, "reply_per_comment_limit") || !containsReason(summary.Reasons, "reply_per_work_limit") {
 		t.Fatalf("count=%d summary=%+v", len(comments), summary)
 	}
-	if api.calls != 2 {
+	if api.calls != 11 {
 		t.Fatalf("calls=%d", api.calls)
+	}
+}
+
+func TestRepliesStopAtPerCommentLimitAfterDeduplication(t *testing.T) {
+	top := []map[string]any{{
+		"commentId": "fixture-local-root", "content": "fixture-root", "expandCommentCount": 4,
+		"commentList": []any{map[string]any{
+			"commentId": "fixture-local-reply-1", "replyCommentId": "fixture-local-root", "rootCommentId": "fixture-local-root",
+		}},
+	}}
+	replies := []map[string]any{
+		{"commentId": "fixture-local-reply-1", "replyCommentId": "fixture-local-root", "rootCommentId": "fixture-local-root"},
+		{"commentId": "fixture-local-reply-2", "replyCommentId": "fixture-local-root", "rootCommentId": "fixture-local-root"},
+		{"commentId": "fixture-local-reply-3", "replyCommentId": "fixture-local-root", "rootCommentId": "fixture-local-root"},
+	}
+	options := approvedTestOptions()
+	options.Limits.RepliesPerComment = 2
+	options.Limits.RepliesPerWork = 10
+	api := &fixturePageAPI{responses: [][]byte{commentPage(t, top, ""), commentPage(t, replies, "")}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-local-limit-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-local-work", "fixture-local-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 3 || summary.Replies != 2 || countCommentID(comments, "fixture-local-reply-1") != 1 ||
+		!containsReason(summary.Reasons, "reply_per_comment_limit") || containsReason(summary.Reasons, "reply_per_work_limit") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+}
+
+func TestRepliesStopAtPerWorkLimitAcrossRoots(t *testing.T) {
+	top := []map[string]any{
+		{"commentId": "fixture-global-root-1", "expandCommentCount": 3},
+		{"commentId": "fixture-global-root-2", "expandCommentCount": 3},
+	}
+	rootReplies := func(root string) []map[string]any {
+		return []map[string]any{
+			{"commentId": root + "-reply-1", "replyCommentId": root, "rootCommentId": root},
+			{"commentId": root + "-reply-2", "replyCommentId": root, "rootCommentId": root},
+			{"commentId": root + "-reply-3", "replyCommentId": root, "rootCommentId": root},
+		}
+	}
+	options := approvedTestOptions()
+	options.Limits.RepliesPerComment = 2
+	options.Limits.RepliesPerWork = 3
+	api := &fixturePageAPI{responses: [][]byte{
+		commentPage(t, top, ""),
+		commentPage(t, rootReplies("fixture-global-root-1"), ""),
+		commentPage(t, rootReplies("fixture-global-root-2"), ""),
+	}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-global-limit-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-global-work", "fixture-global-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 5 || summary.TopLevel != 2 || summary.Replies != 3 ||
+		!containsReason(summary.Reasons, "reply_per_comment_limit") || !containsReason(summary.Reasons, "reply_per_work_limit") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+}
+
+func TestZeroReplyLimitsSkipReplyExpansion(t *testing.T) {
+	top := []map[string]any{{"commentId": "fixture-no-reply-root", "expandCommentCount": 5}}
+	options := approvedTestOptions()
+	options.Limits.RepliesPerComment = 0
+	options.Limits.RepliesPerWork = 0
+	api := &fixturePageAPI{responses: [][]byte{commentPage(t, top, "")}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-disabled-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-no-reply-work", "fixture-no-reply-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 1 || summary.TopLevel != 1 || summary.Replies != 0 || summary.Truncated || api.calls != 1 {
+		t.Fatalf("comments=%+v summary=%+v calls=%d", comments, summary, api.calls)
+	}
+}
+
+func TestReplyLimitsMustBothBeZeroOrPositive(t *testing.T) {
+	for _, limits := range []Limits{
+		{TopLevelCommentsPerWork: 1, RepliesPerComment: 0, RepliesPerWork: 1},
+		{TopLevelCommentsPerWork: 1, RepliesPerComment: 1, RepliesPerWork: 0},
+	} {
+		t.Run(fmt.Sprintf("comment-%d-work-%d", limits.RepliesPerComment, limits.RepliesPerWork), func(t *testing.T) {
+			options := approvedTestOptions()
+			options.Limits = limits
+			api := &fixturePageAPI{}
+			collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-mismatch-job"), &fixtureClock{})
+			if _, _, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-mismatch-work", "fixture-mismatch-nonce", 1)); err == nil {
+				t.Fatal("CollectComments() accepted mismatched reply limits")
+			}
+			if api.calls != 0 {
+				t.Fatalf("calls=%d", api.calls)
+			}
+		})
 	}
 }
 

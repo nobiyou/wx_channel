@@ -43,6 +43,7 @@ const (
 type Limits struct {
 	Works                   int `json:"works"`
 	TopLevelCommentsPerWork int `json:"top_level_comments_per_work"`
+	RepliesPerComment       int `json:"replies_per_comment"`
 	RepliesPerWork          int `json:"replies_per_work"`
 }
 
