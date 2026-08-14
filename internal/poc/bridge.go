@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	bridgeOrigin      = "https://channels.weixin.qq.com"
-	bridgeProtocol    = "wx-poc-v1"
-	bridgeMaxMessage  = 4 << 20
-	bridgeMaxPagePath = 2048
+	bridgeOrigin       = "https://channels.weixin.qq.com"
+	bridgeProtocol     = "wx-poc-v1"
+	bridgeMaxMessage   = 4 << 20
+	bridgeMaxPagePath  = 2048
+	bridgeWriteTimeout = 5 * time.Second
 )
 
 var allowedMethods = map[string]struct{}{
@@ -343,7 +344,12 @@ func (s *BridgeServer) Call(ctx context.Context, method string, body any) ([]byt
 	if len(data) > bridgeMaxMessage {
 		return nil, errors.New("bridge call exceeds message limit")
 	}
-	if err := s.writeMessage(ctx, conn, bridgeEnvelope{Type: "api_call", Data: data}); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), bridgeWriteTimeout)
+	defer cancelWrite()
+	if err := s.writeMessage(writeCtx, conn, bridgeEnvelope{Type: "api_call", Data: data}); err != nil {
 		return nil, errors.New("send bridge call")
 	}
 	select {
