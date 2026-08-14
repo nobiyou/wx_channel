@@ -150,6 +150,12 @@ type FieldResult struct {
 	ReasonCode string      `json:"reason_code"`
 }
 
+type Issue struct {
+	Stage      string `json:"stage"`
+	Code       string `json:"code"`
+	InputIndex int    `json:"input_index,omitempty"`
+}
+
 type Validation struct {
 	JobID            string           `json:"job_id"`
 	CapabilityStatus CapabilityStatus `json:"capability_status"`

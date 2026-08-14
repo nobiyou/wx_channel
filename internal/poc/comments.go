@@ -219,11 +219,15 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 		}
 		seenMarkers := make(map[string]struct{})
 		for {
-			raw, pageSource, err := c.call(ctx, commentListMethod, map[string]any{
+			replyBody := map[string]any{
 				"object_id":   *work.WorkID,
 				"comment_id":  root.id,
 				"next_marker": marker,
-			})
+			}
+			if work.ObjectNonceID != nil {
+				replyBody["nonce_id"] = *work.ObjectNonceID
+			}
+			raw, pageSource, err := c.call(ctx, commentListMethod, replyBody)
 			if err != nil {
 				if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_replies", roots[rootIndex:], &root.id); checkpointErr != nil {
 					return comments, summary, checkpointErr
