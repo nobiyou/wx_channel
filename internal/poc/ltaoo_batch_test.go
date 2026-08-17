@@ -137,6 +137,52 @@ func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) 
 	}
 }
 
+func TestFinalizeFailedLtaooBatchSerializesTargetsAsEmptyArray(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/status":
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true}}}`)
+		case "/api/channels/feed/profile":
+			_, _ = fmt.Fprint(w, `{"code":1,"message":"profile unavailable"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	runRoot := t.TempDir()
+	requestPath := filepath.Join(runRoot, "request.json")
+	writeBatchRequestFixture(t, requestPath, runRoot, nil)
+	request, err := LoadBatchRequest(requestPath, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunLtaooBatch(context.Background(), request, client, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != BatchFailed || result.Counts.Works != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	receiptPath := filepath.Join(runRoot, "cleanup-receipt.input.json")
+	writeCleanupReceiptFixture(t, receiptPath, request.RunID, true)
+	if _, err := FinalizeLtaooBatch(request, runRoot, receiptPath); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(runRoot, "batch", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"targets":[]`) {
+		t.Fatalf("failed batch targets must be an array: %s", raw)
+	}
+}
+
 func TestFinalizeLtaooBatchPublishesValidDataWhenCleanupNeedsVerification(t *testing.T) {
 	server := newBatchFixtureServer(t, "fixture-redacted-cursor")
 	defer server.Close()
