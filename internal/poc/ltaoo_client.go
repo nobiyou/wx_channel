@@ -14,7 +14,17 @@ import (
 	"time"
 )
 
-const maxLtaooResponseBytes = 8 << 20
+const (
+	maxLtaooResponseBytes   = 8 << 20
+	profileReadinessTimeout = 30 * time.Second
+	profileRetryInterval    = 500 * time.Millisecond
+)
+
+type profileReadinessOptions struct {
+	Clock         Clock
+	Timeout       time.Duration
+	RetryInterval time.Duration
+}
 
 type LtaooClient struct {
 	baseURL *url.URL
@@ -244,13 +254,29 @@ func NormalizeWeChatShareURL(raw string) (string, error) {
 }
 
 func CollectWorksFromURLs(ctx context.Context, client *LtaooClient, rawURLs []string, limit int) ([]Work, []Issue) {
-	if client == nil || limit <= 0 {
+	return collectWorksFromURLs(ctx, client, rawURLs, limit, profileReadinessOptions{
+		Clock:         batchClock{},
+		Timeout:       profileReadinessTimeout,
+		RetryInterval: profileRetryInterval,
+	})
+}
+
+func collectWorksFromURLs(
+	ctx context.Context,
+	client *LtaooClient,
+	rawURLs []string,
+	limit int,
+	options profileReadinessOptions,
+) ([]Work, []Issue) {
+	if client == nil || limit <= 0 || options.Clock == nil || options.Timeout <= 0 || options.RetryInterval <= 0 {
 		return nil, []Issue{{Stage: "content", Code: "invalid_collection_request"}}
 	}
 	works := make([]Work, 0, min(limit, len(rawURLs)))
 	issues := make([]Issue, 0)
 	seenURLs := make(map[string]struct{})
 	seenWorks := make(map[string]struct{})
+	deadline := options.Clock.Now().Add(options.Timeout)
+	readinessEstablished := false
 	for index, rawURL := range rawURLs {
 		if ctx.Err() != nil {
 			issues = append(issues, Issue{Stage: "content", Code: "collection_cancelled", InputIndex: index + 1})
@@ -269,9 +295,42 @@ func CollectWorksFromURLs(ctx context.Context, client *LtaooClient, rawURLs []st
 			issues = append(issues, Issue{Stage: "content", Code: "works_limit_reached", InputIndex: index + 1})
 			break
 		}
-		work, err := client.ResolveWork(ctx, normalized, len(works)+1)
-		if err != nil {
-			issues = append(issues, Issue{Stage: "content", Code: "profile_unavailable", InputIndex: index + 1})
+		var work Work
+		for {
+			if ctx.Err() != nil {
+				issues = append(issues, Issue{Stage: "content", Code: "collection_cancelled", InputIndex: index + 1})
+				return works, issues
+			}
+			if !readinessEstablished && !options.Clock.Now().Before(deadline) {
+				issues = append(issues, Issue{Stage: "content", Code: "profile_not_ready", InputIndex: index + 1})
+				return works, appendRemainingProfileNotReadyIssues(issues, rawURLs, index+1, seenURLs)
+			}
+			var err error
+			work, err = client.ResolveWork(ctx, normalized, len(works)+1)
+			if err == nil {
+				readinessEstablished = true
+				break
+			}
+			if ctx.Err() != nil {
+				issues = append(issues, Issue{Stage: "content", Code: "collection_cancelled", InputIndex: index + 1})
+				return works, issues
+			}
+			if readinessEstablished || ClassifyError(err) != ErrorTransient {
+				issues = append(issues, Issue{Stage: "content", Code: profileIssueCode(err), InputIndex: index + 1})
+				break
+			}
+			remaining := deadline.Sub(options.Clock.Now())
+			if remaining <= 0 {
+				issues = append(issues, Issue{Stage: "content", Code: "profile_not_ready", InputIndex: index + 1})
+				return works, appendRemainingProfileNotReadyIssues(issues, rawURLs, index+1, seenURLs)
+			}
+			delay := min(options.RetryInterval, remaining)
+			if err := options.Clock.Sleep(ctx, delay); err != nil {
+				issues = append(issues, Issue{Stage: "content", Code: "collection_cancelled", InputIndex: index + 1})
+				return works, issues
+			}
+		}
+		if work.WorkID == nil {
 			continue
 		}
 		key := dereferenceString(work.WorkID) + "\x00" + dereferenceString(work.ObjectNonceID)
@@ -284,4 +343,33 @@ func CollectWorksFromURLs(ctx context.Context, client *LtaooClient, rawURLs []st
 		works = append(works, work)
 	}
 	return works, issues
+}
+
+func profileIssueCode(err error) string {
+	switch ClassifyError(err) {
+	case ErrorAccessDenied:
+		return "profile_access_denied"
+	case ErrorRateLimited:
+		return "profile_rate_limited"
+	case ErrorStructure:
+		return "profile_schema_mismatch"
+	default:
+		return "profile_unavailable"
+	}
+}
+
+func appendRemainingProfileNotReadyIssues(issues []Issue, rawURLs []string, start int, seenURLs map[string]struct{}) []Issue {
+	for index := start; index < len(rawURLs); index++ {
+		normalized, err := NormalizeWeChatShareURL(rawURLs[index])
+		if err != nil {
+			issues = append(issues, Issue{Stage: "content", Code: "invalid_share_url", InputIndex: index + 1})
+			continue
+		}
+		if _, duplicate := seenURLs[normalized]; duplicate {
+			continue
+		}
+		seenURLs[normalized] = struct{}{}
+		issues = append(issues, Issue{Stage: "content", Code: "profile_not_ready", InputIndex: index + 1})
+	}
+	return issues
 }

@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+type profileTestClock struct {
+	now    time.Time
+	sleeps []time.Duration
+}
+
+func (c *profileTestClock) Now() time.Time { return c.now }
+
+func (c *profileTestClock) Sleep(ctx context.Context, duration time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	c.sleeps = append(c.sleeps, duration)
+	c.now = c.now.Add(duration)
+	return nil
+}
+
 func TestLtaooClientMapsStatusProfileAndContinuousCommentCursor(t *testing.T) {
 	const shareURL = "https://weixin.qq.com/sph/fixture-share"
 	var mu sync.Mutex
@@ -186,13 +204,197 @@ func TestCollectWorksFromURLsPreservesOrderAndDeduplicatesRequestsAndWorks(t *te
 	if len(works) != 2 || dereference(works[0].WorkID) != "work-1" || dereference(works[1].WorkID) != "work-2" {
 		t.Fatalf("works=%+v", works)
 	}
-	if len(issues) != 1 || issues[0].Code != "profile_unavailable" || issues[0].InputIndex != 4 {
+	if len(issues) != 1 || issues[0].Code != "profile_schema_mismatch" || issues[0].InputIndex != 4 {
 		t.Fatalf("issues=%+v", issues)
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	if profileCalls != 4 {
 		t.Fatalf("profile calls=%d", profileCalls)
+	}
+}
+
+func TestCollectWorksFromURLsProfileRetriesTransientUntilReady(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/channels/feed/profile" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		if requests < 3 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"ready-work","objectNonceId":"ready-nonce"}}}}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &profileTestClock{now: time.Unix(100, 0)}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, []string{"https://weixin.qq.com/sph/ready"}, 1, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || dereference(works[0].WorkID) != "ready-work" || len(issues) != 0 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests != 3 || len(clock.sleeps) != 2 {
+		t.Fatalf("requests=%d sleeps=%v", requests, clock.sleeps)
+	}
+}
+
+func TestCollectWorksFromURLsSharedReadinessDeadlineAppliesToWholeBatch(t *testing.T) {
+	var mu sync.Mutex
+	requestedURLs := make([]string, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestedURLs = append(requestedURLs, r.URL.Query().Get("url"))
+		mu.Unlock()
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(200, 0)
+	clock := &profileTestClock{now: start}
+	urls := []string{
+		"https://weixin.qq.com/sph/first",
+		"https://weixin.qq.com/sph/second",
+		"https://weixin.qq.com/sph/third",
+	}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, urls, 3, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 0 || len(issues) != 3 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	for index, issue := range issues {
+		if issue.Code != "profile_not_ready" || issue.InputIndex != index+1 {
+			t.Fatalf("issues=%+v", issues)
+		}
+	}
+	if elapsed := clock.Now().Sub(start); elapsed != 30*time.Second {
+		t.Fatalf("shared readiness elapsed=%s", elapsed)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requestedURLs) < 2 {
+		t.Fatalf("expected retries, requests=%v", requestedURLs)
+	}
+	for _, requestedURL := range requestedURLs {
+		if requestedURL != urls[0] {
+			t.Fatalf("later URL requested after shared timeout: %v", requestedURLs)
+		}
+	}
+}
+
+func TestCollectWorksFromURLsProfileClassifiesClosedErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantCode   string
+	}{
+		{name: "unauthorized", statusCode: http.StatusUnauthorized, wantCode: "profile_access_denied"},
+		{name: "forbidden", statusCode: http.StatusForbidden, wantCode: "profile_access_denied"},
+		{name: "rate limited", statusCode: http.StatusTooManyRequests, wantCode: "profile_rate_limited"},
+		{name: "malformed JSON", statusCode: http.StatusOK, body: `{`, wantCode: "profile_schema_mismatch"},
+		{name: "invalid business envelope", statusCode: http.StatusOK, body: `{"code":0,"data":{"errCode":9}}`, wantCode: "profile_schema_mismatch"},
+		{name: "unknown status", statusCode: http.StatusTeapot, wantCode: "profile_unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.statusCode)
+				_, _ = fmt.Fprint(w, test.body)
+			}))
+			defer server.Close()
+			client, err := NewLtaooClient(server.URL, 2*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clock := &profileTestClock{now: time.Unix(300, 0)}
+
+			works, issues := collectWorksFromURLs(context.Background(), client, []string{"https://weixin.qq.com/sph/classify"}, 1, profileReadinessOptions{
+				Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+			})
+
+			if len(works) != 0 || len(issues) != 1 || issues[0].Code != test.wantCode {
+				t.Fatalf("works=%+v issues=%+v", works, issues)
+			}
+			if len(clock.sleeps) != 0 {
+				t.Fatalf("non-transient profile error retried: %v", clock.sleeps)
+			}
+		})
+	}
+}
+
+func TestCollectWorksFromURLsProfileSchemaErrorDoesNotBlockLaterReadiness(t *testing.T) {
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shareURL := r.URL.Query().Get("url")
+		requests[shareURL]++
+		if strings.HasSuffix(shareURL, "/broken") {
+			_, _ = fmt.Fprint(w, `{`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"later-work","objectNonceId":"later-nonce"}}}}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	urls := []string{"https://weixin.qq.com/sph/broken", "https://weixin.qq.com/sph/later"}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, urls, 2, profileReadinessOptions{
+		Clock: &profileTestClock{now: time.Unix(400, 0)}, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || dereference(works[0].WorkID) != "later-work" {
+		t.Fatalf("works=%+v", works)
+	}
+	if len(issues) != 1 || issues[0].Code != "profile_schema_mismatch" || issues[0].InputIndex != 1 {
+		t.Fatalf("issues=%+v", issues)
+	}
+	if requests[urls[0]] != 1 || requests[urls[1]] != 1 {
+		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestCollectWorksFromURLsCancellationStopsReadinessRetries(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		cancel()
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	works, issues := collectWorksFromURLs(ctx, client, []string{
+		"https://weixin.qq.com/sph/first", "https://weixin.qq.com/sph/second",
+	}, 2, profileReadinessOptions{
+		Clock: &profileTestClock{now: time.Unix(500, 0)}, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 0 || len(issues) != 1 || issues[0].Code != "collection_cancelled" || issues[0].InputIndex != 1 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests != 1 {
+		t.Fatalf("requests=%d", requests)
 	}
 }
 
