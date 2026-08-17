@@ -62,7 +62,8 @@ type BatchCleanupReceipt struct {
 	RunID          string    `json:"run_id"`
 	Safe           bool      `json:"safe"`
 	CAAbsent       bool      `json:"ca_absent"`
-	ClashRestored  bool      `json:"clash_restored"`
+	RouterRestored bool      `json:"router_restored,omitempty"`
+	ClashRestored  bool      `json:"clash_restored,omitempty"`
 	ProcessStopped bool      `json:"process_stopped"`
 	PortsReleased  bool      `json:"ports_released"`
 	SecretsDeleted bool      `json:"secrets_deleted"`
@@ -344,10 +345,25 @@ func FinalizeLtaooBatch(request BatchRequest, runRoot, cleanupReceiptPath string
 }
 
 func validateBatchCleanupReceipt(receipt BatchCleanupReceipt, runID string) error {
-	if receipt.SchemaVersion != 1 || receipt.RunID != runID || receipt.CompletedAt.IsZero() {
+	if receipt.RunID != runID || receipt.CompletedAt.IsZero() {
 		return errors.New("cleanup receipt identity is invalid")
 	}
-	allSafe := receipt.CAAbsent && receipt.ClashRestored && receipt.ProcessStopped && receipt.PortsReleased && receipt.SecretsDeleted
+	var routerRestored bool
+	switch receipt.SchemaVersion {
+	case 1:
+		if receipt.RouterRestored {
+			return errors.New("cleanup receipt schema fields are invalid")
+		}
+		routerRestored = receipt.ClashRestored
+	case 2:
+		if receipt.ClashRestored {
+			return errors.New("cleanup receipt schema fields are invalid")
+		}
+		routerRestored = receipt.RouterRestored
+	default:
+		return errors.New("cleanup receipt identity is invalid")
+	}
+	allSafe := receipt.CAAbsent && routerRestored && receipt.ProcessStopped && receipt.PortsReleased && receipt.SecretsDeleted
 	if receipt.Safe != allSafe || (receipt.Safe && len(receipt.ReasonCodes) != 0) || (!receipt.Safe && len(receipt.ReasonCodes) == 0) {
 		return errors.New("cleanup receipt state is inconsistent")
 	}

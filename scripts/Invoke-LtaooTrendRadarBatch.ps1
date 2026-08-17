@@ -5,9 +5,13 @@ param(
     [Parameter(Mandatory = $true)][string]$RunRoot,
     [Parameter(Mandatory = $true)][string]$RuntimeJournalPath,
     [Parameter(Mandatory = $true)][string]$LtaooExePath,
-    [Parameter(Mandatory = $true)][string]$ClashExePath,
-    [Parameter(Mandatory = $true)][string]$ClashConfigPath,
     [Parameter(Mandatory = $true)][string]$BatchExePath,
+    [string]$RouterKind = '',
+    [string]$RouterExePath = '',
+    [string]$RouterConfigPath = '',
+    [string]$RouterCapabilityFingerprint = '',
+    [string]$ClashExePath = '',
+    [string]$ClashConfigPath = '',
     [ValidateRange(1, 65535)][int]$ApiPort = 2022,
     [ValidateRange(1, 65535)][int]$ProxyPort = 2023
 )
@@ -15,6 +19,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'LtaooRuntime.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'LtaooRouter.psm1') -Force
 
 function Resolve-RuntimeFile {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
@@ -45,40 +50,46 @@ function Stop-JournalLtaooProcess {
     } catch { return $false }
 }
 
-function Restore-JournalClashConfig {
+function Restore-JournalRouterConfig {
     param(
         [Parameter(Mandatory = $true)][object]$Journal,
-        [Parameter(Mandatory = $true)][string]$ClashExecutable
+        [Parameter(Mandatory = $true)][object]$Backend
     )
-    $configPath = [string]$Journal.clash_config_path
-    $backupPath = [string]$Journal.clash_backup_path
+    $configPath = [string]$Journal.router_config_path
+    $backupPath = [string]$Journal.router_backup_path
     if (-not [IO.File]::Exists($configPath) -or -not [IO.File]::Exists($backupPath)) { return $false }
+    if (
+        [string]$Journal.router_kind -cne [string]$Backend.Kind -or
+        (-not [string]::IsNullOrWhiteSpace([string]$Journal.router_executable_path) -and -not [string]::Equals([IO.Path]::GetFullPath([string]$Journal.router_executable_path), [IO.Path]::GetFullPath([string]$Backend.ExecutablePath), [StringComparison]::OrdinalIgnoreCase)) -or
+        (-not [string]::IsNullOrWhiteSpace([string]$Journal.router_executable_sha256) -and [string]$Journal.router_executable_sha256 -cne (Get-LtaooFileHash -LiteralPath ([string]$Backend.ExecutablePath))) -or
+        -not [string]::Equals([IO.Path]::GetFullPath($configPath), [IO.Path]::GetFullPath([string]$Backend.ConfigPath), [StringComparison]::OrdinalIgnoreCase)
+    ) { return $false }
     try {
         $currentBytes = [IO.File]::ReadAllBytes($configPath)
         $currentHash = Get-LtaooFileHash -LiteralPath $configPath
         $currentDecoded = ConvertFrom-LtaooUtf8Bytes -Bytes $currentBytes
         $currentText = $currentDecoded.Text
         $markerPresent = $currentText.Contains('# TREND_RADAR_WX_BEGIN ' + [string]$Journal.run_id + ' ')
-        $action = Get-ClashRecoveryAction -BaselineHash ([string]$Journal.clash_baseline_sha256) -TemporaryHash ([string]$Journal.clash_temporary_sha256) -CurrentHash $currentHash -MarkerPresent $markerPresent
+        $action = Get-LtaooRouterRecoveryAction -Backend $Backend -BaselineHash ([string]$Journal.router_baseline_sha256) -TemporaryHash ([string]$Journal.router_temporary_sha256) -CurrentHash $currentHash -MarkerPresent $markerPresent
         $backupDecoded = ConvertFrom-LtaooUtf8Bytes -Bytes ([IO.File]::ReadAllBytes($backupPath))
-        $controller = Get-LtaooClashController -Text $backupDecoded.Text
+        $controller = Get-LtaooRouterController -Backend $Backend -Text $backupDecoded.Text
         switch ($action) {
             'restore_backup' {
                 Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($backupPath)) -LiteralPath $configPath
             }
             'remove_marker' {
-                $recovered = Remove-LtaooClashBlock -Text $currentText -RunId ([string]$Journal.run_id)
-                $candidate = Join-Path ([string]$Journal.run_root) 'clash-recovery-candidate.yaml'
+                $recovered = Remove-LtaooRouterBlock -Backend $Backend -Text $currentText -RunId ([string]$Journal.run_id)
+                $candidate = Join-Path ([string]$Journal.run_root) 'router-recovery-candidate.yaml'
                 [IO.File]::WriteAllBytes($candidate, (ConvertTo-LtaooUtf8Bytes -Text $recovered -WithBom $currentDecoded.HasBom))
-                Test-LtaooClashConfig -ClashExePath $ClashExecutable -ConfigPath $candidate -DataDirectory (Split-Path -Parent $configPath)
+                Test-LtaooRouterConfig -Backend $Backend -ConfigPath $candidate -DataDirectory (Split-Path -Parent $configPath)
                 Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidate)) -LiteralPath $configPath
                 Remove-Item -LiteralPath $candidate -Force
             }
             'already_restored' { }
             default { return $false }
         }
-        Test-LtaooClashConfig -ClashExePath $ClashExecutable -ConfigPath $configPath
-        Invoke-LtaooClashReload -Controller $controller -ConfigPath $configPath
+        Test-LtaooRouterConfig -Backend $Backend -ConfigPath $configPath -DataDirectory (Split-Path -Parent $configPath)
+        Invoke-LtaooRouterReload -Backend $Backend -Controller $controller -ConfigPath $configPath
         $restoredText = (ConvertFrom-LtaooUtf8Bytes -Bytes ([IO.File]::ReadAllBytes($configPath))).Text
         return -not $restoredText.Contains('# TREND_RADAR_WX_')
     } catch { return $false }
@@ -88,7 +99,7 @@ function Remove-JournalSecrets {
     param(
         [Parameter(Mandatory = $true)][object]$Journal,
         [Parameter(Mandatory = $true)][string]$RuntimeBase,
-        [Parameter(Mandatory = $true)][bool]$RemoveClashBackup
+        [Parameter(Mandatory = $true)][bool]$RemoveRouterBackup
     )
     try {
         $secretsRoot = [IO.Path]::GetFullPath([string]$Journal.secrets_root)
@@ -100,14 +111,14 @@ function Remove-JournalSecrets {
             }
             Remove-Item -LiteralPath $secretsRoot -Force
         }
-        if ($RemoveClashBackup) {
-            foreach ($name in @('clash-baseline.bin', 'clash-candidate.yaml', 'clash-recovery-candidate.yaml', 'ltaoo-runtime.yaml')) {
+        if ($RemoveRouterBackup) {
+            foreach ($name in @('router-baseline.bin', 'router-candidate.yaml', 'router-recovery-candidate.yaml', 'clash-baseline.bin', 'clash-candidate.yaml', 'clash-recovery-candidate.yaml', 'ltaoo-runtime.yaml')) {
                 $target = Join-Path ([string]$Journal.run_root) $name
                 Assert-LtaooNoReparsePoint -BasePath $RuntimeBase -TargetPath $target
                 if ([IO.File]::Exists($target)) { Remove-Item -LiteralPath $target -Force }
             }
         }
-        $backupAbsent = -not [IO.File]::Exists([string]$Journal.clash_backup_path)
+        $backupAbsent = -not [IO.File]::Exists([string]$Journal.router_backup_path)
         return (-not [IO.Directory]::Exists($secretsRoot)) -and $backupAbsent
     } catch { return $false }
 }
@@ -116,43 +127,65 @@ function Invoke-JournalCleanup {
     param(
         [Parameter(Mandatory = $true)][object]$Journal,
         [Parameter(Mandatory = $true)][string]$RuntimeBase,
-        [Parameter(Mandatory = $true)][string]$ClashExecutable
+        [Parameter(Mandatory = $true)][object]$Backend
     )
     $processStopped = Stop-JournalLtaooProcess -Journal $Journal
     $caAbsent = $true
     if (-not [string]::IsNullOrWhiteSpace([string]$Journal.ca_thumbprint)) {
         try { $caAbsent = Remove-LtaooCurrentUserCA -Thumbprint ([string]$Journal.ca_thumbprint) } catch { $caAbsent = $false }
     }
-    $clashRestored = Restore-JournalClashConfig -Journal $Journal -ClashExecutable $ClashExecutable
-    $secretsDeleted = Remove-JournalSecrets -Journal $Journal -RuntimeBase $RuntimeBase -RemoveClashBackup $clashRestored
+    $routerRestored = Restore-JournalRouterConfig -Journal $Journal -Backend $Backend
+    $secretsDeleted = Remove-JournalSecrets -Journal $Journal -RuntimeBase $RuntimeBase -RemoveRouterBackup $routerRestored
     $portsReleased = Get-ListenerAbsent -Ports @([int]$Journal.api_port, [int]$Journal.proxy_port)
-    $safe = $processStopped -and $caAbsent -and $clashRestored -and $secretsDeleted -and $portsReleased
+    $safe = $processStopped -and $caAbsent -and $routerRestored -and $secretsDeleted -and $portsReleased
     $reasons = @()
     if (-not $safe) { $reasons = @('cleanup_attention_required') }
-    return [ordered]@{
-        schema_version = 1
+    $receipt = [ordered]@{
+        schema_version = [int]$Journal.schema_version
         run_id = [string]$Journal.run_id
         safe = [bool]$safe
         ca_absent = [bool]$caAbsent
-        clash_restored = [bool]$clashRestored
         process_stopped = [bool]$processStopped
         ports_released = [bool]$portsReleased
         secrets_deleted = [bool]$secretsDeleted
         completed_at = [DateTimeOffset]::UtcNow.ToString('o')
         reason_codes = $reasons
     }
+    if ([int]$Journal.schema_version -eq 1) { $receipt.clash_restored = [bool]$routerRestored }
+    else { $receipt.router_restored = [bool]$routerRestored }
+    return $receipt
 }
 
 function Read-RuntimeJournal {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
-    $allowedProperties = @(
+    if (-not [IO.File]::Exists($LiteralPath)) { throw 'json_file_missing' }
+    $item = Get-Item -Force -LiteralPath $LiteralPath
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $item.Length -gt 1MB) { throw 'json_file_unsafe' }
+    try { $journal = Get-Content -Raw -LiteralPath $LiteralPath | ConvertFrom-Json }
+    catch { throw 'json_file_invalid' }
+    $commonProperties = @(
         'schema_version', 'run_id', 'run_root', 'phase', 'created_at', 'ca_thumbprint',
-        'ltaoo_pid', 'ltaoo_start_time', 'ltaoo_path', 'ltaoo_sha256', 'clash_config_path',
-        'clash_baseline_sha256', 'clash_temporary_sha256', 'clash_backup_path', 'secrets_root',
+        'ltaoo_pid', 'ltaoo_start_time', 'ltaoo_path', 'ltaoo_sha256', 'secrets_root',
         'api_port', 'proxy_port', 'request_path', 'batch_path', 'batch_sha256'
     )
-    $journal = Read-LtaooStrictJson -LiteralPath $LiteralPath -AllowedProperties $allowedProperties
-    if ([int]$journal.schema_version -ne 1 -or [string]$journal.run_id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { throw 'runtime_journal_invalid' }
+    if ([int]$journal.schema_version -eq 1) {
+        $legacyProperties = @($commonProperties) + @('clash_config_path', 'clash_baseline_sha256', 'clash_temporary_sha256', 'clash_backup_path')
+        Assert-LtaooAllowedProperties -Value $journal -AllowedProperties $legacyProperties
+        $journal = [pscustomobject][ordered]@{
+            schema_version = 1; run_id = $journal.run_id; run_root = $journal.run_root; phase = $journal.phase; created_at = $journal.created_at
+            ca_thumbprint = $journal.ca_thumbprint; ltaoo_pid = $journal.ltaoo_pid; ltaoo_start_time = $journal.ltaoo_start_time; ltaoo_path = $journal.ltaoo_path; ltaoo_sha256 = $journal.ltaoo_sha256
+            router_kind = 'mihomo'; router_executable_path = ''; router_executable_sha256 = ''; router_config_path = $journal.clash_config_path; router_baseline_sha256 = $journal.clash_baseline_sha256
+            router_temporary_sha256 = $journal.clash_temporary_sha256; router_backup_path = $journal.clash_backup_path; router_capability_fingerprint = ''
+            secrets_root = $journal.secrets_root; api_port = $journal.api_port; proxy_port = $journal.proxy_port; request_path = $journal.request_path; batch_path = $journal.batch_path; batch_sha256 = $journal.batch_sha256
+        }
+    } elseif ([int]$journal.schema_version -eq 2) {
+        $routerProperties = @($commonProperties) + @(
+            'router_kind', 'router_executable_path', 'router_executable_sha256', 'router_config_path', 'router_baseline_sha256',
+            'router_temporary_sha256', 'router_backup_path', 'router_capability_fingerprint'
+        )
+        Assert-LtaooAllowedProperties -Value $journal -AllowedProperties $routerProperties
+    } else { throw 'runtime_journal_invalid' }
+    if ([string]$journal.run_id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or [string]$journal.router_kind -cne 'mihomo') { throw 'runtime_journal_invalid' }
     return $journal
 }
 
@@ -186,7 +219,25 @@ function Test-JournalPublicationClosed {
     return [IO.Directory]::Exists($finalPath) -or -not [IO.Directory]::Exists($draftPath)
 }
 
+$genericValues = @($RouterKind, $RouterExePath, $RouterConfigPath, $RouterCapabilityFingerprint)
+$legacyValues = @($ClashExePath, $ClashConfigPath)
+$genericProvided = @($genericValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+$legacyProvided = @($legacyValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
 if ($ApiPort -eq $ProxyPort) { exit 64 }
+if ($genericProvided -eq 4 -and $legacyProvided -eq 0) {
+    if ($RouterKind -cne 'mihomo' -or $RouterCapabilityFingerprint -cnotmatch '^[a-f0-9]{64}$') { exit 64 }
+    $authorizationMode = 'wechat-channels-local-runtime-v2'
+    $effectiveRouterKind = $RouterKind
+    $effectiveRouterExePath = $RouterExePath
+    $effectiveRouterConfigPath = $RouterConfigPath
+    $effectiveRouterCapabilityFingerprint = $RouterCapabilityFingerprint
+} elseif ($genericProvided -eq 0 -and $legacyProvided -eq 2) {
+    $authorizationMode = 'wechat-channels-local-runtime-v1'
+    $effectiveRouterKind = 'mihomo'
+    $effectiveRouterExePath = $ClashExePath
+    $effectiveRouterConfigPath = $ClashConfigPath
+    $effectiveRouterCapabilityFingerprint = ('0' * 64)
+} else { exit 64 }
 
 $mutex = $null
 $mutexAcquired = $false
@@ -200,8 +251,9 @@ $resolvedRunRoot = $null
 $resolvedRequest = $null
 $resolvedGrant = $null
 $resolvedLtaoo = $null
-$resolvedClash = $null
-$resolvedClashConfig = $null
+$resolvedRouter = $null
+$resolvedRouterConfig = $null
+$routerBackend = $null
 $resolvedBatch = $null
 $receiptPath = $null
 $draftExists = $false
@@ -226,14 +278,16 @@ try {
     if ([IO.Path]::GetFileName($journalPath) -cne 'runtime-journal.json') { throw 'runtime_journal_path_invalid' }
     Assert-LtaooNoReparsePoint -BasePath $runtimeBase -TargetPath $journalPath
 
-    $currentStage = 'clash_executable'
-    $resolvedClash = Resolve-RuntimeFile -LiteralPath $ClashExePath
+    $currentStage = 'router_executable'
+    $resolvedRouter = Resolve-RuntimeFile -LiteralPath $effectiveRouterExePath
+    $resolvedRouterConfig = Resolve-RuntimeFile -LiteralPath $effectiveRouterConfigPath
+    $routerBackend = New-LtaooRouterBackend -RouterKind $effectiveRouterKind -ExecutablePath $resolvedRouter -ConfigPath $resolvedRouterConfig
     if ([IO.File]::Exists($journalPath)) {
         $currentStage = 'journal_recovery'
         $prior = Read-RuntimeJournal -LiteralPath $journalPath
         $priorRunRoot = [IO.Path]::GetFullPath([string]$prior.run_root)
         Assert-LtaooNoReparsePoint -BasePath $runtimeBase -TargetPath $priorRunRoot
-        $priorReceipt = Invoke-JournalCleanup -Journal $prior -RuntimeBase $runtimeBase -ClashExecutable $resolvedClash
+        $priorReceipt = Invoke-JournalCleanup -Journal $prior -RuntimeBase $runtimeBase -Backend $routerBackend
         $priorReceiptPath = Join-Path $priorRunRoot 'cleanup-receipt.input.json'
         Write-LtaooJsonAtomic -Value $priorReceipt -LiteralPath $priorReceiptPath
         [void](Invoke-JournalFinalize -Journal $prior -ReceiptPath $priorReceiptPath)
@@ -247,7 +301,6 @@ try {
     Assert-LtaooNoReparsePoint -BasePath $resolvedRunRoot -TargetPath $resolvedRequest
     Assert-LtaooNoReparsePoint -BasePath $resolvedRunRoot -TargetPath $resolvedGrant
     $resolvedLtaoo = Resolve-RuntimeFile -LiteralPath $LtaooExePath
-    $resolvedClashConfig = Resolve-RuntimeFile -LiteralPath $ClashConfigPath
     $resolvedBatch = Resolve-RuntimeFile -LiteralPath $BatchExePath
     if ([IO.Path]::GetFileName($resolvedLtaoo) -ine 'wx_video_download.exe' -or [IO.Path]::GetFileName($resolvedBatch) -ine 'wx_channel_ltaoo_batch.exe') {
         throw 'runtime_executable_invalid'
@@ -258,33 +311,38 @@ try {
     $runId = [string]$request.run_id
     if ($runId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { throw 'request_run_id_invalid' }
 
-    $runtimePaths = @($resolvedLtaoo, $resolvedClash, $resolvedClashConfig, $resolvedBatch, $runtimeBase)
-    [void](Use-LtaooRunGrant -GrantPath $resolvedGrant -RunId $runId -RequestPath $resolvedRequest -RuntimePaths $runtimePaths -LtaooExePath $resolvedLtaoo -BatchExePath $resolvedBatch)
+    $runtimePaths = @($resolvedLtaoo, $resolvedRouter, $resolvedRouterConfig, $resolvedBatch, $runtimeBase)
+    if ($authorizationMode -ceq 'wechat-channels-local-runtime-v2') {
+        [void](Use-LtaooRunGrant -GrantPath $resolvedGrant -RunId $runId -RequestPath $resolvedRequest -RuntimePaths $runtimePaths -LtaooExePath $resolvedLtaoo -BatchExePath $resolvedBatch -ExpectedAuthorizationMode $authorizationMode -RouterKind $effectiveRouterKind -RouterExePath $resolvedRouter -RouterConfigPath $resolvedRouterConfig -RouterCapabilityFingerprint $effectiveRouterCapabilityFingerprint)
+    } else {
+        [void](Use-LtaooRunGrant -GrantPath $resolvedGrant -RunId $runId -RequestPath $resolvedRequest -RuntimePaths $runtimePaths -LtaooExePath $resolvedLtaoo -BatchExePath $resolvedBatch)
+    }
     $currentStage = 'grant_consumed'
     if (-not (Get-ListenerAbsent -Ports @($ApiPort, $ProxyPort))) { throw 'runtime_ports_in_use' }
 
-    $backupPath = Join-Path $resolvedRunRoot 'clash-baseline.bin'
-    $baselineBytes = [IO.File]::ReadAllBytes($resolvedClashConfig)
+    $backupPath = Join-Path $resolvedRunRoot 'router-baseline.bin'
+    $baselineBytes = [IO.File]::ReadAllBytes($resolvedRouterConfig)
     [IO.File]::WriteAllBytes($backupPath, $baselineBytes)
     Set-LtaooOwnerOnlyAcl -LiteralPath $backupPath -Directory $false
     $baselineHash = Get-LtaooFileHash -LiteralPath $backupPath
     $baselineDecoded = ConvertFrom-LtaooUtf8Bytes -Bytes $baselineBytes
     $baselineText = $baselineDecoded.Text
-    $controller = Get-LtaooClashController -Text $baselineText
-    $temporaryText = Add-LtaooClashBlock -Text $baselineText -RunId $runId -ProxyPort $ProxyPort
-    $candidatePath = Join-Path $resolvedRunRoot 'clash-candidate.yaml'
+    $controller = Get-LtaooRouterController -Backend $routerBackend -Text $baselineText
+    $temporaryText = Add-LtaooRouterBlock -Backend $routerBackend -Text $baselineText -RunId $runId -ProxyPort $ProxyPort
+    $candidatePath = Join-Path $resolvedRunRoot 'router-candidate.yaml'
     [IO.File]::WriteAllBytes($candidatePath, (ConvertTo-LtaooUtf8Bytes -Text $temporaryText -WithBom $baselineDecoded.HasBom))
     Set-LtaooOwnerOnlyAcl -LiteralPath $candidatePath -Directory $false
     $currentStage = 'candidate_validation'
-    Test-LtaooClashConfig -ClashExePath $resolvedClash -ConfigPath $candidatePath -DataDirectory (Split-Path -Parent $resolvedClashConfig)
+    Test-LtaooRouterConfig -Backend $routerBackend -ConfigPath $candidatePath -DataDirectory (Split-Path -Parent $resolvedRouterConfig)
     $currentStage = 'candidate_validated'
     $temporaryHash = Get-LtaooFileHash -LiteralPath $candidatePath
 
     $secretsRoot = Join-Path $resolvedRunRoot 'secrets'
     $journal = [ordered]@{
-        schema_version = 1; run_id = $runId; run_root = $resolvedRunRoot; phase = 'authorized'; created_at = [DateTimeOffset]::UtcNow.ToString('o')
+        schema_version = 2; run_id = $runId; run_root = $resolvedRunRoot; phase = 'authorized'; created_at = [DateTimeOffset]::UtcNow.ToString('o')
         ca_thumbprint = ''; ltaoo_pid = 0; ltaoo_start_time = ''; ltaoo_path = $resolvedLtaoo; ltaoo_sha256 = Get-LtaooFileHash -LiteralPath $resolvedLtaoo
-        clash_config_path = $resolvedClashConfig; clash_baseline_sha256 = $baselineHash; clash_temporary_sha256 = $temporaryHash; clash_backup_path = $backupPath
+        router_kind = $effectiveRouterKind; router_executable_path = $resolvedRouter; router_executable_sha256 = Get-LtaooFileHash -LiteralPath $resolvedRouter; router_config_path = $resolvedRouterConfig
+        router_baseline_sha256 = $baselineHash; router_temporary_sha256 = $temporaryHash; router_backup_path = $backupPath; router_capability_fingerprint = $effectiveRouterCapabilityFingerprint
         secrets_root = $secretsRoot; api_port = $ApiPort; proxy_port = $ProxyPort
         request_path = $resolvedRequest; batch_path = $resolvedBatch; batch_sha256 = Get-LtaooFileHash -LiteralPath $resolvedBatch
     }
@@ -301,10 +359,10 @@ try {
     $journal.phase = 'certificate_installed'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 
-    Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidatePath)) -LiteralPath $resolvedClashConfig
-    Invoke-LtaooClashReload -Controller $controller -ConfigPath $resolvedClashConfig
-    $currentStage = 'clash_reloaded'
-    $journal.phase = 'clash_reloaded'
+    Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidatePath)) -LiteralPath $resolvedRouterConfig
+    Invoke-LtaooRouterReload -Backend $routerBackend -Controller $controller -ConfigPath $resolvedRouterConfig
+    $currentStage = 'router_reloaded'
+    $journal.phase = 'router_reloaded'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 
     $certYaml = $certificate.CertificatePath.Replace('\', '/')
@@ -370,11 +428,11 @@ cert:
     [Console]::Error.WriteLine($safeFailureCode)
     $finalExitCode = 4
 } finally {
-    if ($null -ne $journal -and $null -ne $runtimeBase -and $null -ne $resolvedClash) {
+    if ($null -ne $journal -and $null -ne $runtimeBase -and $null -ne $routerBackend) {
         try {
             $journal.phase = 'cleaning'
             Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
-            $receipt = Invoke-JournalCleanup -Journal ([pscustomobject]$journal) -RuntimeBase $runtimeBase -ClashExecutable $resolvedClash
+            $receipt = Invoke-JournalCleanup -Journal ([pscustomobject]$journal) -RuntimeBase $runtimeBase -Backend $routerBackend
             $receiptPath = Join-Path $resolvedRunRoot 'cleanup-receipt.input.json'
             Write-LtaooJsonAtomic -Value $receipt -LiteralPath $receiptPath
             if (-not [bool]$receipt.safe) { $finalExitCode = 3 }
@@ -389,7 +447,7 @@ cert:
             }
         } catch { $finalExitCode = 3 }
     } elseif ($null -ne $resolvedRunRoot) {
-        foreach ($name in @('clash-baseline.bin', 'clash-candidate.yaml', 'clash-recovery-candidate.yaml', 'ltaoo-runtime.yaml')) {
+        foreach ($name in @('router-baseline.bin', 'router-candidate.yaml', 'router-recovery-candidate.yaml', 'clash-baseline.bin', 'clash-candidate.yaml', 'clash-recovery-candidate.yaml', 'ltaoo-runtime.yaml')) {
             $target = Join-Path $resolvedRunRoot $name
             if ([IO.File]::Exists($target)) { Remove-Item -LiteralPath $target -Force }
         }
