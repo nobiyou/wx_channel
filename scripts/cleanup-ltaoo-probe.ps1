@@ -7,6 +7,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($null -eq (Get-PSDrive -Name Cert -ErrorAction SilentlyContinue)) {
+    $securityModule = Join-Path $PSHOME "Modules\Microsoft.PowerShell.Security"
+    Import-Module -Name $securityModule -ErrorAction Stop
+}
 
 function Resolve-ProbeRepoRoot {
     param([string]$Value)
