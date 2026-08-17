@@ -13,6 +13,13 @@ function Get-LtaooFileHash {
     return (Get-FileHash -LiteralPath $LiteralPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-LtaooStringHash {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Value)
+    try { return Get-LtaooSha256Hex -Bytes $bytes }
+    finally { [Array]::Clear($bytes, 0, $bytes.Length) }
+}
+
 function Get-LtaooRuntimePathsHash {
     param([Parameter(Mandatory = $true)][string[]]$LiteralPaths)
     $canonical = foreach ($path in $LiteralPaths) {
@@ -114,16 +121,56 @@ function Use-LtaooRunGrant {
         [Parameter(Mandatory = $true)][string]$RequestPath,
         [Parameter(Mandatory = $true)][string[]]$RuntimePaths,
         [Parameter(Mandatory = $true)][string]$LtaooExePath,
-        [Parameter(Mandatory = $true)][string]$BatchExePath
+        [Parameter(Mandatory = $true)][string]$BatchExePath,
+        [string]$ExpectedAuthorizationMode = 'wechat-channels-local-runtime-v1',
+        [string]$RouterKind = '',
+        [string]$RouterExePath = '',
+        [string]$RouterConfigPath = '',
+        [string]$RouterCapabilityFingerprint = ''
     )
-    $allowedProperties = @(
+    $legacyMode = 'wechat-channels-local-runtime-v1'
+    $routerMode = 'wechat-channels-local-runtime-v2'
+    $commonProperties = @(
         'schema_version', 'authorization_mode', 'run_id', 'windows_sid', 'request_sha256',
         'runtime_paths_sha256', 'ltaoo_executable_sha256', 'batch_executable_sha256',
         'expires_at', 'actions'
     )
+    if ($ExpectedAuthorizationMode -ceq $legacyMode) {
+        if (
+            -not [string]::IsNullOrWhiteSpace($RouterKind) -or
+            -not [string]::IsNullOrWhiteSpace($RouterExePath) -or
+            -not [string]::IsNullOrWhiteSpace($RouterConfigPath) -or
+            -not [string]::IsNullOrWhiteSpace($RouterCapabilityFingerprint)
+        ) {
+            throw 'grant_argument_group_invalid'
+        }
+        $allowedProperties = $commonProperties
+        $expectedSchemaVersion = 1
+    } elseif ($ExpectedAuthorizationMode -ceq $routerMode) {
+        if (
+            [string]::IsNullOrWhiteSpace($RouterKind) -or
+            [string]::IsNullOrWhiteSpace($RouterExePath) -or
+            [string]::IsNullOrWhiteSpace($RouterConfigPath) -or
+            [string]::IsNullOrWhiteSpace($RouterCapabilityFingerprint)
+        ) {
+            throw 'grant_argument_group_invalid'
+        }
+        if ($RouterKind -cne 'mihomo') { throw 'router_kind_unsupported' }
+        if ($RouterCapabilityFingerprint -cnotmatch '^[a-f0-9]{64}$') { throw 'grant_router_capability_fingerprint_invalid' }
+        $allowedProperties = @(
+            $commonProperties
+            'router_kind'
+            'router_executable_sha256'
+            'router_config_path_sha256'
+            'router_capability_fingerprint'
+        )
+        $expectedSchemaVersion = 2
+    } else {
+        throw 'grant_authorization_mode_unsupported'
+    }
     Assert-LtaooOwnerOnlyAcl -LiteralPath $GrantPath
     $grant = Read-LtaooStrictJson -LiteralPath $GrantPath -AllowedProperties $allowedProperties
-    if ([int]$grant.schema_version -ne 1 -or [string]$grant.authorization_mode -cne 'wechat-channels-local-runtime-v1' -or [string]$grant.run_id -cne $RunId) {
+    if ([int]$grant.schema_version -ne $expectedSchemaVersion -or [string]$grant.authorization_mode -cne $ExpectedAuthorizationMode -or [string]$grant.run_id -cne $RunId) {
         throw 'grant_identity_invalid'
     }
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -136,8 +183,19 @@ function Use-LtaooRunGrant {
     if ([string]$grant.runtime_paths_sha256 -cne (Get-LtaooRuntimePathsHash -LiteralPaths $RuntimePaths)) { throw 'grant_runtime_paths_mismatch' }
     if ([string]$grant.ltaoo_executable_sha256 -cne (Get-LtaooFileHash -LiteralPath $LtaooExePath)) { throw 'grant_ltaoo_hash_mismatch' }
     if ([string]$grant.batch_executable_sha256 -cne (Get-LtaooFileHash -LiteralPath $BatchExePath)) { throw 'grant_batch_hash_mismatch' }
+    if ($ExpectedAuthorizationMode -ceq $routerMode) {
+        if ([string]$grant.router_kind -cne $RouterKind) { throw 'grant_router_kind_mismatch' }
+        if ([string]$grant.router_executable_sha256 -cne (Get-LtaooFileHash -LiteralPath $RouterExePath)) { throw 'grant_router_hash_mismatch' }
+        $canonicalConfigPath = [IO.Path]::GetFullPath($RouterConfigPath).ToLowerInvariant()
+        if ([string]$grant.router_config_path_sha256 -cne (Get-LtaooStringHash -Value $canonicalConfigPath)) { throw 'grant_router_config_path_mismatch' }
+        if ([string]$grant.router_capability_fingerprint -cne $RouterCapabilityFingerprint) { throw 'grant_router_capability_mismatch' }
+    }
     $actions = @($grant.actions | ForEach-Object { [string]$_ } | Sort-Object)
-    $expected = @('install_current_user_ca', 'modify_clash', 'start_ltaoo')
+    $expected = if ($ExpectedAuthorizationMode -ceq $routerMode) {
+        @('install_current_user_ca', 'modify_proxy_router', 'start_ltaoo')
+    } else {
+        @('install_current_user_ca', 'modify_clash', 'start_ltaoo')
+    }
     if (($actions -join '|') -cne ($expected -join '|')) { throw 'grant_actions_invalid' }
     Remove-Item -LiteralPath $GrantPath -Force
     if ([IO.File]::Exists($GrantPath)) { throw 'grant_consume_failed' }
@@ -490,7 +548,7 @@ function Remove-LtaooCurrentUserCA {
 }
 
 Export-ModuleMember -Function @(
-    'Get-LtaooFileHash', 'Get-LtaooRuntimePathsHash', 'Assert-LtaooNoReparseInPath', 'Assert-LtaooNoReparsePoint', 'Assert-LtaooAllowedProperties',
+    'Get-LtaooFileHash', 'Get-LtaooStringHash', 'Get-LtaooRuntimePathsHash', 'Assert-LtaooNoReparseInPath', 'Assert-LtaooNoReparsePoint', 'Assert-LtaooAllowedProperties',
     'Read-LtaooStrictJson', 'Assert-LtaooOwnerOnlyAcl', 'Use-LtaooRunGrant', 'Add-LtaooClashBlock', 'Remove-LtaooClashBlock',
     'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
     'Write-LtaooBytesAtomic', 'Write-LtaooJsonAtomic', 'New-LtaooRunCertificate', 'Install-LtaooCurrentUserCA',
