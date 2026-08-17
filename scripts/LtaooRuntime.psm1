@@ -89,7 +89,11 @@ function Read-LtaooStrictJson {
     if (-not [IO.File]::Exists($LiteralPath)) { throw 'json_file_missing' }
     $item = Get-Item -Force -LiteralPath $LiteralPath
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $item.Length -gt 1MB) { throw 'json_file_unsafe' }
-    try { $value = Get-Content -Raw -LiteralPath $LiteralPath | ConvertFrom-Json }
+    try {
+        $bytes = [IO.File]::ReadAllBytes($LiteralPath)
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+        $value = $text | ConvertFrom-Json
+    }
     catch { throw 'json_file_invalid' }
     Assert-LtaooAllowedProperties -Value $value -AllowedProperties $AllowedProperties
     return $value

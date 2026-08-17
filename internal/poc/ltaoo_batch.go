@@ -203,7 +203,12 @@ func RunLtaooBatch(ctx context.Context, request BatchRequest, client *LtaooClien
 	if err := ensurePathComponentsSafe(root, stateRoot, false); err != nil {
 		return BatchDraftResult{}, errors.New("batch state path contains a link")
 	}
-	result := BatchDraftResult{SchemaVersion: BatchSchemaVersion, RunID: request.RunID, Status: BatchSucceeded}
+	result := BatchDraftResult{
+		SchemaVersion: BatchSchemaVersion,
+		RunID:         request.RunID,
+		Status:        BatchSucceeded,
+		Targets:       make([]BatchTargetSummary, 0),
+	}
 	issues := make([]Issue, 0)
 	works := make([]Work, 0)
 	comments := make([]Comment, 0)
