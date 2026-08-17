@@ -27,6 +27,7 @@ func DefaultOptions() Options {
 		Limits: Limits{
 			Works:                   10,
 			TopLevelCommentsPerWork: 100,
+			RepliesPerComment:       20,
 			RepliesPerWork:          200,
 		},
 		HumanWait: HumanWaitPolicy{
@@ -51,7 +52,7 @@ func (o Options) ValidateForRun() error {
 	if o.Keyword != "青云装饰" {
 		return errors.New("keyword must be 青云装饰")
 	}
-	if o.Limits != (Limits{Works: 10, TopLevelCommentsPerWork: 100, RepliesPerWork: 200}) {
+	if o.Limits != (Limits{Works: 10, TopLevelCommentsPerWork: 100, RepliesPerComment: 20, RepliesPerWork: 200}) {
 		return errors.New("limits differ from approved spec")
 	}
 	if o.HumanWait.Timeout != 300*time.Second || o.HumanWait.Extension != 300*time.Second || o.HumanWait.MaxExtensions != 1 {

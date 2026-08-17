@@ -10,7 +10,8 @@ import (
 func TestDefaultOptionsAreFixedToApprovedSpec(t *testing.T) {
 	got := DefaultOptions()
 	if got.Keyword != "青云装饰" || got.Limits.Works != 10 ||
-		got.Limits.TopLevelCommentsPerWork != 100 || got.Limits.RepliesPerWork != 200 {
+		got.Limits.TopLevelCommentsPerWork != 100 || got.Limits.RepliesPerComment != 20 ||
+		got.Limits.RepliesPerWork != 200 {
 		t.Fatalf("unexpected defaults: %+v", got)
 	}
 	if got.HumanWait.Timeout != 300*time.Second || got.HumanWait.Extension != 300*time.Second || got.HumanWait.MaxExtensions != 1 {
@@ -52,6 +53,13 @@ func TestValidateForRunRequiresApprovedSafetyEnvelope(t *testing.T) {
 	options.ProxyAddress = "0.0.0.0:2025"
 	if err := options.ValidateForRun(); err == nil {
 		t.Fatal("ValidateForRun() accepted a non-loopback listener")
+	}
+
+	options = DefaultOptions()
+	options.AckIsolatedVM = true
+	options.Limits.RepliesPerComment++
+	if err := options.ValidateForRun(); err == nil {
+		t.Fatal("ValidateForRun() accepted unapproved per-comment reply limit")
 	}
 
 	options = DefaultOptions()

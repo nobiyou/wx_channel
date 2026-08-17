@@ -31,14 +31,19 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 	if work.WorkID == nil || *work.WorkID == "" {
 		return nil, summary, errors.New("work ID is missing")
 	}
-	if options.Limits.TopLevelCommentsPerWork <= 0 || options.Limits.RepliesPerWork <= 0 {
-		return nil, summary, errors.New("comment limits must be positive")
+	if options.Limits.TopLevelCommentsPerWork <= 0 {
+		return nil, summary, errors.New("top-level comment limit must be positive")
+	}
+	repliesEnabled := options.Limits.RepliesPerComment > 0 && options.Limits.RepliesPerWork > 0
+	if !repliesEnabled && (options.Limits.RepliesPerComment != 0 || options.Limits.RepliesPerWork != 0) {
+		return nil, summary, errors.New("reply limits must both be zero or positive")
 	}
 	c.currentWorkRank = work.Locator.SearchRank
 
 	comments := make([]Comment, 0)
 	topSeen := make(map[string]struct{})
 	replySeen := make(map[string]struct{})
+	repliesByRoot := make(map[string]int)
 	missingSeen := make(map[string]struct{})
 	topMarkers := make(map[string]struct{})
 	roots := make([]replyRoot, 0)
@@ -60,6 +65,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				}
 			} else if saved.Level == 2 {
 				summary.Replies++
+				repliesByRoot[commentReplyRoot(saved)]++
 				if saved.CommentID != nil {
 					replySeen[*saved.CommentID] = struct{}{}
 				}
@@ -79,8 +85,8 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			markTruncated(&summary, "top_level_limit")
 			skipTop = true
 		}
-		if summary.Replies >= options.Limits.RepliesPerWork {
-			markTruncated(&summary, "reply_limit")
+		if repliesEnabled {
+			markReachedReplyLimits(&summary, options.Limits, "", summary.Replies, repliesByRoot)
 		}
 		switch checkpoint.Phase {
 		case "comments_top":
@@ -131,24 +137,34 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			summary.TopLevel++
 
 			embedded := childComments(item)
+			rootID := dereferenceString(comment.CommentID)
 			for _, child := range embedded {
-				if summary.Replies >= options.Limits.RepliesPerWork {
-					markTruncated(&summary, "reply_limit")
+				if !repliesEnabled {
 					break
 				}
 				ordinal++
 				childSource := pageSource
 				childSource.Ordinal = ordinal
-				reply, _ := mapComment(child, 2, work.WorkID, nil, childSource)
+				reply, _ := mapComment(child, 2, work.WorkID, comment.CommentID, childSource)
+				if reply.CommentID != nil {
+					if _, duplicate := replySeen[*reply.CommentID]; duplicate {
+						continue
+					}
+				}
+				if markReachedReplyLimits(&summary, options.Limits, rootID, summary.Replies, repliesByRoot) {
+					break
+				}
 				if !acceptCommentID(reply.CommentID, childSource, replySeen, missingSeen) {
 					continue
 				}
 				comments = append(comments, reply)
 				summary.Replies++
+				repliesByRoot[rootID]++
 			}
 
 			reportedReplies := integerField(item, "expandCommentCount")
-			if reportedReplies > len(embedded) && summary.Replies < options.Limits.RepliesPerWork {
+			if repliesEnabled && reportedReplies > len(embedded) &&
+				summary.Replies < options.Limits.RepliesPerWork && repliesByRoot[rootID] < options.Limits.RepliesPerComment {
 				if comment.CommentID == nil {
 					markPartial(&summary, "missing_root_comment_id")
 				} else if _, exists := queuedRoots[*comment.CommentID]; !exists {
@@ -186,8 +202,13 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 	}
 
 	for rootIndex, root := range roots {
-		if summary.Replies >= options.Limits.RepliesPerWork {
-			markTruncated(&summary, "reply_limit")
+		if markReachedReplyLimits(&summary, options.Limits, root.id, summary.Replies, repliesByRoot) {
+			if summary.Replies >= options.Limits.RepliesPerWork {
+				break
+			}
+			continue
+		}
+		if !repliesEnabled {
 			break
 		}
 		marker = ""
@@ -198,11 +219,15 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 		}
 		seenMarkers := make(map[string]struct{})
 		for {
-			raw, pageSource, err := c.call(ctx, commentListMethod, map[string]any{
+			replyBody := map[string]any{
 				"object_id":   *work.WorkID,
 				"comment_id":  root.id,
 				"next_marker": marker,
-			})
+			}
+			if work.ObjectNonceID != nil {
+				replyBody["nonce_id"] = *work.ObjectNonceID
+			}
+			raw, pageSource, err := c.call(ctx, commentListMethod, replyBody)
 			if err != nil {
 				if checkpointErr := c.saveCommentCheckpoint(work, comments, marker, "comments_replies", roots[rootIndex:], &root.id); checkpointErr != nil {
 					return comments, summary, checkpointErr
@@ -217,24 +242,28 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				return comments, summary, CategorizedError{Category: ErrorStructure}
 			}
 			for index, item := range items {
-				if summary.Replies >= options.Limits.RepliesPerWork {
-					markTruncated(&summary, "reply_limit")
-					break
-				}
 				source := pageSource
 				source.Ordinal = index + 1
 				reply, _ := mapComment(item, 2, work.WorkID, &root.id, source)
+				if reply.CommentID != nil {
+					if _, duplicate := replySeen[*reply.CommentID]; duplicate {
+						continue
+					}
+				}
+				if markReachedReplyLimits(&summary, options.Limits, root.id, summary.Replies, repliesByRoot) {
+					break
+				}
 				if !acceptCommentID(reply.CommentID, source, replySeen, missingSeen) {
 					continue
 				}
 				comments = append(comments, reply)
 				summary.Replies++
+				repliesByRoot[root.id]++
 			}
 			if err := c.saveCommentCheckpoint(work, comments, nextMarker, "comments_replies", roots[rootIndex:], &root.id); err != nil {
 				return comments, summary, err
 			}
-			if summary.Replies >= options.Limits.RepliesPerWork {
-				markTruncated(&summary, "reply_limit")
+			if markReachedReplyLimits(&summary, options.Limits, root.id, summary.Replies, repliesByRoot) {
 				break
 			}
 			if !markerPresent {
@@ -451,6 +480,31 @@ func markTruncated(summary *CommentSummary, reason string) {
 func markPartial(summary *CommentSummary, reason string) {
 	summary.Partial = true
 	appendReason(summary, reason)
+}
+
+func markReachedReplyLimits(summary *CommentSummary, limits Limits, rootID string, total int, byRoot map[string]int) bool {
+	if limits.RepliesPerComment <= 0 || limits.RepliesPerWork <= 0 {
+		return false
+	}
+	reached := false
+	if total >= limits.RepliesPerWork {
+		markTruncated(summary, "reply_per_work_limit")
+		reached = true
+	}
+	if rootID != "" && byRoot[rootID] >= limits.RepliesPerComment {
+		markTruncated(summary, "reply_per_comment_limit")
+		reached = true
+	}
+	return reached
+}
+
+func commentReplyRoot(comment Comment) string {
+	for _, candidate := range []*string{comment.RetrievalRootCommentID, comment.RootCommentID, comment.ParentCommentID} {
+		if candidate != nil && *candidate != "" {
+			return *candidate
+		}
+	}
+	return ""
 }
 
 func appendReason(summary *CommentSummary, reason string) {
