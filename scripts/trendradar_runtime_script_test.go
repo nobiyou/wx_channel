@@ -70,6 +70,36 @@ func TestTrendRadarRuntimeAcceptsClosedLegacyAndGenericArgumentGroups(t *testing
 	}
 }
 
+func TestTrendRadarRuntimeImportsKeepRuntimeCommandsVisible(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeModule := filepath.Join(root, "scripts", "LtaooRuntime.psm1")
+	routerModule := filepath.Join(root, "scripts", "LtaooRouter.psm1")
+	quote := func(value string) string {
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	command := strings.Join([]string{
+		"$ErrorActionPreference = 'Stop'",
+		"Import-Module " + quote(runtimeModule) + " -Force",
+		"Import-Module " + quote(routerModule) + " -Force",
+		"Get-Command Assert-LtaooNoReparsePoint -ErrorAction Stop | Out-Null",
+		"Get-Command New-LtaooRouterBackend -ErrorAction Stop | Out-Null",
+	}, "; ")
+
+	output, runErr := exec.Command(
+		probePowerShell(t),
+		"-NoProfile",
+		"-NonInteractive",
+		"-Command",
+		command,
+	).CombinedOutput()
+	if runErr != nil {
+		t.Fatalf("runtime commands disappeared after router import: %v\n%s", runErr, output)
+	}
+}
+
 func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	root, err := filepath.Abs("..")
 	if err != nil {

@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'LtaooRuntime.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'LtaooRuntime.psm1')
 
 function Assert-LtaooRouterBackend {
     param([Parameter(Mandatory = $true)][object]$Backend)
