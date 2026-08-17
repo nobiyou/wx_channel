@@ -26,6 +26,7 @@ Describe 'TrendRadar ltaoo Clash runtime transform' {
         $updated | Should Match 'server: 127.0.0.1'
         $updated | Should Match 'port: 2023'
         $updated | Should Match 'PROCESS-NAME,wx_video_download.exe,DIRECT'
+        $updated | Should Match 'PROCESS-NAME,WeChatAppEx.exe,trendradar-wx-fixture-run-1'
         $updated | Should Match 'PROCESS-NAME,Weixin.exe,trendradar-wx-fixture-run-1'
         $updated | Should Match 'PROCESS-NAME,WeChat.exe,trendradar-wx-fixture-run-1'
         $updated.IndexOf('wx_video_download.exe') | Should BeLessThan $updated.IndexOf('Weixin.exe')
@@ -63,9 +64,25 @@ Describe 'TrendRadar ltaoo Clash runtime transform' {
         $roundTrip[2] | Should Be 191
         $updated | Should Match 'PROCESS-NAME,WeChat.exe,trendradar-wx-fixture-run-3'
     }
+
+    It 'preserves indentless Clash Verge sequence style' {
+        $baseline = "proxies:`n- name: existing`n  type: http`n  server: 127.0.0.1`n  port: 8080`nrules:`n- MATCH,DIRECT`n"
+
+        $updated = Add-LtaooClashBlock -Text $baseline -RunId 'fixture-run-4' -ProxyPort 2023
+
+        $updated | Should Match "(?m)^- name: trendradar-wx-fixture-run-4$"
+        $updated | Should Match "(?m)^  type: http$"
+        $updated | Should Match "(?m)^- PROCESS-NAME,wx_video_download.exe,DIRECT$"
+        $updated | Should Match "(?m)^- PROCESS-NAME,WeChatAppEx.exe,trendradar-wx-fixture-run-4$"
+        $updated | Should Match "(?m)^- MATCH,DIRECT$"
+    }
 }
 
 Describe 'TrendRadar ltaoo one-shot grant' {
+    It 'exports the ACL assertion used by the entry script' {
+        (Get-Command Assert-LtaooOwnerOnlyAcl -ErrorAction Stop).CommandType | Should BeExactly 'Function'
+    }
+
     BeforeEach {
         $runtimeRoot = Join-Path $TestDrive 'runtime'
         [void](New-Item -ItemType Directory -Path $runtimeRoot -Force)
@@ -113,6 +130,33 @@ Describe 'TrendRadar ltaoo one-shot grant' {
 
         { Use-LtaooRunGrant -GrantPath $grantPath -RunId 'grant-fixture-1' -RequestPath $requestPath -RuntimePaths $runtimePaths -LtaooExePath $ltaooPath -BatchExePath $batchPath } | Should Throw
         (Test-Path -LiteralPath $grantPath) | Should Be $true
+    }
+
+    It 'rejects an untrusted explicit ACL principal' {
+        $path = Join-Path $TestDrive 'untrusted-acl'
+        [void](New-Item -ItemType Directory -Path $path)
+        $current = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $acl = [Security.AccessControl.DirectorySecurity]::new()
+        $acl.SetOwner($current)
+        $acl.SetAccessRuleProtection($true, $false)
+        $currentRule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $current,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow
+        )
+        [void]$acl.AddAccessRule($currentRule)
+        $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+        $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $everyone,
+            [Security.AccessControl.FileSystemRights]::Read,
+            [Security.AccessControl.AccessControlType]::Allow
+        )
+        [void]$acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $path -AclObject $acl
+
+        { Assert-LtaooOwnerOnlyAcl -LiteralPath $path } | Should Throw
     }
 }
 

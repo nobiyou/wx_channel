@@ -91,14 +91,20 @@ function Read-LtaooStrictJson {
 function Assert-LtaooOwnerOnlyAcl {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
     $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $trustedSids = @($currentSid, 'S-1-3-4', 'S-1-5-18', 'S-1-5-32-544')
     $acl = Get-Acl -LiteralPath $LiteralPath
     try { $ownerSid = [Security.Principal.SecurityIdentifier]::new($acl.Owner).Value }
     catch { $ownerSid = ([Security.Principal.NTAccount]::new($acl.Owner)).Translate([Security.Principal.SecurityIdentifier]).Value }
     if (-not $acl.AreAccessRulesProtected -or $ownerSid -ne $currentSid) { throw 'grant_acl_not_owner_only' }
+    $currentUserAllowed = $false
     foreach ($rule in $acl.Access) {
         $ruleSid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-        if ($ruleSid -ne $currentSid -or $rule.IsInherited) { throw 'grant_acl_not_owner_only' }
+        if ($ruleSid -notin $trustedSids -or $rule.IsInherited -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw 'grant_acl_not_owner_only'
+        }
+        if ($ruleSid -eq $currentSid) { $currentUserAllowed = $true }
     }
+    if (-not $currentUserAllowed) { throw 'grant_acl_not_owner_only' }
 }
 
 function Use-LtaooRunGrant {
@@ -144,6 +150,18 @@ function Get-LtaooNewline {
     return "`n"
 }
 
+function Get-LtaooSequenceIndent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Section
+    )
+    $escaped = [Text.RegularExpressions.Regex]::Escape($Section)
+    $pattern = '(?ms)^' + $escaped + ':[ \t]*(?:\[[ \t]*\])?[ \t]*\r?\n(?:(?:[ \t]*#.*)?\r?\n)*(?<indent>[ \t]*)-(?:[ \t]|$)'
+    $match = [Text.RegularExpressions.Regex]::Match($Text, $pattern)
+    if ($match.Success) { return $match.Groups['indent'].Value }
+    return '  '
+}
+
 function Add-LtaooClashBlock {
     param(
         [Parameter(Mandatory = $true)][string]$Text,
@@ -153,20 +171,24 @@ function Add-LtaooClashBlock {
     if ($Text -match '# TREND_RADAR_WX_(BEGIN|END) ') { throw 'clash_runtime_marker_exists' }
     $newline = Get-LtaooNewline -Text $Text
     $proxyName = 'trendradar-wx-' + $RunId
+    $proxyIndent = Get-LtaooSequenceIndent -Text $Text -Section 'proxies'
+    $proxyPropertyIndent = $proxyIndent + '  '
+    $rulesIndent = Get-LtaooSequenceIndent -Text $Text -Section 'rules'
     $proxyBlock = @(
-        "# TREND_RADAR_WX_BEGIN $RunId PROXY",
-        "  - name: $proxyName",
-        '    type: http',
-        '    server: 127.0.0.1',
-        "    port: $ProxyPort",
-        "# TREND_RADAR_WX_END $RunId PROXY"
+        ($proxyIndent + "# TREND_RADAR_WX_BEGIN $RunId PROXY"),
+        ($proxyIndent + "- name: $proxyName"),
+        ($proxyPropertyIndent + 'type: http'),
+        ($proxyPropertyIndent + 'server: 127.0.0.1'),
+        ($proxyPropertyIndent + "port: $ProxyPort"),
+        ($proxyIndent + "# TREND_RADAR_WX_END $RunId PROXY")
     ) -join $newline
     $ruleBlock = @(
-        "# TREND_RADAR_WX_BEGIN $RunId RULES",
-        '  - PROCESS-NAME,wx_video_download.exe,DIRECT',
-        "  - PROCESS-NAME,Weixin.exe,$proxyName",
-        "  - PROCESS-NAME,WeChat.exe,$proxyName",
-        "# TREND_RADAR_WX_END $RunId RULES"
+        ($rulesIndent + "# TREND_RADAR_WX_BEGIN $RunId RULES"),
+        ($rulesIndent + '- PROCESS-NAME,wx_video_download.exe,DIRECT'),
+        ($rulesIndent + "- PROCESS-NAME,WeChatAppEx.exe,$proxyName"),
+        ($rulesIndent + "- PROCESS-NAME,Weixin.exe,$proxyName"),
+        ($rulesIndent + "- PROCESS-NAME,WeChat.exe,$proxyName"),
+        ($rulesIndent + "# TREND_RADAR_WX_END $RunId RULES")
     ) -join $newline
     $proxyPattern = '(?m)^proxies:[ \t]*(?:\[[ \t]*\])?[ \t]*(\r?\n)'
     $rulesPattern = '(?m)^rules:[ \t]*(?:\[[ \t]*\])?[ \t]*(\r?\n)'
@@ -293,11 +315,17 @@ function Get-LtaooClashController {
 function Test-LtaooClashConfig {
     param(
         [Parameter(Mandatory = $true)][string]$ClashExePath,
-        [Parameter(Mandatory = $true)][string]$ConfigPath
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [string]$DataDirectory = ''
     )
-    $dataDirectory = [IO.Path]::GetDirectoryName($ConfigPath)
-    if ($ConfigPath.Contains('"') -or $dataDirectory.Contains('"')) { throw 'unsupported_path_character' }
-    $arguments = '-t -d "' + $dataDirectory + '" -f "' + $ConfigPath + '"'
+    $resolvedDataDirectory = if ([string]::IsNullOrWhiteSpace($DataDirectory)) {
+        [IO.Path]::GetDirectoryName($ConfigPath)
+    } else {
+        [IO.Path]::GetFullPath($DataDirectory)
+    }
+    if (-not [IO.Directory]::Exists($resolvedDataDirectory)) { throw 'clash_data_directory_missing' }
+    if ($ConfigPath.Contains('"') -or $resolvedDataDirectory.Contains('"')) { throw 'unsupported_path_character' }
+    $arguments = '-t -d "' + $resolvedDataDirectory + '" -f "' + $ConfigPath + '"'
     $process = Start-Process -FilePath $ClashExePath -ArgumentList $arguments -PassThru -Wait -WindowStyle Hidden
     if ($process.ExitCode -ne 0) { throw 'clash_config_invalid' }
 }
@@ -463,7 +491,7 @@ function Remove-LtaooCurrentUserCA {
 
 Export-ModuleMember -Function @(
     'Get-LtaooFileHash', 'Get-LtaooRuntimePathsHash', 'Assert-LtaooNoReparseInPath', 'Assert-LtaooNoReparsePoint', 'Assert-LtaooAllowedProperties',
-    'Read-LtaooStrictJson', 'Use-LtaooRunGrant', 'Add-LtaooClashBlock', 'Remove-LtaooClashBlock',
+    'Read-LtaooStrictJson', 'Assert-LtaooOwnerOnlyAcl', 'Use-LtaooRunGrant', 'Add-LtaooClashBlock', 'Remove-LtaooClashBlock',
     'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
     'Write-LtaooBytesAtomic', 'Write-LtaooJsonAtomic', 'New-LtaooRunCertificate', 'Install-LtaooCurrentUserCA',
     'Remove-LtaooCurrentUserCA', 'Set-LtaooOwnerOnlyAcl'

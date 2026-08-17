@@ -24,7 +24,9 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		"runtime_paths_sha256", "ltaoo_executable_sha256", "threading.mutex", "runtime-journal.json",
 		"batch_executable_sha256", "test-ltaooprocessidentity", "convertfrom-ltaooutf8bytes",
 		"wx_channel_ltaoo_batch", "cleanup-receipt", "process-name,wx_video_download.exe,direct",
-		"process-name,weixin.exe", "process-name,wechat.exe", "external-controller", "/configs?force=true",
+		"process-name,wechatappex.exe", "process-name,weixin.exe", "process-name,wechat.exe", "external-controller", "/configs?force=true",
+		"-datadirectory (split-path -parent $resolvedclashconfig)",
+		"safefailurecode", "runtime_failed",
 	} {
 		if !strings.Contains(combined, required) {
 			t.Errorf("runtime scripts missing %q", required)

@@ -70,7 +70,7 @@ function Restore-JournalClashConfig {
                 $recovered = Remove-LtaooClashBlock -Text $currentText -RunId ([string]$Journal.run_id)
                 $candidate = Join-Path ([string]$Journal.run_root) 'clash-recovery-candidate.yaml'
                 [IO.File]::WriteAllBytes($candidate, (ConvertTo-LtaooUtf8Bytes -Text $recovered -WithBom $currentDecoded.HasBom))
-                Test-LtaooClashConfig -ClashExePath $ClashExecutable -ConfigPath $candidate
+                Test-LtaooClashConfig -ClashExePath $ClashExecutable -ConfigPath $candidate -DataDirectory (Split-Path -Parent $configPath)
                 Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidate)) -LiteralPath $configPath
                 Remove-Item -LiteralPath $candidate -Force
             }
@@ -205,24 +205,31 @@ $resolvedClashConfig = $null
 $resolvedBatch = $null
 $receiptPath = $null
 $draftExists = $false
+$currentStage = 'startup'
 
 try {
+    $currentStage = 'windows_identity'
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $mutexNameHash = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($sid)).Replace('/', '_').Replace('+', '-').TrimEnd('=')
     $mutex = [Threading.Mutex]::new($false, 'Local\TrendRadar-WeChatChannels-' + $mutexNameHash)
     $mutexAcquired = $mutex.WaitOne(0)
     if (-not $mutexAcquired) { exit 3 }
 
+    $currentStage = 'run_root_resolution'
     $resolvedRunRoot = (Resolve-Path -LiteralPath $RunRoot).Path
     $runtimeBase = (Resolve-Path -LiteralPath (Split-Path -Parent $resolvedRunRoot)).Path
     Assert-LtaooNoReparsePoint -BasePath $runtimeBase -TargetPath $resolvedRunRoot
+    $currentStage = 'run_root_acl'
     Assert-LtaooOwnerOnlyAcl -LiteralPath $resolvedRunRoot
+    $currentStage = 'journal_path'
     $journalPath = [IO.Path]::GetFullPath($RuntimeJournalPath)
     if ([IO.Path]::GetFileName($journalPath) -cne 'runtime-journal.json') { throw 'runtime_journal_path_invalid' }
     Assert-LtaooNoReparsePoint -BasePath $runtimeBase -TargetPath $journalPath
 
+    $currentStage = 'clash_executable'
     $resolvedClash = Resolve-RuntimeFile -LiteralPath $ClashExePath
     if ([IO.File]::Exists($journalPath)) {
+        $currentStage = 'journal_recovery'
         $prior = Read-RuntimeJournal -LiteralPath $journalPath
         $priorRunRoot = [IO.Path]::GetFullPath([string]$prior.run_root)
         Assert-LtaooNoReparsePoint -BasePath $runtimeBase -TargetPath $priorRunRoot
@@ -234,6 +241,7 @@ try {
         Remove-Item -LiteralPath $journalPath -Force
     }
 
+    $currentStage = 'resolve_runtime_files'
     $resolvedRequest = Resolve-RuntimeFile -LiteralPath $RequestPath
     $resolvedGrant = Resolve-RuntimeFile -LiteralPath $GrantPath
     Assert-LtaooNoReparsePoint -BasePath $resolvedRunRoot -TargetPath $resolvedRequest
@@ -252,6 +260,7 @@ try {
 
     $runtimePaths = @($resolvedLtaoo, $resolvedClash, $resolvedClashConfig, $resolvedBatch, $runtimeBase)
     [void](Use-LtaooRunGrant -GrantPath $resolvedGrant -RunId $runId -RequestPath $resolvedRequest -RuntimePaths $runtimePaths -LtaooExePath $resolvedLtaoo -BatchExePath $resolvedBatch)
+    $currentStage = 'grant_consumed'
     if (-not (Get-ListenerAbsent -Ports @($ApiPort, $ProxyPort))) { throw 'runtime_ports_in_use' }
 
     $backupPath = Join-Path $resolvedRunRoot 'clash-baseline.bin'
@@ -266,7 +275,9 @@ try {
     $candidatePath = Join-Path $resolvedRunRoot 'clash-candidate.yaml'
     [IO.File]::WriteAllBytes($candidatePath, (ConvertTo-LtaooUtf8Bytes -Text $temporaryText -WithBom $baselineDecoded.HasBom))
     Set-LtaooOwnerOnlyAcl -LiteralPath $candidatePath -Directory $false
-    Test-LtaooClashConfig -ClashExePath $resolvedClash -ConfigPath $candidatePath
+    $currentStage = 'candidate_validation'
+    Test-LtaooClashConfig -ClashExePath $resolvedClash -ConfigPath $candidatePath -DataDirectory (Split-Path -Parent $resolvedClashConfig)
+    $currentStage = 'candidate_validated'
     $temporaryHash = Get-LtaooFileHash -LiteralPath $candidatePath
 
     $secretsRoot = Join-Path $resolvedRunRoot 'secrets'
@@ -278,17 +289,21 @@ try {
         request_path = $resolvedRequest; batch_path = $resolvedBatch; batch_sha256 = Get-LtaooFileHash -LiteralPath $resolvedBatch
     }
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
+    $currentStage = 'journal_written'
 
     $certificate = New-LtaooRunCertificate -RunId $runId -SecretsRoot $secretsRoot
+    $currentStage = 'certificate_created'
     $journal.ca_thumbprint = $certificate.Thumbprint
     $journal.phase = 'certificate_created'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
     Install-LtaooCurrentUserCA -CertificatePath $certificate.CertificatePath -Thumbprint $certificate.Thumbprint
+    $currentStage = 'certificate_installed'
     $journal.phase = 'certificate_installed'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 
     Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidatePath)) -LiteralPath $resolvedClashConfig
     Invoke-LtaooClashReload -Controller $controller -ConfigPath $resolvedClashConfig
+    $currentStage = 'clash_reloaded'
     $journal.phase = 'clash_reloaded'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 
@@ -322,6 +337,7 @@ cert:
     $journal.ltaoo_pid = $ltaooProcess.Id
     $journal.ltaoo_start_time = $ltaooProcess.StartTime.ToUniversalTime().ToString('o')
     $journal.phase = 'ltaoo_started'
+    $currentStage = 'ltaoo_started'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 
     $apiBase = 'http://127.0.0.1:' + $ApiPort
@@ -335,8 +351,10 @@ cert:
         Start-Sleep -Milliseconds 500
     }
     if (-not $ready) { throw 'ltaoo_readiness_failed' }
+    $currentStage = 'ltaoo_ready'
 
     $journal.phase = 'collecting'
+    $currentStage = 'collecting'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
     $collectArguments = 'collect --request "' + $resolvedRequest + '" --run-root "' + $resolvedRunRoot + '" --api-base "' + $apiBase + '"'
     $batchProcess = Start-Process -FilePath $resolvedBatch -ArgumentList $collectArguments -WorkingDirectory $resolvedRunRoot -PassThru -Wait -WindowStyle Hidden
@@ -344,8 +362,12 @@ cert:
     if ($batchProcess.ExitCode -notin @(0, 2, 4)) { throw 'batch_collect_failed' }
     $finalExitCode = [int]$batchProcess.ExitCode
     $journal.phase = 'collection_closed'
+    $currentStage = 'collection_closed'
     Write-LtaooJsonAtomic -Value $journal -LiteralPath $journalPath
 } catch {
+    $safeFailureCode = [string]$_.Exception.Message
+    if ($safeFailureCode -notmatch '^[a-z][a-z0-9_]{2,80}$') { $safeFailureCode = 'runtime_failed_' + $currentStage }
+    [Console]::Error.WriteLine($safeFailureCode)
     $finalExitCode = 4
 } finally {
     if ($null -ne $journal -and $null -ne $runtimeBase -and $null -ne $resolvedClash) {
