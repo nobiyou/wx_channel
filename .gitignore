@@ -179,6 +179,8 @@ scripts/*
 !scripts/Invoke-LtaooTrendRadarBatch.ps1
 !scripts/LtaooRuntime.psm1
 !scripts/LtaooRuntime.Tests.ps1
+!scripts/LtaooRouter.psm1
+!scripts/LtaooRouter.Tests.ps1
 !scripts/trendradar_runtime_script_test.go
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）

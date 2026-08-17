@@ -3,11 +3,72 @@
 package main
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestTrendRadarRuntimeRejectsIncompleteOrMixedRouterArguments(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := []string{
+		"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"),
+		"-RequestPath", "missing-request", "-GrantPath", "missing-grant", "-RunRoot", "missing-root",
+		"-RuntimeJournalPath", "missing-journal", "-LtaooExePath", "missing-ltaoo", "-BatchExePath", "missing-batch",
+	}
+	cases := map[string][]string{
+		"incomplete generic": {"-RouterKind", "mihomo"},
+		"incomplete legacy":  {"-ClashExePath", "clash.exe"},
+		"mixed groups": {
+			"-RouterKind", "mihomo", "-RouterExePath", "mihomo.exe", "-RouterConfigPath", "config.yaml",
+			"-RouterCapabilityFingerprint", strings.Repeat("a", 64), "-ClashExePath", "clash.exe", "-ClashConfigPath", "clash.yaml",
+		},
+	}
+	for name, arguments := range cases {
+		t.Run(name, func(t *testing.T) {
+			command := exec.Command(probePowerShell(t), append(base, arguments...)...)
+			output, runErr := command.CombinedOutput()
+			var exitErr *exec.ExitError
+			if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 64 {
+				t.Fatalf("exit=%v output=%s", runErr, output)
+			}
+		})
+	}
+}
+
+func TestTrendRadarRuntimeAcceptsClosedLegacyAndGenericArgumentGroups(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := []string{
+		"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"),
+		"-RequestPath", "missing-request", "-GrantPath", "missing-grant", "-RunRoot", "missing-root",
+		"-RuntimeJournalPath", "missing-journal", "-LtaooExePath", "missing-ltaoo", "-BatchExePath", "missing-batch",
+	}
+	cases := map[string][]string{
+		"legacy": {"-ClashExePath", "clash.exe", "-ClashConfigPath", "clash.yaml"},
+		"generic": {
+			"-RouterKind", "mihomo", "-RouterExePath", "mihomo.exe", "-RouterConfigPath", "config.yaml",
+			"-RouterCapabilityFingerprint", strings.Repeat("a", 64),
+		},
+	}
+	for name, arguments := range cases {
+		t.Run(name, func(t *testing.T) {
+			command := exec.Command(probePowerShell(t), append(base, arguments...)...)
+			output, runErr := command.CombinedOutput()
+			var exitErr *exec.ExitError
+			if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 4 {
+				t.Fatalf("exit=%v output=%s", runErr, output)
+			}
+		})
+	}
+}
 
 func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	root, err := filepath.Abs("..")
@@ -16,7 +77,8 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	}
 	entry := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"))
 	module := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRuntime.psm1"))
-	combined := strings.ToLower(entry + "\n" + module)
+	routerModule := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRouter.psm1"))
+	combined := strings.ToLower(entry + "\n" + module + "\n" + routerModule)
 
 	for _, required := range []string{
 		"-literalpath", "convertfrom-json", "allowedproperties", "currentuser\\root", "certutil.exe -user",
@@ -25,7 +87,7 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		"batch_executable_sha256", "test-ltaooprocessidentity", "convertfrom-ltaooutf8bytes",
 		"wx_channel_ltaoo_batch", "cleanup-receipt", "process-name,wx_video_download.exe,direct",
 		"process-name,wechatappex.exe", "process-name,weixin.exe", "process-name,wechat.exe", "external-controller", "/configs?force=true",
-		"-datadirectory (split-path -parent $resolvedclashconfig)",
+		"-datadirectory (split-path -parent $resolvedrouterconfig)",
 		"safefailurecode", "runtime_failed",
 	} {
 		if !strings.Contains(combined, required) {
@@ -36,6 +98,26 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		if strings.Contains(combined, forbidden) {
 			t.Errorf("runtime scripts contain forbidden %q", forbidden)
 		}
+	}
+	for _, required := range []string{
+		"new-ltaoorouterbackend", "router_kind_unsupported", "trendradar.mihomobackend",
+		"add-ltaoorouterblock", "remove-ltaoorouterblock", "test-ltaoorouterconfig",
+	} {
+		if !strings.Contains(strings.ToLower(routerModule), required) {
+			t.Errorf("router module missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"$routerkind", "$routerexepath", "$routerconfigpath", "$routercapabilityfingerprint",
+		"router_restored", "restore-journalrouterconfig",
+		"router_baseline_sha256", "router_temporary_sha256", "router_backup_path",
+	} {
+		if !strings.Contains(strings.ToLower(entry), required) {
+			t.Errorf("runtime entry missing generic contract %q", required)
+		}
+	}
+	if !strings.Contains(combined, "modify_proxy_router") {
+		t.Error("runtime modules missing generic router grant action")
 	}
 }
 

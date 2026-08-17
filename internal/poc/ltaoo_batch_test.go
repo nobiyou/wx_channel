@@ -168,6 +168,47 @@ func TestFinalizeLtaooBatchPublishesValidDataWhenCleanupNeedsVerification(t *tes
 	}
 }
 
+func TestValidateBatchCleanupReceiptSupportsClosedV2AndLegacyV1(t *testing.T) {
+	now := time.Now().UTC()
+	v2 := BatchCleanupReceipt{
+		SchemaVersion: 2, RunID: "fixture-run", Safe: true, CAAbsent: true,
+		RouterRestored: true, ProcessStopped: true, PortsReleased: true,
+		SecretsDeleted: true, CompletedAt: now,
+	}
+	if err := validateBatchCleanupReceipt(v2, "fixture-run"); err != nil {
+		t.Fatalf("v2 receipt rejected: %v", err)
+	}
+	legacy := BatchCleanupReceipt{
+		SchemaVersion: 1, RunID: "fixture-run", Safe: true, CAAbsent: true,
+		ClashRestored: true, ProcessStopped: true, PortsReleased: true,
+		SecretsDeleted: true, CompletedAt: now,
+	}
+	if err := validateBatchCleanupReceipt(legacy, "fixture-run"); err != nil {
+		t.Fatalf("legacy receipt rejected: %v", err)
+	}
+	for name, receipt := range map[string]BatchCleanupReceipt{
+		"v2 with legacy field": {
+			SchemaVersion: 2, RunID: "fixture-run", Safe: true, CAAbsent: true,
+			ClashRestored: true, ProcessStopped: true, PortsReleased: true,
+			SecretsDeleted: true, CompletedAt: now,
+		},
+		"v1 with generic field": {
+			SchemaVersion: 1, RunID: "fixture-run", Safe: true, CAAbsent: true,
+			RouterRestored: true, ProcessStopped: true, PortsReleased: true,
+			SecretsDeleted: true, CompletedAt: now,
+		},
+		"unknown schema": {
+			SchemaVersion: 3, RunID: "fixture-run", Safe: true, CAAbsent: true,
+			RouterRestored: true, ProcessStopped: true, PortsReleased: true,
+			SecretsDeleted: true, CompletedAt: now,
+		},
+	} {
+		if err := validateBatchCleanupReceipt(receipt, "fixture-run"); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
+
 func TestRunLtaooBatchRetainsFirstPageWhenLaterPageIsInvalid(t *testing.T) {
 	commentCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -248,7 +289,7 @@ func writeBatchRequestFixture(t *testing.T, path, runRoot string, mutate func(ma
 func writeCleanupReceiptFixture(t *testing.T, path, runID string, safe bool) {
 	t.Helper()
 	value := BatchCleanupReceipt{
-		SchemaVersion: 1, RunID: runID, Safe: safe, CAAbsent: safe, ClashRestored: safe,
+		SchemaVersion: 2, RunID: runID, Safe: safe, CAAbsent: safe, RouterRestored: safe,
 		ProcessStopped: safe, PortsReleased: safe, SecretsDeleted: safe, CompletedAt: time.Now().UTC(),
 	}
 	if !safe {

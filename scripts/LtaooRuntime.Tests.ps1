@@ -160,6 +160,98 @@ Describe 'TrendRadar ltaoo one-shot grant' {
     }
 }
 
+Describe 'TrendRadar ltaoo generic router grant' {
+    BeforeEach {
+        $runtimeRoot = Join-Path $TestDrive 'runtime-v2'
+        [void](New-Item -ItemType Directory -Path $runtimeRoot -Force)
+        $requestPath = Join-Path $runtimeRoot 'request.json'
+        $ltaooPath = Join-Path $runtimeRoot 'wx_video_download.exe'
+        $routerPath = Join-Path $runtimeRoot 'mihomo.exe'
+        $routerConfigPath = Join-Path $runtimeRoot 'config.yaml'
+        $otherRouterConfigPath = Join-Path $runtimeRoot 'other.yaml'
+        $batchPath = Join-Path $runtimeRoot 'wx_channel_ltaoo_batch.exe'
+        [IO.File]::WriteAllText($requestPath, '{"schema_version":1}')
+        [IO.File]::WriteAllText($ltaooPath, 'ltaoo fixture')
+        [IO.File]::WriteAllText($routerPath, 'mihomo fixture')
+        [IO.File]::WriteAllText($routerConfigPath, 'proxies: []')
+        [IO.File]::WriteAllText($otherRouterConfigPath, 'proxies: []')
+        [IO.File]::WriteAllText($batchPath, 'batch fixture')
+        $runtimePaths = @($ltaooPath, $routerPath, $routerConfigPath, $batchPath, $runtimeRoot)
+        $grantPath = Join-Path $runtimeRoot 'grant.json'
+        $capabilityFingerprint = ('a' * 64)
+        $grant = [ordered]@{
+            schema_version = 2
+            authorization_mode = 'wechat-channels-local-runtime-v2'
+            run_id = 'grant-fixture-v2'
+            windows_sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            request_sha256 = Get-LtaooFileHash -LiteralPath $requestPath
+            runtime_paths_sha256 = Get-LtaooRuntimePathsHash -LiteralPaths $runtimePaths
+            ltaoo_executable_sha256 = Get-LtaooFileHash -LiteralPath $ltaooPath
+            batch_executable_sha256 = Get-LtaooFileHash -LiteralPath $batchPath
+            router_kind = 'mihomo'
+            router_executable_sha256 = Get-LtaooFileHash -LiteralPath $routerPath
+            router_config_path_sha256 = Get-LtaooStringHash -Value ([IO.Path]::GetFullPath($routerConfigPath).ToLowerInvariant())
+            router_capability_fingerprint = $capabilityFingerprint
+            expires_at = [DateTimeOffset]::UtcNow.AddMinutes(5).ToString('o')
+            actions = @('install_current_user_ca', 'modify_proxy_router', 'start_ltaoo')
+        }
+    }
+
+    It 'consumes a valid v2 grant bound to the router and capabilities' {
+        Write-LtaooJsonAtomic -Value $grant -LiteralPath $grantPath
+        Set-LtaooOwnerOnlyAcl -LiteralPath $grantPath -Directory $false
+
+        $result = Use-LtaooRunGrant -GrantPath $grantPath -RunId 'grant-fixture-v2' -RequestPath $requestPath -RuntimePaths $runtimePaths -LtaooExePath $ltaooPath -BatchExePath $batchPath -ExpectedAuthorizationMode 'wechat-channels-local-runtime-v2' -RouterKind 'mihomo' -RouterExePath $routerPath -RouterConfigPath $routerConfigPath -RouterCapabilityFingerprint $capabilityFingerprint
+
+        $result.router_kind | Should BeExactly 'mihomo'
+        (Test-Path -LiteralPath $grantPath) | Should Be $false
+    }
+
+    It 'rejects changed router identity without consuming the v2 grant' {
+        $cases = @(
+            [pscustomobject]@{ Name = 'kind'; GrantField = ''; GrantValue = ''; RouterKind = 'sing-box'; ConfigPath = $routerConfigPath; Fingerprint = $capabilityFingerprint; ChangeExecutable = $false },
+            [pscustomobject]@{ Name = 'executable'; GrantField = ''; GrantValue = ''; RouterKind = 'mihomo'; ConfigPath = $routerConfigPath; Fingerprint = $capabilityFingerprint; ChangeExecutable = $true },
+            [pscustomobject]@{ Name = 'config path'; GrantField = 'router_config_path_sha256'; GrantValue = ('0' * 64); RouterKind = 'mihomo'; ConfigPath = $routerConfigPath; Fingerprint = $capabilityFingerprint; ChangeExecutable = $false },
+            [pscustomobject]@{ Name = 'capabilities'; GrantField = ''; GrantValue = ''; RouterKind = 'mihomo'; ConfigPath = $routerConfigPath; Fingerprint = ('b' * 64); ChangeExecutable = $false }
+        )
+        foreach ($case in $cases) {
+            if ($case.GrantField -ne '') { $grant[$case.GrantField] = $case.GrantValue }
+            Write-LtaooJsonAtomic -Value $grant -LiteralPath $grantPath
+            Set-LtaooOwnerOnlyAcl -LiteralPath $grantPath -Directory $false
+            if ($case.ChangeExecutable) { [IO.File]::AppendAllText($routerPath, ' changed') }
+            $thrown = $false
+            try {
+                [void](Use-LtaooRunGrant -GrantPath $grantPath -RunId 'grant-fixture-v2' -RequestPath $requestPath -RuntimePaths $runtimePaths -LtaooExePath $ltaooPath -BatchExePath $batchPath -ExpectedAuthorizationMode 'wechat-channels-local-runtime-v2' -RouterKind $case.RouterKind -RouterExePath $routerPath -RouterConfigPath $case.ConfigPath -RouterCapabilityFingerprint $case.Fingerprint)
+            } catch { $thrown = $true }
+            $thrown | Should Be $true
+            (Test-Path -LiteralPath $grantPath) | Should Be $true
+            Remove-Item -LiteralPath $grantPath -Force
+            if ($case.ChangeExecutable) { [IO.File]::WriteAllText($routerPath, 'mihomo fixture') }
+            $grant.router_config_path_sha256 = Get-LtaooStringHash -Value ([IO.Path]::GetFullPath($routerConfigPath).ToLowerInvariant())
+        }
+    }
+
+    It 'does not mix v1 and v2 argument groups' {
+        Write-LtaooJsonAtomic -Value $grant -LiteralPath $grantPath
+        Set-LtaooOwnerOnlyAcl -LiteralPath $grantPath -Directory $false
+        { Use-LtaooRunGrant -GrantPath $grantPath -RunId 'grant-fixture-v2' -RequestPath $requestPath -RuntimePaths $runtimePaths -LtaooExePath $ltaooPath -BatchExePath $batchPath } | Should Throw
+        (Test-Path -LiteralPath $grantPath) | Should Be $true
+
+        Remove-Item -LiteralPath $grantPath -Force
+        $grant.schema_version = 1
+        $grant.authorization_mode = 'wechat-channels-local-runtime-v1'
+        $grant.Remove('router_kind')
+        $grant.Remove('router_executable_sha256')
+        $grant.Remove('router_config_path_sha256')
+        $grant.Remove('router_capability_fingerprint')
+        $grant.actions = @('install_current_user_ca', 'modify_clash', 'start_ltaoo')
+        Write-LtaooJsonAtomic -Value $grant -LiteralPath $grantPath
+        Set-LtaooOwnerOnlyAcl -LiteralPath $grantPath -Directory $false
+        { Use-LtaooRunGrant -GrantPath $grantPath -RunId 'grant-fixture-v2' -RequestPath $requestPath -RuntimePaths $runtimePaths -LtaooExePath $ltaooPath -BatchExePath $batchPath -ExpectedAuthorizationMode 'wechat-channels-local-runtime-v2' -RouterKind 'mihomo' -RouterExePath $routerPath -RouterConfigPath $routerConfigPath -RouterCapabilityFingerprint $capabilityFingerprint } | Should Throw
+        (Test-Path -LiteralPath $grantPath) | Should Be $true
+    }
+}
+
 Describe 'TrendRadar ltaoo recovery identity' {
     It 'matches all recorded process identity fields before permitting cleanup' {
         $powershellPath = (Get-Process -Id $PID).Path
