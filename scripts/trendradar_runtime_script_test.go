@@ -16,7 +16,8 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	}
 	entry := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"))
 	module := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRuntime.psm1"))
-	combined := strings.ToLower(entry + "\n" + module)
+	routerModule := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRouter.psm1"))
+	combined := strings.ToLower(entry + "\n" + module + "\n" + routerModule)
 
 	for _, required := range []string{
 		"-literalpath", "convertfrom-json", "allowedproperties", "currentuser\\root", "certutil.exe -user",
@@ -35,6 +36,14 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	for _, forbidden := range []string{"read-host", "install $runid", "invoke-expression", "cmd /c", "localmachine\\root"} {
 		if strings.Contains(combined, forbidden) {
 			t.Errorf("runtime scripts contain forbidden %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"new-ltaoorouterbackend", "router_kind_unsupported", "trendradar.mihomobackend",
+		"add-ltaoorouterblock", "remove-ltaoorouterblock", "test-ltaoorouterconfig",
+	} {
+		if !strings.Contains(strings.ToLower(routerModule), required) {
+			t.Errorf("router module missing %q", required)
 		}
 	}
 }
