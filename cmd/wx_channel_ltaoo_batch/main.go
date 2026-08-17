@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"io"
 	"os"
@@ -23,14 +24,25 @@ const (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	os.Exit(run(ctx, os.Args[1:]))
+	os.Exit(run(ctx, os.Args[1:], os.Stdout))
 }
 
-func run(ctx context.Context, args []string) int {
+type capabilityResponse struct {
+	SchemaVersion    int      `json:"schema_version"`
+	RuntimeProtocols []string `json:"runtime_protocols"`
+	RouterKinds      []string `json:"router_kinds"`
+}
+
+func run(ctx context.Context, args []string, output io.Writer) int {
 	if len(args) == 0 {
 		return exitRequestInvalid
 	}
 	switch args[0] {
+	case "capabilities":
+		if len(args) != 1 || writeCapabilities(output) != nil {
+			return exitFailed
+		}
+		return exitSucceeded
 	case "collect":
 		return runCollect(ctx, args[1:])
 	case "finalize":
@@ -38,6 +50,14 @@ func run(ctx context.Context, args []string) int {
 	default:
 		return exitRequestInvalid
 	}
+}
+
+func writeCapabilities(output io.Writer) error {
+	return json.NewEncoder(output).Encode(capabilityResponse{
+		SchemaVersion:    1,
+		RuntimeProtocols: []string{"wechat-channels-local-runtime-v2"},
+		RouterKinds:      []string{"mihomo"},
+	})
 }
 
 func runCollect(ctx context.Context, args []string) int {
