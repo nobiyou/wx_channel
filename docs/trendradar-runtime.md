@@ -48,7 +48,8 @@ registers the required API methods. For a manual run:
    links are collected through the same page client and do not need to be
    opened individually.
 
-If the bridge is not observed within the shared readiness window, the batch
+The shared profile readiness window is 60 seconds for the whole batch, not 60
+seconds per link. If the bridge is not observed within that window, the batch
 records `profile_not_ready` and does not start comment pagination. This is a
 page-context failure, not a pagination failure.
 
