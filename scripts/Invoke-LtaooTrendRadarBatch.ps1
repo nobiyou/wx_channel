@@ -50,8 +50,7 @@ function Stop-JournalLtaooProcess {
             return $null -eq (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
         }
         Stop-Process -Id $process.Id -Force
-        Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
-        return $null -eq (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)
+        return Wait-LtaooProcessStopped -ProcessId $process.Id -TimeoutMilliseconds 10000 -PollMilliseconds 100
     } catch {
         return $null -eq (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
     }

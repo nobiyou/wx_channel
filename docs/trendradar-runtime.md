@@ -33,6 +33,25 @@ atomically replaces the YAML, and reloads the core through its loopback API.
 `wx_video_download.exe` remains `DIRECT`; WeChat processes use only the
 temporary loopback proxy.
 
+## Page bridge readiness
+
+The ltaoo HTTP listener becoming available does not prove that a PC WeChat
+Channels page has been injected. The page bridge is established only after a
+Channels page is loaded through the running proxy and its injected client
+registers the required API methods. For a manual run:
+
+1. Start the collection run and wait until the runtime has opened its API
+   listener (2022 by default).
+2. Refresh the already-open Channels video once, or leave and re-enter it.
+3. Keep that page open while the batch performs the shared, bounded profile
+   readiness probe. The first configured link proves the bridge; the remaining
+   links are collected through the same page client and do not need to be
+   opened individually.
+
+If the bridge is not observed within the shared readiness window, the batch
+records `profile_not_ready` and does not start comment pagination. This is a
+page-context failure, not a pagination failure.
+
 The old `-ClashExePath`/`-ClashConfigPath` pair remains a closed compatibility
 adapter for reviewed v1 POC callers. It cannot be mixed with v2 router
 arguments. New TrendRadar versions never emit the old pair, and unknown router

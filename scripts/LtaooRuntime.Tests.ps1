@@ -253,6 +253,26 @@ Describe 'TrendRadar ltaoo generic router grant' {
 }
 
 Describe 'TrendRadar ltaoo recovery identity' {
+    It 'waits for a tracked process to exit before reporting stopped' {
+        $powershellPath = (Get-Process -Id $PID).Path
+        $process = Start-Process -FilePath $powershellPath -ArgumentList '-NoProfile -Command "Start-Sleep -Seconds 2"' -PassThru -WindowStyle Hidden
+        try {
+            (Wait-LtaooProcessStopped -ProcessId $process.Id -TimeoutMilliseconds 3000 -PollMilliseconds 50) | Should Be $true
+        } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not report a still-running process as stopped after the bounded wait' {
+        $powershellPath = (Get-Process -Id $PID).Path
+        $process = Start-Process -FilePath $powershellPath -ArgumentList '-NoProfile -Command "Start-Sleep -Seconds 30"' -PassThru -WindowStyle Hidden
+        try {
+            (Wait-LtaooProcessStopped -ProcessId $process.Id -TimeoutMilliseconds 100 -PollMilliseconds 25) | Should Be $false
+        } finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'matches all recorded process identity fields before permitting cleanup' {
         $powershellPath = (Get-Process -Id $PID).Path
         $process = Start-Process -FilePath $powershellPath -ArgumentList '-NoProfile -Command "Start-Sleep -Seconds 30"' -PassThru -WindowStyle Hidden

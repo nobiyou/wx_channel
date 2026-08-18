@@ -168,7 +168,7 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		"start-process", "-windowstyle hidden", "try", "finally", "grant", "request_sha256",
 		"runtime_paths_sha256", "ltaoo_executable_sha256", "threading.mutex", "runtime-journal.json",
 		"batch_executable_sha256", "test-ltaooprocessidentity", "convertfrom-ltaooutf8bytes",
-		"wx_channel_ltaoo_batch", "cleanup-receipt", "process-name,wx_video_download.exe,direct",
+		"wx_channel_ltaoo_batch", "cleanup-receipt", "process-name,wx_video_download.exe,direct", "wait-ltaooprocessstopped",
 		"process-name,wechatappex.exe", "process-name,weixin.exe", "process-name,wechat.exe", "external-controller", "/configs?force=true",
 		"-datadirectory (split-path -parent $resolvedrouterconfig)",
 		"safefailurecode", "runtime_failed",
