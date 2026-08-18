@@ -71,6 +71,8 @@ func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	request.Limits.RepliesPerComment = 3
+	request.Limits.RepliesPerWork = 3
 	client, err := NewLtaooClient(server.URL, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +119,13 @@ func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) 
 		if hex.EncodeToString(digest[:]) != record.SHA256 || int64(len(raw)) != record.Bytes {
 			t.Fatalf("file record mismatch for %s", name)
 		}
+	}
+	contents, err := os.ReadFile(filepath.Join(batchRoot, "contents.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), `"truncation":{"truncated":false,"reasons":[]}`) {
+		t.Fatalf("completed content truncation reasons must be an array: %s", contents)
 	}
 	var all strings.Builder
 	for _, entry := range entries {

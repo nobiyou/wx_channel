@@ -36,7 +36,7 @@ $candidates = @(
                 if ($process.MainWindowHandle -eq [IntPtr]::Zero) { continue }
                 if (-not [TrendRadar.WeChatWindow]::IsWindowVisible($process.MainWindowHandle)) { continue }
                 if ([string]::IsNullOrWhiteSpace([string]$process.MainWindowTitle)) { continue }
-                [pscustomobject]@{ Handle = $process.MainWindowHandle }
+                [pscustomobject]@{ Handle = $process.MainWindowHandle; ProcessName = $process.ProcessName }
             } catch { }
         }
     }
@@ -48,6 +48,10 @@ $foreground = [TrendRadar.WeChatWindow]::GetForegroundWindow()
 $foregroundCandidates = @($candidates | Where-Object { $_.Handle -eq $foreground })
 if ($foregroundCandidates.Count -eq 1) {
     $selected = $foregroundCandidates[0]
+} elseif (@($candidates | Where-Object { $_.ProcessName -eq 'Weixin' }).Count -eq 1) {
+    # WeChatAppEx may expose a second titled child window; prefer the single
+    # visible Weixin host process as the stable PC WeChat main window.
+    $selected = @($candidates | Where-Object { $_.ProcessName -eq 'Weixin' })[0]
 } elseif ($candidates.Count -eq 1) {
     $selected = $candidates[0]
 } else {

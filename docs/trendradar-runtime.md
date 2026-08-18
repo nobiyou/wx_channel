@@ -51,7 +51,8 @@ registers the required API methods. For a manual run:
 The shared profile readiness window is 60 seconds for the whole batch, not 60
 seconds per link. TrendRadar runs may opt in to one startup page refresh through
 `-AutoRefreshWechatPage`. The helper only sends F5 to an unambiguous visible
-WeChat window (`Weixin`, `WeChat`, or `WeChatAppEx` with a titled main window);
+WeChat window; when both the PC host and a titled `WeChatAppEx` child are
+visible, it prefers the single visible `Weixin` host process;
 it never types a URL, searches, reads page data, or refreshes during collection.
 If no unambiguous window exists, it fails with a closed error code and the
 runtime performs normal cleanup. After the one refresh, the batch waits for the

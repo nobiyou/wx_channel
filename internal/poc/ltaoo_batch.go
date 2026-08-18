@@ -230,7 +230,7 @@ func RunLtaooBatch(ctx context.Context, request BatchRequest, client *LtaooClien
 		works[index].TopLevelCommentCount = summary.TopLevel
 		works[index].ReplyCount = summary.Replies
 		works[index].Truncation.Truncated = summary.Truncated
-		works[index].Truncation.Reasons = append([]string(nil), summary.Reasons...)
+		works[index].Truncation.Reasons = append([]string{}, summary.Reasons...)
 		target := BatchTargetSummary{
 			InputIndex: works[index].Locator.IndexInPage, WorkID: dereferenceString(works[index].WorkID),
 			TopLevelComments: summary.TopLevel, Replies: summary.Replies, Truncated: summary.Truncated,
