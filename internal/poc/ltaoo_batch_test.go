@@ -169,6 +169,9 @@ func TestFinalizeFailedLtaooBatchSerializesTargetsAsEmptyArray(t *testing.T) {
 	if result.Status != BatchFailed || result.Counts.Works != 0 {
 		t.Fatalf("result=%+v", result)
 	}
+	if len(result.ReasonCodes) != 1 || result.ReasonCodes[0] != "profile_schema_mismatch" {
+		t.Fatalf("reason codes=%v", result.ReasonCodes)
+	}
 	receiptPath := filepath.Join(runRoot, "cleanup-receipt.input.json")
 	writeCleanupReceiptFixture(t, receiptPath, request.RunID, true)
 	if _, err := FinalizeLtaooBatch(request, runRoot, receiptPath); err != nil {
@@ -180,6 +183,9 @@ func TestFinalizeFailedLtaooBatchSerializesTargetsAsEmptyArray(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"targets":[]`) {
 		t.Fatalf("failed batch targets must be an array: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"reason_codes":["profile_schema_mismatch"]`) {
+		t.Fatalf("failed batch reason code must be preserved: %s", raw)
 	}
 }
 

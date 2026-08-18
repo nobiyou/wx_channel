@@ -330,6 +330,19 @@ function Test-LtaooProcessIdentity {
     } catch { return $false }
 }
 
+function Test-LtaooProcessIdentityOrAbsent {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [Parameter(Mandatory = $true)][string]$ExpectedPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedStartTime,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+    if (Test-LtaooProcessIdentity -ProcessId $ProcessId -ExpectedPath $ExpectedPath -ExpectedStartTime $ExpectedStartTime -ExpectedSha256 $ExpectedSha256) {
+        return $true
+    }
+    return $null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
 function Get-LtaooClashController {
     param([Parameter(Mandatory = $true)][string]$Text)
     $controllerMatch = [Text.RegularExpressions.Regex]::Match($Text, '(?m)^external-controller:[ \t]*["'']?([^"''#\r\n]+)["'']?[ \t]*(?:#.*)?$')
@@ -554,7 +567,7 @@ function Remove-LtaooCurrentUserCA {
 Export-ModuleMember -Function @(
     'Get-LtaooFileHash', 'Get-LtaooStringHash', 'Get-LtaooRuntimePathsHash', 'Assert-LtaooNoReparseInPath', 'Assert-LtaooNoReparsePoint', 'Assert-LtaooAllowedProperties',
     'Read-LtaooStrictJson', 'Assert-LtaooOwnerOnlyAcl', 'Use-LtaooRunGrant', 'Add-LtaooClashBlock', 'Remove-LtaooClashBlock',
-    'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
+    'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Test-LtaooProcessIdentityOrAbsent', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
     'Write-LtaooBytesAtomic', 'Write-LtaooJsonAtomic', 'New-LtaooRunCertificate', 'Install-LtaooCurrentUserCA',
     'Remove-LtaooCurrentUserCA', 'Set-LtaooOwnerOnlyAcl'
 )

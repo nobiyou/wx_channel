@@ -267,6 +267,10 @@ Describe 'TrendRadar ltaoo recovery identity' {
         }
     }
 
+    It 'treats a process that vanished during identity validation as stopped' {
+        (Test-LtaooProcessIdentityOrAbsent -ProcessId 2147483647 -ExpectedPath 'C:\missing\ltaoo.exe' -ExpectedStartTime 'missing' -ExpectedSha256 ('0' * 64)) | Should Be $true
+    }
+
     It 'generates a fresh private CA without installing it into a certificate store' {
         $secretsRoot = Join-Path $TestDrive 'certificate-secrets'
         $certificate = New-LtaooRunCertificate -RunId 'certificate-fixture-1' -SecretsRoot $secretsRoot

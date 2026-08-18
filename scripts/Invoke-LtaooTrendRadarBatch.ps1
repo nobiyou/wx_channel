@@ -43,11 +43,18 @@ function Stop-JournalLtaooProcess {
     $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
     if ($null -eq $process) { return $true }
     try {
-        if (-not (Test-LtaooProcessIdentity -ProcessId $pidValue -ExpectedPath ([string]$Journal.ltaoo_path) -ExpectedStartTime ([string]$Journal.ltaoo_start_time) -ExpectedSha256 ([string]$Journal.ltaoo_sha256))) { return $false }
+        if (-not (Test-LtaooProcessIdentityOrAbsent -ProcessId $pidValue -ExpectedPath ([string]$Journal.ltaoo_path) -ExpectedStartTime ([string]$Journal.ltaoo_start_time) -ExpectedSha256 ([string]$Journal.ltaoo_sha256))) { return $false }
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        if ($null -eq $process) { return $true }
+        if (-not (Test-LtaooProcessIdentity -ProcessId $pidValue -ExpectedPath ([string]$Journal.ltaoo_path) -ExpectedStartTime ([string]$Journal.ltaoo_start_time) -ExpectedSha256 ([string]$Journal.ltaoo_sha256))) {
+            return $null -eq (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
+        }
         Stop-Process -Id $process.Id -Force
         Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
         return $null -eq (Get-Process -Id $process.Id -ErrorAction SilentlyContinue)
-    } catch { return $false }
+    } catch {
+        return $null -eq (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
+    }
 }
 
 function Restore-JournalRouterConfig {
@@ -57,7 +64,7 @@ function Restore-JournalRouterConfig {
     )
     $configPath = [string]$Journal.router_config_path
     $backupPath = [string]$Journal.router_backup_path
-    if (-not [IO.File]::Exists($configPath) -or -not [IO.File]::Exists($backupPath)) { return $false }
+    if (-not [IO.File]::Exists($configPath)) { return $false }
     if (
         [string]$Journal.router_kind -cne [string]$Backend.Kind -or
         (-not [string]::IsNullOrWhiteSpace([string]$Journal.router_executable_path) -and -not [string]::Equals([IO.Path]::GetFullPath([string]$Journal.router_executable_path), [IO.Path]::GetFullPath([string]$Backend.ExecutablePath), [StringComparison]::OrdinalIgnoreCase)) -or
@@ -71,6 +78,11 @@ function Restore-JournalRouterConfig {
         $currentText = $currentDecoded.Text
         $markerPresent = $currentText.Contains('# TREND_RADAR_WX_BEGIN ' + [string]$Journal.run_id + ' ')
         $action = Get-LtaooRouterRecoveryAction -Backend $Backend -BaselineHash ([string]$Journal.router_baseline_sha256) -TemporaryHash ([string]$Journal.router_temporary_sha256) -CurrentHash $currentHash -MarkerPresent $markerPresent
+        if ($action -eq 'already_restored') {
+            Test-LtaooRouterConfig -Backend $Backend -ConfigPath $configPath -DataDirectory (Split-Path -Parent $configPath)
+            return $true
+        }
+        if (-not [IO.File]::Exists($backupPath)) { return $false }
         $backupDecoded = ConvertFrom-LtaooUtf8Bytes -Bytes ([IO.File]::ReadAllBytes($backupPath))
         $controller = Get-LtaooRouterController -Backend $Backend -Text $backupDecoded.Text
         switch ($action) {
@@ -85,7 +97,6 @@ function Restore-JournalRouterConfig {
                 Write-LtaooBytesAtomic -Bytes ([IO.File]::ReadAllBytes($candidate)) -LiteralPath $configPath
                 Remove-Item -LiteralPath $candidate -Force
             }
-            'already_restored' { }
             default { return $false }
         }
         Test-LtaooRouterConfig -Backend $Backend -ConfigPath $configPath -DataDirectory (Split-Path -Parent $configPath)
