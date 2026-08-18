@@ -343,6 +343,22 @@ function Test-LtaooProcessIdentityOrAbsent {
     return $null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function Wait-LtaooProcessStopped {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [ValidateRange(1, 60000)][int]$TimeoutMilliseconds = 10000,
+        [ValidateRange(1, 1000)][int]$PollMilliseconds = 100
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        if ($null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
+        $remaining = ($deadline - [DateTime]::UtcNow).TotalMilliseconds
+        if ($remaining -le 0) { break }
+        Start-Sleep -Milliseconds ([Math]::Min($PollMilliseconds, [int][Math]::Ceiling($remaining)))
+    } while ($true)
+    return $null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
 function Get-LtaooClashController {
     param([Parameter(Mandatory = $true)][string]$Text)
     $controllerMatch = [Text.RegularExpressions.Regex]::Match($Text, '(?m)^external-controller:[ \t]*["'']?([^"''#\r\n]+)["'']?[ \t]*(?:#.*)?$')
@@ -567,7 +583,7 @@ function Remove-LtaooCurrentUserCA {
 Export-ModuleMember -Function @(
     'Get-LtaooFileHash', 'Get-LtaooStringHash', 'Get-LtaooRuntimePathsHash', 'Assert-LtaooNoReparseInPath', 'Assert-LtaooNoReparsePoint', 'Assert-LtaooAllowedProperties',
     'Read-LtaooStrictJson', 'Assert-LtaooOwnerOnlyAcl', 'Use-LtaooRunGrant', 'Add-LtaooClashBlock', 'Remove-LtaooClashBlock',
-    'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Test-LtaooProcessIdentityOrAbsent', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
+    'Get-ClashRecoveryAction', 'ConvertFrom-LtaooUtf8Bytes', 'ConvertTo-LtaooUtf8Bytes', 'Test-LtaooProcessIdentity', 'Test-LtaooProcessIdentityOrAbsent', 'Wait-LtaooProcessStopped', 'Get-LtaooClashController', 'Test-LtaooClashConfig', 'Invoke-LtaooClashReload',
     'Write-LtaooBytesAtomic', 'Write-LtaooJsonAtomic', 'New-LtaooRunCertificate', 'Install-LtaooCurrentUserCA',
     'Remove-LtaooCurrentUserCA', 'Set-LtaooOwnerOnlyAcl'
 )

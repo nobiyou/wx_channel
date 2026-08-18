@@ -17,6 +17,12 @@ type profileTestClock struct {
 	sleeps []time.Duration
 }
 
+func TestCollectWorksFromURLsUsesOneMinuteProfileReadinessWindow(t *testing.T) {
+	if profileReadinessTimeout != time.Minute {
+		t.Fatalf("profile readiness timeout=%s, want %s", profileReadinessTimeout, time.Minute)
+	}
+}
+
 func (c *profileTestClock) Now() time.Time { return c.now }
 
 func (c *profileTestClock) Sleep(ctx context.Context, duration time.Duration) error {

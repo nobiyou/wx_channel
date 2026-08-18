@@ -16,7 +16,7 @@ import (
 
 const (
 	maxLtaooResponseBytes   = 8 << 20
-	profileReadinessTimeout = 30 * time.Second
+	profileReadinessTimeout = time.Minute
 	profileRetryInterval    = 500 * time.Millisecond
 )
 
