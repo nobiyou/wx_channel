@@ -86,7 +86,7 @@ func (c *LtaooClient) ResolveWork(ctx context.Context, shareURL string, rank int
 	if err != nil {
 		return Work{}, err
 	}
-	data, err := decodeLtaooBusinessData(raw)
+	data, err := decodeLtaooProfileData(raw)
 	if err != nil {
 		return Work{}, err
 	}
@@ -205,6 +205,32 @@ func decodeLtaooBusinessData(raw []byte) (json.RawMessage, error) {
 		return nil, CategorizedError{Category: ErrorStructure}
 	}
 	return envelope.Data.Data, nil
+}
+
+func decodeLtaooProfileData(raw []byte) (json.RawMessage, error) {
+	var envelope struct {
+		Code int             `json:"code"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := decodeSingleJSON(raw, &envelope); err != nil {
+		return nil, CategorizedError{Category: ErrorStructure}
+	}
+	if envelope.Code == 400 && (len(envelope.Data) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null"))) {
+		return nil, CategorizedError{Category: ErrorTransient}
+	}
+	// The page bridge can report a temporary invocation failure in a valid
+	// business envelope while WXU.API is still initializing. The collector's
+	// shared readiness window will retry this category before the first profile
+	// succeeds; after readiness it remains a closed, non-retried failure.
+	var business struct {
+		ErrCode int             `json:"errCode"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if envelope.Code == 0 && decodeSingleJSON(envelope.Data, &business) == nil &&
+		business.ErrCode == 1011 && (len(business.Data) == 0 || bytes.Equal(bytes.TrimSpace(business.Data), []byte("null"))) {
+		return nil, CategorizedError{Category: ErrorTransient}
+	}
+	return decodeLtaooBusinessData(raw)
 }
 
 func decodeSingleJSON(raw []byte, target any) error {

@@ -100,6 +100,23 @@ func TestTrendRadarRuntimeImportsKeepRuntimeCommandsVisible(t *testing.T) {
 	}
 }
 
+func TestTrendRadarRuntimeTreatsAlreadyRestoredRouterAsClean(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"))
+	if !strings.Contains(entry, "if ($action -eq 'already_restored')") || !strings.Contains(entry, "return $true") {
+		t.Fatal("already-restored router config must not require another reload")
+	}
+	if !strings.Contains(strings.ToLower(entry), "test-ltaooprocessidentityorabsent") {
+		t.Fatal("cleanup must treat a PID that vanished during identity validation as already stopped")
+	}
+	if strings.Contains(entry, "if (-not [IO.File]::Exists($configPath) -or -not [IO.File]::Exists($backupPath)) { return $false }") {
+		t.Fatal("already-restored router config must not require the deleted backup")
+	}
+}
+
 func TestLtaooRuntimeReadsUTF8JSONWithoutBOM(t *testing.T) {
 	root, err := filepath.Abs("..")
 	if err != nil {

@@ -247,6 +247,142 @@ func TestCollectWorksFromURLsProfileRetriesTransientUntilReady(t *testing.T) {
 	}
 }
 
+func TestCollectWorksFromURLsProfileCode400WithoutDataRetriesUntilReady(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/channels/feed/profile" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		if requests < 3 {
+			_, _ = fmt.Fprint(w, `{"code":400}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"ready-after-code400","objectNonceId":"ready-after-code400-nonce"}}}}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &profileTestClock{now: time.Unix(150, 0)}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, []string{"https://weixin.qq.com/sph/code400-ready"}, 1, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || dereference(works[0].WorkID) != "ready-after-code400" || len(issues) != 0 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests != 3 || len(clock.sleeps) != 2 {
+		t.Fatalf("requests=%d sleeps=%v", requests, clock.sleeps)
+	}
+}
+
+func TestCollectWorksFromURLsProfileCode400AfterReadinessDoesNotRetry(t *testing.T) {
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/channels/feed/profile" {
+			http.NotFound(w, r)
+			return
+		}
+		shareURL := r.URL.Query().Get("url")
+		requests[shareURL]++
+		if strings.HasSuffix(shareURL, "/ready") {
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"ready-work","objectNonceId":"ready-nonce"}}}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":400}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &profileTestClock{now: time.Unix(175, 0)}
+	urls := []string{"https://weixin.qq.com/sph/ready", "https://weixin.qq.com/sph/code400-after-ready"}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, urls, 2, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || len(issues) != 1 || issues[0].Code != "profile_unavailable" || issues[0].InputIndex != 2 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests[urls[0]] != 1 || requests[urls[1]] != 1 || len(clock.sleeps) != 0 {
+		t.Fatalf("requests=%v sleeps=%v", requests, clock.sleeps)
+	}
+}
+
+func TestCollectWorksFromURLsProfileBridgeNotReadyRetriesUntilReady(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/channels/feed/profile" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		if requests < 3 {
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":1011,"errMsg":"page_api_failed"}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"ready-after-bridge","objectNonceId":"ready-after-bridge-nonce"}}}}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &profileTestClock{now: time.Unix(185, 0)}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, []string{"https://weixin.qq.com/sph/bridge-ready"}, 1, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || dereference(works[0].WorkID) != "ready-after-bridge" || len(issues) != 0 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests != 3 || len(clock.sleeps) != 2 {
+		t.Fatalf("requests=%d sleeps=%v", requests, clock.sleeps)
+	}
+}
+
+func TestCollectWorksFromURLsProfileBridgeErrorAfterReadinessDoesNotRetry(t *testing.T) {
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/channels/feed/profile" {
+			http.NotFound(w, r)
+			return
+		}
+		shareURL := r.URL.Query().Get("url")
+		requests[shareURL]++
+		if strings.HasSuffix(shareURL, "/ready") {
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"ready-work","objectNonceId":"ready-nonce"}}}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":1011,"errMsg":"page_api_failed"}}`)
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &profileTestClock{now: time.Unix(190, 0)}
+	urls := []string{"https://weixin.qq.com/sph/ready", "https://weixin.qq.com/sph/bridge-after-ready"}
+
+	works, issues := collectWorksFromURLs(context.Background(), client, urls, 2, profileReadinessOptions{
+		Clock: clock, Timeout: 30 * time.Second, RetryInterval: 500 * time.Millisecond,
+	})
+
+	if len(works) != 1 || len(issues) != 1 || issues[0].Code != "profile_unavailable" || issues[0].InputIndex != 2 {
+		t.Fatalf("works=%+v issues=%+v", works, issues)
+	}
+	if requests[urls[0]] != 1 || requests[urls[1]] != 1 || len(clock.sleeps) != 0 {
+		t.Fatalf("requests=%v sleeps=%v", requests, clock.sleeps)
+	}
+}
+
 func TestCollectWorksFromURLsSharedReadinessDeadlineAppliesToWholeBatch(t *testing.T) {
 	var mu sync.Mutex
 	requestedURLs := make([]string, 0)

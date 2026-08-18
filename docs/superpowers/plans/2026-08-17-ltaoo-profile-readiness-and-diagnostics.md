@@ -50,7 +50,7 @@ func (c *profileTestClock) Sleep(ctx context.Context, duration time.Duration) er
 
 - [ ] **Step 2: Add the retry-then-success test**
 
-Drive a loopback server that returns HTTP 503 twice and a valid profile on the third request. Call the internal readiness-aware collector with a 30-second timeout and assert one Work, no issues, exactly three requests, and no duplicate success request.
+Drive loopback servers that return HTTP 503 twice, HTTP 200 with outer `code=400` and no `data` twice, or HTTP 200 with outer `code=0` and inner `errCode=1011` without business `data` twice, then a valid profile on the third request. Call the internal readiness-aware collector with a 30-second timeout and assert one Work, no issues, exactly three requests, and no duplicate success request.
 
 - [ ] **Step 3: Add the shared-deadline exhaustion test**
 
@@ -58,7 +58,7 @@ Use three unique URLs and a server that always returns HTTP 503. Assert the fake
 
 - [ ] **Step 4: Add category table tests**
 
-Cover HTTP 401, 403, 429, malformed HTTP-200 JSON, invalid business envelope, and HTTP 418. Expected codes are respectively `profile_access_denied`, `profile_access_denied`, `profile_rate_limited`, `profile_schema_mismatch`, `profile_schema_mismatch`, and `profile_unavailable`.
+Cover HTTP 401, 403, 429, malformed HTTP-200 JSON, invalid business envelope, startup `code=400/no data`, startup `errCode=1011/no data`, and HTTP 418. Expected codes are respectively `profile_access_denied`, `profile_access_denied`, `profile_rate_limited`, `profile_schema_mismatch`, `profile_schema_mismatch`, `profile_not_ready` after deadline, `profile_not_ready` after deadline, and `profile_unavailable`.
 
 - [ ] **Step 5: Add non-retry-first-link and cancellation tests**
 
@@ -128,7 +128,7 @@ readinessEstablished := false
 readinessTimedOut := false
 ```
 
-For each validated, unique URL, retry only `ErrorTransient` while readiness is not established. Clamp every sleep to `deadline.Sub(options.Clock.Now())`. On exhaustion, mark the current and remaining valid unique inputs `profile_not_ready` without additional HTTP calls. Reuse the first successful Work and process later URLs once each. Preserve URL deduplication, Work deduplication, input indexes, limits, and cancellation.
+For each validated, unique URL, retry only `ErrorTransient` while readiness is not established. The profile decoder maps only a validated HTTP-200 outer `code=400` with absent/null `data`, or outer `code=0` with inner `errCode=1011` and absent/null business `data`, to `ErrorTransient`; other malformed or conflicting envelopes remain `ErrorStructure`. Clamp every sleep to `deadline.Sub(options.Clock.Now())`. On exhaustion, mark the current and remaining valid unique inputs `profile_not_ready` without additional HTTP calls. Reuse the first successful Work and process later URLs once each. Preserve URL deduplication, Work deduplication, input indexes, limits, and cancellation.
 
 - [ ] **Step 4: Keep the public wrapper compatible**
 

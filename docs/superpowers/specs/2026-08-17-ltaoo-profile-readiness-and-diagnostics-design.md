@@ -31,11 +31,11 @@
 
 - 总预算固定为 30 秒，不按链接重置。
 - 第一次请求立即发送。
-- 只有传输失败、HTTP 503 或其他 5xx 归类为可重试错误。
+- 只有传输失败、HTTP 503 或其他 5xx，以及已校验的 profile 请求返回 HTTP 200、外层 `code=400` 且无 `data`，或外层 `code=0`、内层 `errCode=1011` 且无业务 `data`，在启动期归类为可重试错误。
 - 可重试请求采用有界短间隔退避；每次睡眠不能越过总截止时间。
 - 一旦任一 profile 成功，该 Work 直接进入结果，不重复请求该链接。
 - 页面桥证明就绪后，其余链接各请求一次，不再使用 30 秒等待。
-- 401、403、429、非法分享链接、成功响应结构错误和其他非重试错误立即终止该链接，不消耗重复请求。
+- 401、403、429、非法分享链接、成功响应结构错误和其他非重试错误立即终止该链接，不消耗重复请求。profile 已成功建立后，`code=400/no data` 也只作为一次封闭失败处理，不重新开启等待窗口。
 - 上下文取消立即停止，不得继续请求。
 
 如果第一个链接得到非重试终态错误，批次可以继续用下一个链接尝试证明页面桥；所有尝试共享同一个 30 秒预算。预算耗尽后，当前及尚未尝试的链接记录 `profile_not_ready`，不得为每个剩余链接重新等待。
@@ -49,7 +49,7 @@ Go 客户端只根据受信任的本地 HTTP 状态、封闭解析结果和现�
 | `profile_not_ready` | 共享 30 秒窗口内可重试错误始终未恢复 | `detail / wechat_page_unavailable` |
 | `profile_access_denied` | HTTP 401 或 403 | `detail / login_required` |
 | `profile_rate_limited` | HTTP 429 | `search / rate_limited` |
-| `profile_schema_mismatch` | HTTP 200 但外层、业务层、object ID 或 nonce 结构无效 | `detail / page_structure_changed` |
+| `profile_schema_mismatch` | HTTP 200 但外层、业务层、object ID 或 nonce 结构无效；不包括启动期明确识别的 `code=400/no data` 或 `errCode=1011/no data` | `detail / page_structure_changed` |
 | `profile_unavailable` | 其他封闭但无法进一步分类的失败 | `detail / content_unavailable` |
 
 非法 URL 继续使用现有 `invalid_share_url`。任何错误码都不得包含 URL、作品 ID、nonce、Cookie、响应正文、文件路径或进程信息。
@@ -67,7 +67,7 @@ Go 客户端只根据受信任的本地 HTTP 状态、封闭解析结果和现�
 
 Go 回环 HTTP 测试覆盖：
 
-1. profile 前两次返回 503、第三次成功；只产生一个 Work，且成功请求不重复。
+1. profile 前两次返回 503 或 `code=400/no data`、第三次成功；只产生一个 Work，且成功请求不重复。
 2. 多个链接共享同一截止时间，不能各自获得 30 秒。
 3. 第一个链接为非重试错误时，第二个链接仍可证明页面桥就绪。
 4. 共享窗口耗尽时，当前和未尝试链接均得到 `profile_not_ready`。
