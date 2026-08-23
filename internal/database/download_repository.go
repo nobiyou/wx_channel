@@ -319,16 +319,21 @@ func (r *DownloadRecordRepository) CountByStatus(status string) (int64, error) {
 
 // CountToday 返回今天下载的记录数
 func (r *DownloadRecordRepository) CountToday() (int64, error) {
-	var count int64
 	today := time.Now().Format("2006-01-02")
-	err := r.db.QueryRow(
-		"SELECT COUNT(*) FROM download_records WHERE date(download_time) = ?",
-		today,
-	).Scan(&count)
+	count, err := r.countByLocalDate(today)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count today's download records: %w", err)
 	}
 	return count, nil
+}
+
+func (r *DownloadRecordRepository) countByLocalDate(date string) (int64, error) {
+	var count int64
+	err := r.db.QueryRow(
+		"SELECT COUNT(*) FROM download_records WHERE substr(download_time, 1, 10) = ?",
+		date,
+	).Scan(&count)
+	return count, err
 }
 
 // GetRecent 获取最近的下载记录
@@ -512,11 +517,7 @@ func (r *DownloadRecordRepository) GetChartData(days int) ([]string, []int64, er
 		dateStr := date.Format("2006-01-02")
 		labels[days-1-i] = dateStr
 
-		var count int64
-		err := r.db.QueryRow(
-			"SELECT COUNT(*) FROM download_records WHERE date(download_time) = ?",
-			dateStr,
-		).Scan(&count)
+		count, err := r.countByLocalDate(dateStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get chart data: %w", err)
 		}

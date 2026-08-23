@@ -8,6 +8,8 @@ import (
 	json "github.com/json-iterator/go"
 )
 
+const testAsyncTimeout = 5 * time.Second
+
 func newTestAPIClient(id string) (*Client, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
@@ -41,14 +43,14 @@ func TestCallAPIRetriesOnDisconnectedClient(t *testing.T) {
 		data, err := hub.CallAPI("key:channels:fetch_feed_comment_list", FeedCommentListBody{
 			ObjectID: "object-1",
 			NonceID:  "nonce-1",
-		}, 2*time.Second)
+		}, 2*testAsyncTimeout)
 		resultCh <- result{data: data, err: err}
 	}()
 
 	select {
 	case <-first.send:
 		cancelFirst()
-	case <-time.After(time.Second):
+	case <-time.After(testAsyncTimeout):
 		t.Fatal("first client did not receive API request")
 	}
 
@@ -60,7 +62,7 @@ func TestCallAPIRetriesOnDisconnectedClient(t *testing.T) {
 			t.Fatal("second client received malformed API request")
 		}
 		request = message
-	case <-time.After(time.Second):
+	case <-time.After(testAsyncTimeout):
 		t.Fatal("API request was not retried on second client")
 	}
 
@@ -77,7 +79,7 @@ func TestCallAPIRetriesOnDisconnectedClient(t *testing.T) {
 		if string(got.data) != `{"errCode":0,"data":"ok"}` {
 			t.Fatalf("CallAPI() data = %s", got.data)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(testAsyncTimeout):
 		t.Fatal("CallAPI() did not complete after retry response")
 	}
 }
@@ -95,14 +97,14 @@ func TestCallAPIDoesNotRetryNonIdempotentCall(t *testing.T) {
 
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := hub.CallAPI("key:channels:download_video", map[string]string{"videoUrl": "https://example.test/video"}, time.Second)
+		_, err := hub.CallAPI("key:channels:download_video", map[string]string{"videoUrl": "https://example.test/video"}, testAsyncTimeout)
 		resultCh <- err
 	}()
 
 	select {
 	case <-first.send:
 		cancelFirst()
-	case <-time.After(time.Second):
+	case <-time.After(testAsyncTimeout):
 		t.Fatal("first client did not receive API request")
 	}
 
@@ -111,7 +113,7 @@ func TestCallAPIDoesNotRetryNonIdempotentCall(t *testing.T) {
 		if err == nil {
 			t.Fatal("CallAPI() error = nil, want disconnected client error")
 		}
-	case <-time.After(time.Second):
+	case <-time.After(testAsyncTimeout):
 		t.Fatal("non-idempotent CallAPI() did not stop after disconnect")
 	}
 

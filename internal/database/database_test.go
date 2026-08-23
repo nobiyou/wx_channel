@@ -188,6 +188,36 @@ func TestDownloadRecordRepository(t *testing.T) {
 	}
 }
 
+func TestDownloadRecordRepositoryCountsStoredLocalDate(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewDownloadRecordRepository()
+	localTime := time.Date(2026, time.August, 24, 0, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	record := &DownloadRecord{
+		ID:           "download-local-date",
+		VideoID:      "video-local-date",
+		Title:        "Local Date Boundary",
+		Status:       DownloadStatusCompleted,
+		DownloadTime: localTime,
+	}
+	if err := repo.Create(record); err != nil {
+		t.Fatalf("Failed to create local-date download record: %v", err)
+	}
+	var storedDownloadTime string
+	if err := repo.db.QueryRow("SELECT download_time FROM download_records WHERE id = ?", record.ID).Scan(&storedDownloadTime); err != nil {
+		t.Fatalf("Failed to read stored download time: %v", err)
+	}
+
+	count, err := repo.countByLocalDate("2026-08-24")
+	if err != nil {
+		t.Fatalf("Failed to count downloads by stored local date: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("Expected 1 download on stored local date, got %d (stored value %q)", count, storedDownloadTime)
+	}
+}
+
 func TestQueueRepository(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()

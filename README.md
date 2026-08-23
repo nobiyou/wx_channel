@@ -288,11 +288,11 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 
 ---
 
-## 🎉 最新版本 v5.7.2
+## 🎉 最新版本 v5.7.3
 
-### 🚀 核心升级（v5.7.2）
+### 🚀 核心升级（v5.7.3）
 
-本次版本完成 Insight Edge 适配，并退役停止开发的 `wx_channel_hub` 独有链路：
+本次补丁修正启动界面更新说明未同步的问题，并完整展示 Insight Edge 适配及 `wx_channel_hub` 独有链路退役要点：
 
 - **Insight Edge 默认链路**：Cloud 版默认连接本地 Insight `18081/ws/client`，既有 `cloud_hub_url` 配置继续有效。
 - **Hub 独有功能退役**：移除设备绑定、浏览/下载记录主动同步和远端指标推送。

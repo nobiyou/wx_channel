@@ -467,10 +467,9 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • Insight Edge 集成 - Cloud 版默认连接本地 Insight :18081")
-	color.Green("    • 云端连接稳定 - 支持断线切换与可取消 API 调用")
-	color.Green("    • 评论异步导出 - 后台任务轮询，避免长请求误报 Failed to fetch")
-	color.Green("    • 进度保护完善 - 分页、检查点与评论统计结果完整保留")
+	for _, highlight := range releaseHighlights {
+		color.Green("    • %s", highlight)
+	}
 	fmt.Println()
 }
 
