@@ -68,11 +68,10 @@ type Config struct {
 	EnableLogInterception bool `mapstructure:"enable_log_interception"` // 是否拦截console日志（禁用可节省内存）
 
 	// 云端管理配置
-	CloudEnabled bool   `mapstructure:"cloud_enabled"` // 是否启用云端管理功能
-	CloudHubURL  string `mapstructure:"cloud_hub_url"` // 中央服务器地址 (e.g., ws://hub.example.com/ws/client)
+	CloudEnabled bool   `mapstructure:"cloud_enabled"` // 是否启用 Insight Edge 连接
+	CloudHubURL  string `mapstructure:"cloud_hub_url"` // Insight Edge WebSocket 地址（保留旧配置键名）
 	CloudSecret  string `mapstructure:"cloud_secret"`  // 云端通信密钥
 	MachineID    string `mapstructure:"machine_id"`    // 机器学习 ID (用于在云端唯一标识此实例)
-	BindToken    string `mapstructure:"bind_token"`    // 临时绑定码
 
 	// 第二阶段优化配置
 	LoadBalancerStrategy string `mapstructure:"load_balancer_strategy"` // 负载均衡策略: roundrobin, leastconn, weighted, random
@@ -81,25 +80,14 @@ type Config struct {
 	MetricsEnabled       bool   `mapstructure:"metrics_enabled"`        // 是否启用 Prometheus 监控
 	MetricsPort          int    `mapstructure:"metrics_port"`           // Prometheus 监控端口
 
-	// Hub同步配置
-	HubSync HubSyncConfig `mapstructure:"hub_sync"`
-
 	// 功能开关
 	RadarEnabled bool `mapstructure:"radar_enabled"`
 }
 
-// HubSyncConfig Hub同步配置
-type HubSyncConfig struct {
-	Enabled       bool          `mapstructure:"enabled"`         // 是否启用Hub同步
-	PushEnabled   bool          `mapstructure:"push_enabled"`    // 是否启用主动推送
-	PushInterval  time.Duration `mapstructure:"push_interval"`   // 推送间隔
-	PushBatchSize int           `mapstructure:"push_batch_size"` // 推送批量大小
-}
-
 var globalConfig *Config
 
-// DefaultCloudHubURL is the local Hub endpoint used when no endpoint is
-// configured. A configured cloud_hub_url still takes precedence.
+// DefaultCloudHubURL is the local Insight Edge endpoint used when no endpoint
+// is configured. A configured cloud_hub_url still takes precedence.
 const DefaultCloudHubURL = "ws://127.0.0.1:18081/ws/client"
 
 // DatabaseConfigLoader 数据库配置加载器接口
@@ -246,12 +234,6 @@ func setDefaults() {
 	viper.SetDefault("compression_threshold", 1024) // 1KB
 	viper.SetDefault("metrics_enabled", true)
 	viper.SetDefault("metrics_port", 9090)
-
-	// Hub同步默认值
-	viper.SetDefault("hub_sync.enabled", true)
-	viper.SetDefault("hub_sync.push_enabled", true)
-	viper.SetDefault("hub_sync.push_interval", 5*time.Minute)
-	viper.SetDefault("hub_sync.push_batch_size", 1000)
 
 	// 功能默认值
 	viper.SetDefault("radar_enabled", false)

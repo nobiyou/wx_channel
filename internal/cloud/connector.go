@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -40,11 +39,7 @@ type Connector struct {
 	maxDelay   time.Duration // 最大延迟
 
 	// 性能优化
-	gzipPool      sync.Pool    // 复用 gzip.Writer
-	metricsClient *http.Client // 复用 HTTP 客户端
-
-	// 同步推送器
-	syncPusher *SyncPusher
+	gzipPool sync.Pool // 复用 gzip.Writer
 }
 
 // NewConnector 创建云端连接器
@@ -71,7 +66,6 @@ func NewConnector(cfg *config.Config, localHub *hubws.Hub) *Connector {
 		gzipPool: sync.Pool{
 			New: func() interface{} { return gzip.NewWriter(nil) },
 		},
-		metricsClient: &http.Client{Timeout: 5 * time.Second},
 	}
 
 	if c.clientID == "" {
@@ -170,26 +164,11 @@ func (c *Connector) Start() {
 
 	utils.LogInfo("正在启动云端连接器 (ID: %s, URL: %s)", c.clientID, c.cfg.CloudHubURL)
 
-	// 启动同步推送器（如果启用了 Hub 同步和推送功能）
-	if c.cfg.HubSync.Enabled && c.cfg.HubSync.PushEnabled {
-		c.syncPusher = NewSyncPusher(c)
-		go c.syncPusher.Start()
-		utils.LogInfo("✓ Hub 同步推送器已启动 (间隔: %v, 批量: %d)",
-			c.cfg.HubSync.PushInterval, c.cfg.HubSync.PushBatchSize)
-	} else if c.cfg.HubSync.Enabled && !c.cfg.HubSync.PushEnabled {
-		utils.LogInfo("Hub 同步已启用，但推送功能已禁用 (push_enabled: false)")
-	}
-
 	go c.connectLoop()
 }
 
 // Stop 停止连接器
 func (c *Connector) Stop() {
-	// 停止同步推送器
-	if c.syncPusher != nil {
-		c.syncPusher.Stop()
-	}
-
 	c.cancel()
 	c.mu.Lock()
 	if c.conn != nil {
@@ -227,10 +206,10 @@ func (c *Connector) connectLoop() {
 			c.retryCount = 0
 			metrics.ReconnectSuccessTotal.Inc()
 			metrics.WSConnectionsTotal.Inc()
-			utils.LogInfo("✓ 已连接到云端 Hub")
+			utils.LogInfo("✓ 已连接到 Insight Edge")
 			c.handleConnection()
 			metrics.WSConnectionsTotal.Dec()
-			utils.LogWarn("云端 Hub 连接已断开，3秒后重新连接...")
+			utils.LogWarn("Insight Edge 连接已断开，3秒后重新连接...")
 			time.Sleep(3 * time.Second) // 短暂延迟后重连，避免频繁重连
 		}
 	}
@@ -284,36 +263,12 @@ func (c *Connector) connect() error {
 }
 
 func (c *Connector) handleConnection() {
-	// 检查是否有绑定任务
-	if c.cfg.BindToken != "" {
-		utils.LogInfo("检测到绑定码，正在发送绑定请求...")
-		payload := map[string]string{"token": c.cfg.BindToken}
-		data, _ := json.Marshal(payload)
-
-		msg := CloudMessage{
-			ID:        fmt.Sprintf("bind-%d", time.Now().Unix()),
-			Type:      MsgTypeBind,
-			ClientID:  c.clientID,
-			Payload:   data,
-			Timestamp: time.Now().Unix(),
-		}
-
-		if err := c.send(msg); err != nil {
-			utils.LogError("绑定请求发送失败: %v", err)
-		}
-	}
-
 	// 创建连接级上下文
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
 
 	// 启动心跳
 	go c.heartbeatLoop(ctx)
-
-	// 启动监控数据推送（如果启用了监控）
-	if c.cfg.MetricsEnabled {
-		go c.metricsLoop(ctx)
-	}
 
 	// 监听消息
 	utils.LogInfo("开始监听云端消息...")
@@ -579,10 +534,10 @@ func (c *Connector) handleAPICall(reqID string, data json.RawMessage) {
 		return
 	}
 
-	// 检查本地 Hub 是否可用
+	// 检查本地页面 API 调度器是否可用
 	if c.local == nil {
-		utils.LogError("本地 Hub 未初始化")
-		c.sendError(reqID, "Local hub not initialized")
+		utils.LogError("本地页面 API 调度器未初始化")
+		c.sendError(reqID, "Local page API dispatcher not initialized")
 		return
 	}
 
@@ -713,54 +668,4 @@ func (c *Connector) sendResponse(reqID string, success bool, data json.RawMessag
 
 func (c *Connector) sendError(reqID string, errMsg string) {
 	c.sendResponse(reqID, false, nil, errMsg)
-}
-
-// metricsLoop 定期推送监控数据到 Hub
-func (c *Connector) metricsLoop(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second) // 每 15 秒推送一次
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := c.pushMetrics(); err != nil {
-				utils.LogWarn("推送监控数据失败: %v", err)
-			}
-		}
-	}
-}
-
-// pushMetrics 推送监控数据
-func (c *Connector) pushMetrics() error {
-	// 从本地 metrics 端点获取数据
-	metricsURL := fmt.Sprintf("http://localhost:%d/metrics", c.cfg.MetricsPort)
-
-	resp, err := c.metricsClient.Get(metricsURL)
-	if err != nil {
-		return fmt.Errorf("获取监控数据失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取监控数据失败: %w", err)
-	}
-
-	// 构造监控数据消息
-	payload := map[string]string{
-		"metrics": string(body),
-	}
-	payloadData, _ := json.Marshal(payload)
-
-	msg := CloudMessage{
-		ID:        fmt.Sprintf("metrics-%d", time.Now().UnixNano()),
-		Type:      "metrics", // 新的消息类型
-		ClientID:  c.clientID,
-		Payload:   payloadData,
-		Timestamp: time.Now().Unix(),
-	}
-
-	return c.send(msg)
 }

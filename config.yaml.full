@@ -17,12 +17,12 @@ cert_file: SunnyRoot.cer
 
 # ==================== 云端管理功能 ====================
 
-# 是否启用云端管理功能（Hub Server 集中管理）
-# true: 启用，客户端会连接到 Hub Server，支持远程管理
-# false: 禁用，客户端独立运行，不连接 Hub Server
+# 是否启用 Insight Edge 连接
+# true: 启用，客户端连接 Insight Edge，支持远程 API 调用和状态上报
+# false: 禁用，客户端独立运行
 cloud_enabled: true
 
-# Hub Server 的 WebSocket 地址
+# Insight Edge 的 WebSocket 地址
 cloud_hub_url: "ws://127.0.0.1:18081/ws/client"
 
 # 云端通信密钥（可选，用于加密通信）
@@ -30,9 +30,6 @@ cloud_secret: ""
 
 # 设备标识（自动生成，请勿手动修改）
 machine_id: ""
-
-# 绑定令牌（从 Hub Server 获取）
-bind_token: ""
 
 # ==================== 下载配置 ====================
 
@@ -135,9 +132,9 @@ save_delay: 500
 
 # ==================== 说明 ====================
 # 
-# 1. 云端管理功能 (cloud_enabled)
-#    - true: 客户端会连接到 Hub Server，支持远程管理、任务分发等
-#    - false: 客户端独立运行，不连接 Hub Server
+# 1. Insight Edge 连接 (cloud_enabled)
+#    - true: 客户端连接 Insight Edge，支持远程 API 调用和页面能力状态上报
+#    - false: 客户端独立运行，不连接 Insight Edge
 #    - 如果不需要集中管理，可以设置为 false 以节省资源
 #
 # 2. 配置优先级

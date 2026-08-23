@@ -60,6 +60,8 @@ func TestLoad_GeneratedConfigFileIncludesRadarEnabled(t *testing.T) {
 	assert.Contains(t, string(content), "download_filename_template: \"\"")
 	assert.Contains(t, string(content), "radar_enabled: false")
 	assert.Contains(t, string(content), "cloud_hub_url: "+DefaultCloudHubURL)
+	assert.NotContains(t, string(content), "bind_token:")
+	assert.NotContains(t, string(content), "hub_sync:")
 }
 
 func TestLoad_EnvVars(t *testing.T) {

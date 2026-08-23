@@ -315,9 +315,9 @@ func (app *App) Run() {
 	if app.Cfg.CloudEnabled && strings.TrimSpace(app.Cfg.CloudHubURL) != "" {
 		app.CloudConnector = cloud.NewConnector(app.Cfg, app.WSHub)
 		app.CloudConnector.Start()
-		utils.Info("✓ 云端管理功能已启用，Hub: %s", app.Cfg.CloudHubURL)
+		utils.Info("✓ Insight Edge 连接已启用，地址: %s", app.Cfg.CloudHubURL)
 	} else {
-		utils.Info("云端管理功能已禁用 (cloud_enabled: false 或未配置 Hub 地址)")
+		utils.Info("Insight Edge 连接已禁用 (cloud_enabled: false 或未配置 Edge 地址)")
 	}
 
 	utils.Info("🔍 请打开需要下载的视频号页面进行下载")
@@ -467,7 +467,7 @@ func (app *App) printTitle() {
 	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
 	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
 	color.Green("    v%s 更新要点：", app.Cfg.Version)
-	color.Green("    • Insight Hub 集成 - Cloud 版默认连接本地 Insight :18081")
+	color.Green("    • Insight Edge 集成 - Cloud 版默认连接本地 Insight :18081")
 	color.Green("    • 云端连接稳定 - 支持断线切换与可取消 API 调用")
 	color.Green("    • 评论异步导出 - 后台任务轮询，避免长请求误报 Failed to fetch")
 	color.Green("    • 进度保护完善 - 分页、检查点与评论统计结果完整保留")

@@ -695,7 +695,7 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.7.0 |
+                                <strong>当前版本：</strong>v5.7.2 |
 
                                 <strong>更新时间：</strong>2026-08-05
 
@@ -2082,15 +2082,15 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.7.0版本 - 最新版本 -->
+                        <!-- v5.7.2版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.7.0 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.7.2 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-08-05</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-08-23</span>
 
                             </div>
 
@@ -2100,7 +2100,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>Insight Hub 集成</strong>：Cloud 版默认连接本地 `18081/ws/client`，支持配置远程 Insight 地址。
+                                    <strong>Insight Edge 默认链路</strong>：Cloud 版默认连接本地 `18081/ws/client`，现有配置继续有效。
 
                                 </li>
 
@@ -2108,14 +2108,14 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>云端连接稳定</strong>：增强 WebSocket 断线切换、API 调用取消和边缘节点状态同步。
+                                    <strong>Hub 独有功能退役</strong>：移除设备绑定、记录主动同步和远端指标推送。
                                 </li>
 
                                 <li class="flex items-start">
 
                                     <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>异步评论导出</strong>：后台任务配合状态轮询，避免长请求导致 `Failed to fetch` 误报。
+                                    <strong>协议边界收敛</strong>：保留心跳、远程命令/API 调用、gzip 和页面能力状态。
 
                                 </li>
 
@@ -2123,7 +2123,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>进度保护</strong>：支持分页上限、`.partial.json` 检查点和评论统计结果保留。
+                                    <strong>本地监控保留</strong>：Prometheus `/metrics` 继续由本机提供。
 
                                 </li>
 
@@ -2131,55 +2131,7 @@ upx --best wx_channel.exe</code></pre>
 
                                     <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
 
-                                    <strong>运行边界明确</strong>：独立 `wx_channel_hub` 不再使用，雷达默认关闭并由雷达版单独提供。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    中断时会保留已完成的评论结果，便于后续排查或重试。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    成功和失败提示现在按真实链路分别展示，避免“导出成功但页面说失败”。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    长评论视频导出体验更稳，减少导出到一半被重置的情况。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    保持现有评论列表 API 调用方式不变，不需要兼容旧参数。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    雷达功能默认关闭，需要在 `config.yaml` 中显式开启并重启程序。
-
-                                </li>
-
-                                <li class="flex items-start">
-
-                                    <span class="w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 mt-2 flex-shrink-0"></span>
-
-                                    持续优化新版页面下的评论导出、下载链路与整体稳定性。
+                                    <strong>运行语义统一</strong>：配置样例、监控说明和启动日志统一使用 Insight Edge。
 
                                 </li>
 

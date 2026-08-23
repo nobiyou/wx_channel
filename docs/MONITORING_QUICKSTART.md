@@ -16,8 +16,8 @@ wx_channel_metrics.exe
 ### 方式 1: 直接访问 Prometheus 端点
 浏览器打开: http://localhost:9090/metrics
 
-### 方式 2: Hub Server 监控面板
-浏览器打开: https://wx.dongzuren.com/monitoring
+### 方式 2: Insight 运营台
+Insight 运营台会显示 Edge 节点和页面能力状态；Prometheus 指标仍通过上面的本地端点查看。
 
 ## 3️⃣ 监控指标说明
 

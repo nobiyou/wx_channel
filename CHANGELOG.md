@@ -1,5 +1,15 @@
 # wx_channel 更新日志
 
+## [5.7.2] - 2026-08-23
+
+### Insight Edge 适配与 Hub 独有路径退役
+
+- Cloud 版以 `wx_channel_insight` 的 Insight Edge 为默认远程数据面，继续兼容现有 `cloud_hub_url` 配置键和 `ws://127.0.0.1:18081/ws/client` 默认地址。
+- 删除旧 Hub 设备绑定命令、`bind_token`、`hub_sync`、浏览/下载记录主动同步以及远端 Prometheus 指标推送，不再依赖停止开发的 `wx_channel_hub` 功能。
+- 远程协议收敛为 `heartbeat`、`command`、`response`，继续保留 gzip 传输、页面能力心跳、远程 API 调用和断线重连。
+- 本地 Prometheus `/metrics` 端点保持不变，配置样例、监控说明和启动日志统一使用 Insight Edge 语义。
+- 保留本地 WebSocket Hub 作为页面客户端调度器；它属于 `wx_channel` 内部数据面，不是独立的 `wx_channel_hub` 项目。
+
 ## [5.7.1] - 2026-08-11
 
 ### 视频号分享链接解析改造
