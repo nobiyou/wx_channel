@@ -124,6 +124,76 @@ func TestCallAPIDoesNotRetryNonIdempotentCall(t *testing.T) {
 	}
 }
 
+func TestSendCommandToMatchingClientTargetsOnlyOneClient(t *testing.T) {
+	hub := NewHub()
+	first, cancelFirst := newTestAPIClient("client-a")
+	defer cancelFirst()
+	first.pagePath = "/web/pages/home"
+	first.href = "https://channels.weixin.qq.com/web/pages/home"
+	second, cancelSecond := newTestAPIClient("client-b")
+	defer cancelSecond()
+	second.pagePath = "/web/pages/profile"
+	second.href = "https://channels.weixin.qq.com/web/pages/profile"
+	hub.clients[first] = true
+	hub.clients[second] = true
+
+	err := hub.SendCommandToMatchingClient(func(status ClientStatus) bool {
+		return status.PagePath == "/web/pages/profile"
+	}, "channel_reload", map[string]interface{}{"reason": "test"})
+	if err != nil {
+		t.Fatalf("SendCommandToMatchingClient() error = %v", err)
+	}
+
+	select {
+	case raw := <-second.send:
+		var message WSMessage
+		if err := json.Unmarshal(raw, &message); err != nil {
+			t.Fatalf("decode command: %v", err)
+		}
+		if message.Type != WSMessageTypeCommand {
+			t.Fatalf("message type = %s, want %s", message.Type, WSMessageTypeCommand)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("matching client did not receive command")
+	}
+	select {
+	case <-first.send:
+		t.Fatal("unmatched client received command")
+	default:
+	}
+}
+
+func TestSendCommandToMatchingClientRejectsInvalidSelection(t *testing.T) {
+	hub := NewHub()
+	if err := hub.SendCommandToMatchingClient(nil, "channel_reload", nil); err == nil {
+		t.Fatal("nil predicate error = nil")
+	}
+	if err := hub.SendCommandToMatchingClient(func(ClientStatus) bool { return true }, "channel_reload", nil); err == nil {
+		t.Fatal("empty hub error = nil")
+	}
+}
+
+func TestBroadcastCommandStillReachesAllClients(t *testing.T) {
+	hub := NewHub()
+	first, cancelFirst := newTestAPIClient("client-a")
+	defer cancelFirst()
+	second, cancelSecond := newTestAPIClient("client-b")
+	defer cancelSecond()
+	hub.clients[first] = true
+	hub.clients[second] = true
+
+	if err := hub.BroadcastCommand("download_progress", map[string]interface{}{"done": true}); err != nil {
+		t.Fatalf("BroadcastCommand() error = %v", err)
+	}
+	for name, client := range map[string]*Client{"first": first, "second": second} {
+		select {
+		case <-client.send:
+		case <-time.After(time.Second):
+			t.Fatalf("%s client did not receive broadcast", name)
+		}
+	}
+}
+
 func decodeAPIRequest(raw []byte) (APICallRequest, bool) {
 	var message WSMessage
 	if err := json.Unmarshal(raw, &message); err != nil || message.Type != WSMessageTypeAPICall {

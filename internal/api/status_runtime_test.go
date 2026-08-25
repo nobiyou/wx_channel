@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/lifecycle"
 	"wx_channel/internal/response"
 	"wx_channel/internal/websocket"
 )
@@ -22,6 +23,9 @@ func TestGetStatusIncludesRuntimeDiagnostics(t *testing.T) {
 		MetricsEnabled: true,
 	})
 	diagnostics.RecordInjectionResult(false, "administrator permission may be required")
+	diagnostics.SetLifecycleProvider(func() lifecycle.Status {
+		return lifecycle.Status{State: "healthy", WeChatRunning: true}
+	})
 
 	service := NewSearchService(hub)
 	service.SetRuntimeDiagnostics(diagnostics)
@@ -59,6 +63,13 @@ func TestGetStatusIncludesRuntimeDiagnostics(t *testing.T) {
 	}
 	if injectionInfo["checked"] != true || injectionInfo["started"] != false {
 		t.Fatalf("expected checked failed injection status, got %#v", injectionInfo)
+	}
+	lifecycleInfo, ok := runtimeInfo["lifecycle"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected runtime.lifecycle, got %#v", runtimeInfo["lifecycle"])
+	}
+	if lifecycleInfo["state"] != "healthy" || lifecycleInfo["wechat_running"] != true {
+		t.Fatalf("unexpected lifecycle snapshot: %#v", lifecycleInfo)
 	}
 }
 

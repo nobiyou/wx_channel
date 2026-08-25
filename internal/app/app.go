@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"wx_channel/internal/config"
 	"wx_channel/internal/database"
 	"wx_channel/internal/handlers"
+	"wx_channel/internal/lifecycle"
 	"wx_channel/internal/router"
 	"wx_channel/internal/services"
 	"wx_channel/internal/storage"
@@ -64,6 +66,7 @@ type App struct {
 	GopeedService      *services.GopeedService // Add GopeedService
 	CloudConnector     *cloud.Connector
 	RuntimeDiagnostics *api.RuntimeDiagnostics
+	Lifecycle          *lifecycle.Manager
 
 	// 路由器
 	APIRouter *router.APIRouter
@@ -138,12 +141,15 @@ func (app *App) Run() {
 	app.Sunny.SetPort(app.Port)
 
 	done := make(chan struct{})
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	defer lifecycleCancel()
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-signalChan
 		color.Red("\n正在关闭服务...%v\n\n", sig)
 		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
+		lifecycleCancel()
 		database.Close()
 		if os_env == "darwin" {
 			proxy.DisableProxyInMacOS(proxy.ProxySettings{
@@ -199,6 +205,8 @@ func (app *App) Run() {
 
 	// 初始化新的 API 路由器
 	app.RuntimeDiagnostics = api.NewRuntimeDiagnostics(app.Cfg)
+	app.Lifecycle = lifecycle.NewDefaultManager(app.WSHub)
+	app.RuntimeDiagnostics.SetLifecycleProvider(app.Lifecycle.Snapshot)
 	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
 
 	// 初始化静态文件处理器
@@ -305,6 +313,10 @@ func (app *App) Run() {
 
 	wsPort := app.Port + 1
 	go app.startWebSocketServer(wsPort)
+	if app.Lifecycle != nil {
+		go app.Lifecycle.Run(lifecycleCtx)
+		utils.Info("✓ 视频号页面生命周期管理已启动")
+	}
 
 	// 启动 Prometheus 监控服务器（如果启用）
 	if app.Cfg.MetricsEnabled {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/lifecycle"
 	"wx_channel/pkg/certificate"
 )
 
@@ -22,6 +23,7 @@ type RuntimeDiagnostics struct {
 	certificateTTL        time.Time
 	certificateRefreshing bool
 	checkCertificate      func(string) (bool, error)
+	lifecycleProvider     func() lifecycle.Status
 }
 
 type RuntimeDiagnosticsSnapshot struct {
@@ -29,6 +31,7 @@ type RuntimeDiagnosticsSnapshot struct {
 	Certificate RuntimeCertificateStatus `json:"certificate"`
 	Injection   RuntimeInjectionStatus   `json:"injection"`
 	Features    RuntimeFeatureStatus     `json:"features"`
+	Lifecycle   lifecycle.Status         `json:"lifecycle"`
 }
 
 type RuntimeProxyStatus struct {
@@ -90,6 +93,16 @@ func (d *RuntimeDiagnostics) RecordInjectionResult(started bool, lastError strin
 	d.injection.UpdatedAt = time.Now().Format(time.RFC3339)
 }
 
+// SetLifecycleProvider registers the runtime-owned lifecycle snapshot source.
+func (d *RuntimeDiagnostics) SetLifecycleProvider(provider func() lifecycle.Status) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.lifecycleProvider = provider
+	d.mu.Unlock()
+}
+
 func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 	var cfg *config.Config
 	if d != nil {
@@ -121,9 +134,11 @@ func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 		Enabled:       runtime.GOOS == "windows",
 		TargetProcess: defaultWXClientProcessName,
 	}
+	var lifecycleProvider func() lifecycle.Status
 	if d != nil {
 		d.mu.RLock()
 		injection = d.injection
+		lifecycleProvider = d.lifecycleProvider
 		d.mu.RUnlock()
 		if injection.TargetProcess == "" {
 			injection.TargetProcess = defaultWXClientProcessName
@@ -131,6 +146,12 @@ func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 	}
 
 	certStatus := d.certificateStatus()
+	lifecycleStatus := lifecycle.Status{State: "disabled"}
+	if lifecycleProvider != nil {
+		if provided := lifecycleProvider(); provided.State != "" {
+			lifecycleStatus = provided
+		}
+	}
 
 	return RuntimeDiagnosticsSnapshot{
 		Proxy: RuntimeProxyStatus{
@@ -143,6 +164,7 @@ func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 		Certificate: certStatus,
 		Injection:   injection,
 		Features:    features,
+		Lifecycle:   lifecycleStatus,
 	}
 }
 

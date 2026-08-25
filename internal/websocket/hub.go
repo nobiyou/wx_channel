@@ -349,39 +349,78 @@ func (h *Hub) handleAPIResponse(resp APICallResponse) {
 
 // BroadcastCommand 向所有客户端广播指令
 func (h *Hub) BroadcastCommand(action string, payload interface{}) error {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	msgData, err := marshalCommand(action, payload)
+	if err != nil {
+		return err
+	}
 
-	if len(h.clients) == 0 {
+	h.mu.RLock()
+	clients := make([]*Client, 0, len(h.clients))
+	for client := range h.clients {
+		clients = append(clients, client)
+	}
+	h.mu.RUnlock()
+
+	if len(clients) == 0 {
 		return errors.New("no connected clients")
 	}
 
-	cmdData := map[string]interface{}{
-		"action":  action,
-		"payload": payload,
-	}
-
-	data, err := json.Marshal(cmdData)
-	if err != nil {
-		return err
-	}
-
-	msg := WSMessage{
-		Type: WSMessageTypeCommand,
-		Data: data,
-	}
-
-	msgData, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	for client := range h.clients {
+	for _, client := range clients {
 		// 忽略发送错误，尽可能发送给所有客户端
 		client.Send(msgData)
 	}
 
 	return nil
+}
+
+// SendCommandToMatchingClient sends one command to the first open client that
+// satisfies predicate. It is intentionally generic so lifecycle policy stays
+// outside the WebSocket transport owner.
+func (h *Hub) SendCommandToMatchingClient(predicate func(ClientStatus) bool, action string, payload interface{}) error {
+	if predicate == nil {
+		return errors.New("client predicate is nil")
+	}
+
+	msgData, err := marshalCommand(action, payload)
+	if err != nil {
+		return err
+	}
+
+	h.mu.RLock()
+	var target *Client
+	for client := range h.clients {
+		if client.isClosed() {
+			continue
+		}
+		if predicate(client.Status()) {
+			target = client
+			break
+		}
+	}
+	h.mu.RUnlock()
+
+	if target == nil {
+		return errors.New("no matching websocket client")
+	}
+	if err := target.Send(msgData); err != nil {
+		return fmt.Errorf("send command to matching client: %w", err)
+	}
+	return nil
+}
+
+func marshalCommand(action string, payload interface{}) ([]byte, error) {
+	cmdData := map[string]interface{}{
+		"action":  action,
+		"payload": payload,
+	}
+	data, err := json.Marshal(cmdData)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(WSMessage{
+		Type: WSMessageTypeCommand,
+		Data: data,
+	})
 }
 
 // Broadcast 广播任意消息到所有客户端

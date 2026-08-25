@@ -1,15 +1,14 @@
 /**
  * @file 保持页面活跃 - 防止页面休眠导致API调用超时
- * @version 3.3 - 缩短刷新间隔为15分钟，防止内存溢出
+ * @version 3.4 - 页面刷新由 wx_channel 生命周期管理器控制
  */
-console.log('[keep_alive.js] 加载页面保活模块 v3.3 (自动刷新已启用)');
+console.log('[keep_alive.js] 加载页面保活模块 v3.4 (刷新由 wx_channel 控制)');
 
 window.__wx_keep_alive = {
     wakeLock: null,
     activityTimer: null,
     domActivityTimer: null,
     heartbeatTimer: null,
-    refreshTimer: null,
     isActive: false,
     lastRefreshTime: Date.now(),
     stats: {
@@ -45,9 +44,6 @@ window.__wx_keep_alive = {
 
         // 方法5: 定期发送心跳到后端（可选，用于监控）
         this.startHeartbeat();
-
-        // 方法6: 定期刷新页面（每10分钟刷新一次，防止连接超时）
-        this.startAutoRefresh();
 
         // 添加全局访问方法
         window.getKeepAliveStats = () => this.getStats();
@@ -225,41 +221,6 @@ window.__wx_keep_alive = {
         }
     },
 
-    // 定期刷新页面（最后的保活手段）
-    startAutoRefresh: function () {
-        // 每 15 分钟刷新一次页面，防止内存溢出
-        const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 分钟
-
-        this.refreshTimer = setInterval(() => {
-            const now = Date.now();
-            const timeSinceLastRefresh = now - this.lastRefreshTime;
-
-            if (this.isRefreshLocked()) {
-                return;
-            }
-
-            // 只有在页面运行超过 15 分钟时才刷新
-            if (timeSinceLastRefresh >= REFRESH_INTERVAL) {
-                this.performRefresh('定期刷新（防止内存溢出）');
-            }
-        }, REFRESH_INTERVAL);
-
-        // 尝试恢复之前的统计信息
-        try {
-            const savedStats = sessionStorage.getItem('__wx_keep_alive_stats');
-            if (savedStats) {
-                const parsed = JSON.parse(savedStats);
-                this.stats.refreshCount = (parsed.refreshCount || 0);
-                this.lastRefreshTime = parsed.lastRefreshTime || Date.now();
-                console.log(`[页面保活] ✅ 恢复统计信息: 已刷新 ${this.stats.refreshCount} 次`);
-            }
-        } catch (e) {
-            console.error('[页面保活] 恢复状态失败:', e);
-        }
-
-        console.log('[页面保活] ✅ 自动刷新已启动 (15分钟间隔，防止内存溢出)');
-    },
-
     isRefreshLocked: function () {
         return Object.keys(this.refreshLocks).length > 0;
     },
@@ -270,14 +231,14 @@ window.__wx_keep_alive = {
             reason: reason || '',
             lockedAt: Date.now()
         };
-        console.log('[页面保活] 🔒 暂停自动刷新:', key, reason || '');
+        console.log('[页面保活] 🔒 刷新锁定:', key, reason || '');
     },
 
     unlockRefresh: function (key) {
         if (!key) return;
         if (this.refreshLocks[key]) {
             delete this.refreshLocks[key];
-            console.log('[页面保活] 🔓 恢复自动刷新:', key);
+            console.log('[页面保活] 🔓 刷新解锁:', key);
         }
     },
 
@@ -356,11 +317,6 @@ window.__wx_keep_alive = {
             this.heartbeatTimer = null;
         }
 
-        if (this.refreshTimer) {
-            clearInterval(this.refreshTimer);
-            this.refreshTimer = null;
-        }
-
         // 移除DOM标记
         const marker = document.getElementById('__wx_keep_alive_marker');
         if (marker) {
@@ -385,6 +341,6 @@ window.addEventListener('beforeunload', () => {
     window.__wx_keep_alive.stop();
 });
 
-console.log('[keep_alive.js] 页面保活模块加载完成 v3.3 (自动刷新已启用 - 15分钟间隔)');
+console.log('[keep_alive.js] 页面保活模块加载完成 v3.4 (刷新由 wx_channel 控制)');
 console.log('[keep_alive.js] 使用 window.getKeepAliveStats() 查看统计信息');
-console.log('[keep_alive.js] 页面将每15分钟自动刷新一次，防止内存溢出');
+console.log('[keep_alive.js] 页面刷新由 wx_channel 生命周期管理器按需触发');

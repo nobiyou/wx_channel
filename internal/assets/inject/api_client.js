@@ -697,8 +697,58 @@ window.__wx_api_client = {
   },
 
   // 处理指令
+  isAllowedChannelNavigation: function (rawUrl) {
+    try {
+      var parsed = new URL(String(rawUrl || ''), window.location.href);
+      var allowedPaths = {
+        '/web/pages/feed': true,
+        '/web/pages/home': true,
+        '/web/pages/profile': true,
+        '/web/pages/account/like': true
+      };
+      return parsed.protocol === 'https:' &&
+        parsed.hostname === 'channels.weixin.qq.com' &&
+        !!allowedPaths[parsed.pathname];
+    } catch (err) {
+      return false;
+    }
+  },
+
   handleCommand: function (data) {
     console.log('[API客户端] 收到指令:', data);
+
+    if (data.action === 'channel_reload') {
+      var keepAlive = window.__wx_keep_alive;
+      if (keepAlive && typeof keepAlive.isRefreshLocked === 'function' && keepAlive.isRefreshLocked()) {
+        console.warn('[API客户端] 页面刷新被刷新锁阻止');
+        return;
+      }
+      if (keepAlive && typeof keepAlive.performRefresh === 'function') {
+        keepAlive.performRefresh((data.payload && data.payload.reason) || 'wx_channel lifecycle');
+      } else if (window.location && typeof window.location.reload === 'function') {
+        window.location.reload();
+      }
+      return;
+    }
+
+    if (data.action === 'channel_navigate') {
+      var navigateURL = data.payload && data.payload.url;
+      if (!this.isAllowedChannelNavigation(navigateURL)) {
+        console.warn('[API客户端] 拒绝非法视频号导航地址');
+        return;
+      }
+      var navigateKeepAlive = window.__wx_keep_alive;
+      if (navigateKeepAlive && typeof navigateKeepAlive.isRefreshLocked === 'function' && navigateKeepAlive.isRefreshLocked()) {
+        console.warn('[API客户端] 页面导航被刷新锁阻止');
+        return;
+      }
+      if (window.location && typeof window.location.assign === 'function') {
+        window.location.assign(navigateURL);
+      } else if (window.location) {
+        window.location.href = navigateURL;
+      }
+      return;
+    }
 
     if (data.action === 'download_progress') {
       // 派发自定义事件，供 UI 组件消费
