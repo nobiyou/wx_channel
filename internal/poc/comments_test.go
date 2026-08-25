@@ -49,6 +49,84 @@ func TestCollectCommentsMapsTopLevelAndReplies(t *testing.T) {
 	}
 }
 
+func TestTopLevelRepeatedMarkerWithNoNewComments(t *testing.T) {
+	root := map[string]any{"commentId": "fixture-repeat-root", "content": "fixture-root"}
+	api := &fixturePageAPI{responses: [][]byte{
+		commentPage(t, []map[string]any{root}, "fixture-top-repeat"),
+		commentPage(t, []map[string]any{root}, "fixture-top-repeat"),
+	}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "top-repeat-terminal-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), fixtureWork("fixture-top-repeat-work", "fixture-top-repeat-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 1 || summary.TopLevel != 1 || summary.Partial || containsReason(summary.Reasons, "comment_pagination_repeated_marker") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+	if api.calls != 2 {
+		t.Fatalf("calls=%d", api.calls)
+	}
+}
+
+func TestTopLevelRepeatedMarkerWithNewCommentsRemainsPartial(t *testing.T) {
+	api := &fixturePageAPI{responses: [][]byte{
+		commentPage(t, []map[string]any{{"commentId": "fixture-repeat-root", "content": "fixture-root"}}, "fixture-top-repeat-new"),
+		commentPage(t, []map[string]any{
+			{"commentId": "fixture-repeat-root", "content": "fixture-duplicate"},
+			{"commentId": "fixture-repeat-new", "content": "fixture-new"},
+		}, "fixture-top-repeat-new"),
+	}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "top-repeat-new-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), fixtureWork("fixture-top-repeat-new-work", "fixture-top-repeat-new-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 2 || summary.TopLevel != 2 || !summary.Partial || !containsReason(summary.Reasons, "comment_pagination_repeated_marker") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+}
+
+func TestReplyRepeatedMarkerWithNoNewReplies(t *testing.T) {
+	top := []map[string]any{{"commentId": "fixture-reply-repeat-root", "expandCommentCount": 2}}
+	reply := []map[string]any{{"commentId": "fixture-reply-repeat-one", "replyCommentId": "fixture-reply-repeat-root", "rootCommentId": "fixture-reply-repeat-root"}}
+	api := &fixturePageAPI{responses: [][]byte{
+		commentPage(t, top, ""),
+		commentPage(t, reply, "fixture-reply-repeat"),
+		commentPage(t, reply, "fixture-reply-repeat"),
+	}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-repeat-terminal-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), fixtureWork("fixture-reply-repeat-work", "fixture-reply-repeat-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 2 || summary.Replies != 1 || summary.Partial || containsReason(summary.Reasons, "reply_pagination_repeated_marker") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+	if api.calls != 3 {
+		t.Fatalf("calls=%d", api.calls)
+	}
+}
+
+func TestReplyRepeatedMarkerWithNewRepliesRemainsPartial(t *testing.T) {
+	top := []map[string]any{{"commentId": "fixture-reply-repeat-new-root", "expandCommentCount": 3}}
+	api := &fixturePageAPI{responses: [][]byte{
+		commentPage(t, top, ""),
+		commentPage(t, []map[string]any{{"commentId": "fixture-reply-repeat-new-one", "replyCommentId": "fixture-reply-repeat-new-root", "rootCommentId": "fixture-reply-repeat-new-root"}}, "fixture-reply-repeat-new"),
+		commentPage(t, []map[string]any{
+			{"commentId": "fixture-reply-repeat-new-one", "replyCommentId": "fixture-reply-repeat-new-root", "rootCommentId": "fixture-reply-repeat-new-root"},
+			{"commentId": "fixture-reply-repeat-new-two", "replyCommentId": "fixture-reply-repeat-new-root", "rootCommentId": "fixture-reply-repeat-new-root"},
+		}, "fixture-reply-repeat-new"),
+	}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "reply-repeat-new-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), approvedTestOptions(), fixtureWork("fixture-reply-repeat-new-work", "fixture-reply-repeat-new-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 3 || summary.Replies != 2 || !summary.Partial || !containsReason(summary.Reasons, "reply_pagination_repeated_marker") {
+		t.Fatalf("comments=%+v summary=%+v", comments, summary)
+	}
+}
+
 func TestMissingCommentIDIsNotSynthesizedOrCrossPageDeduped(t *testing.T) {
 	first := commentPage(t, []map[string]any{{"content": "fixture-missing-1", "contentType": 1}}, "fixture-next")
 	second := commentPage(t, []map[string]any{{"content": "fixture-missing-2", "contentType": 1}}, "")

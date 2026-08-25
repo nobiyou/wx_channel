@@ -159,6 +159,7 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"))
+	refresh := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-WeChatPageRefresh.ps1"))
 	module := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRuntime.psm1"))
 	routerModule := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRouter.psm1"))
 	combined := strings.ToLower(entry + "\n" + module + "\n" + routerModule)
@@ -172,14 +173,28 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		"process-name,wechatappex.exe", "process-name,weixin.exe", "process-name,wechat.exe", "external-controller", "/configs?force=true",
 		"-datadirectory (split-path -parent $resolvedrouterconfig)",
 		"safefailurecode", "runtime_failed",
+		"autorefreshwechatpage", "invoke-wechatpagerefresh.ps1",
 	} {
 		if !strings.Contains(combined, required) {
 			t.Errorf("runtime scripts missing %q", required)
 		}
 	}
+	for _, required := range []string{
+		"postmessage", "iswindowvisible", "processname", "weixin", "wechatappex", "wechat_page_refresh_sent", "wechat_window_not_found",
+		"wechat_window_ambiguous", "wechat_page_refresh_failed",
+	} {
+		if !strings.Contains(strings.ToLower(refresh), required) {
+			t.Errorf("page refresh helper missing %q", required)
+		}
+	}
 	for _, forbidden := range []string{"read-host", "install $runid", "invoke-expression", "cmd /c", "localmachine\\root"} {
 		if strings.Contains(combined, forbidden) {
 			t.Errorf("runtime scripts contain forbidden %q", forbidden)
+		}
+	}
+	for _, forbidden := range []string{"sendkeys", "clipboard", "weixin.qq.com/sph", "invoke-expression", "cmd /c"} {
+		if strings.Contains(strings.ToLower(refresh), forbidden) {
+			t.Errorf("page refresh helper contains forbidden %q", forbidden)
 		}
 	}
 	for _, required := range []string{

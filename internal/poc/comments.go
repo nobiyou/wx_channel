@@ -120,6 +120,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			return comments, summary, CategorizedError{Category: ErrorStructure}
 		}
 		ordinal := 0
+		acceptedOnPage := 0
 		for _, item := range items {
 			if summary.TopLevel >= options.Limits.TopLevelCommentsPerWork {
 				markTruncated(&summary, "top_level_limit")
@@ -135,6 +136,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			}
 			comments = append(comments, comment)
 			summary.TopLevel++
+			acceptedOnPage++
 
 			embedded := childComments(item)
 			rootID := dereferenceString(comment.CommentID)
@@ -160,6 +162,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				comments = append(comments, reply)
 				summary.Replies++
 				repliesByRoot[rootID]++
+				acceptedOnPage++
 			}
 
 			reportedReplies := integerField(item, "expandCommentCount")
@@ -194,7 +197,9 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 			break
 		}
 		if _, repeated := topMarkers[nextMarker]; repeated {
-			markPartial(&summary, "comment_pagination_repeated_marker")
+			if acceptedOnPage > 0 {
+				markPartial(&summary, "comment_pagination_repeated_marker")
+			}
 			break
 		}
 		topMarkers[nextMarker] = struct{}{}
@@ -241,6 +246,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				}
 				return comments, summary, CategorizedError{Category: ErrorStructure}
 			}
+			acceptedOnPage := 0
 			for index, item := range items {
 				source := pageSource
 				source.Ordinal = index + 1
@@ -259,6 +265,7 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				comments = append(comments, reply)
 				summary.Replies++
 				repliesByRoot[root.id]++
+				acceptedOnPage++
 			}
 			if err := c.saveCommentCheckpoint(work, comments, nextMarker, "comments_replies", roots[rootIndex:], &root.id); err != nil {
 				return comments, summary, err
@@ -274,7 +281,9 @@ func (c *Collector) CollectComments(ctx context.Context, options Options, work W
 				break
 			}
 			if _, repeated := seenMarkers[nextMarker]; repeated {
-				markPartial(&summary, "reply_pagination_repeated_marker")
+				if acceptedOnPage > 0 {
+					markPartial(&summary, "reply_pagination_repeated_marker")
+				}
 				break
 			}
 			seenMarkers[nextMarker] = struct{}{}

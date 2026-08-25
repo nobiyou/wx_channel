@@ -12,6 +12,7 @@ param(
     [string]$RouterCapabilityFingerprint = '',
     [string]$ClashExePath = '',
     [string]$ClashConfigPath = '',
+    [switch]$AutoRefreshWechatPage,
     [ValidateRange(1, 65535)][int]$ApiPort = 2022,
     [ValidateRange(1, 65535)][int]$ProxyPort = 2023
 )
@@ -420,6 +421,17 @@ cert:
     }
     if (-not $ready) { throw 'ltaoo_readiness_failed' }
     $currentStage = 'ltaoo_ready'
+
+    if ($AutoRefreshWechatPage) {
+        $currentStage = 'page_refresh'
+        $refreshScript = Join-Path $PSScriptRoot 'Invoke-WeChatPageRefresh.ps1'
+        if (-not [IO.File]::Exists($refreshScript)) { throw 'page_refresh_helper_missing' }
+        $refreshCode = @(& $refreshScript)
+        if ($refreshCode.Count -ne 1 -or [string]$refreshCode[0] -cne 'wechat_page_refresh_sent') {
+            throw 'wechat_page_refresh_failed'
+        }
+        Start-Sleep -Milliseconds 500
+    }
 
     $journal.phase = 'collecting'
     $currentStage = 'collecting'
