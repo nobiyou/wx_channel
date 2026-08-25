@@ -105,14 +105,6 @@ compression_enabled: true
 # 压缩阈值（字节），小于此值不压缩
 compression_threshold: 1024  # 1KB
 
-# ==================== 监控配置 ====================
-
-# 是否启用 Prometheus 监控
-metrics_enabled: true
-
-# Prometheus 监控端口
-metrics_port: 9090
-
 # ==================== 安全配置 ====================
 
 # Web 控制台令牌
@@ -144,7 +136,6 @@ save_delay: 500
 # 3. 性能调优
 #    - download_concurrency: 根据网络带宽调整，建议 3-10
 #    - compression_enabled: 网络较慢时建议启用
-#    - metrics_enabled: 生产环境建议启用以便监控
 #
 # 4. 安全建议
 #    - 修改 web_console_token 为复杂密码

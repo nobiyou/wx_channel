@@ -19,7 +19,7 @@
 - **默认连接 Insight Edge**：Cloud 版默认连接 `ws://127.0.0.1:18081/ws/client`，现有 `cloud_hub_url` 配置继续有效。
 - **退役 Hub 独有功能**：删除设备绑定、`hub_sync` 记录主动同步和远端指标推送。
 - **协议边界收敛**：保留 `heartbeat`、`command`、`response`、gzip、远程 API 调用和页面能力状态。
-- **本地监控不变**：Prometheus `/metrics` 继续由本机提供，不再向旧 Hub 主动推送。
+- **运行健康收敛**：移除本地 Prometheus `/metrics` 端点；运行状态统一通过 `/api/channels/status` 和 `/ws/health` 提供。
 - **运行文案对齐**：配置样例、监控说明和启动提示统一使用 Insight Edge 语义。
 
 ---

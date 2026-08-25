@@ -85,7 +85,7 @@ func candidateStatus(now time.Time) websocket.ClientStatus {
 	return status
 }
 
-func TestManagerOpensAndRefreshesReadyClientOnce(t *testing.T) {
+func TestManagerOpensReadyClientWithoutStartupRefresh(t *testing.T) {
 	now := time.Date(2026, 8, 25, 8, 0, 0, 0, time.Local)
 	probe := &fakeProbe{running: true}
 	opener := &fakeOpener{}
@@ -98,8 +98,8 @@ func TestManagerOpensAndRefreshesReadyClientOnce(t *testing.T) {
 	if opener.calls != 1 {
 		t.Fatalf("opener calls = %d, want 1", opener.calls)
 	}
-	if len(transport.commands) != 1 || transport.commands[0].action != commandReload {
-		t.Fatalf("startup commands = %#v, want one %s", transport.commands, commandReload)
+	if len(transport.commands) != 0 {
+		t.Fatalf("startup commands = %#v, want no refresh", transport.commands)
 	}
 	if got := manager.Snapshot().State; got != stateHealthy {
 		t.Fatalf("state = %s, want %s", got, stateHealthy)
@@ -108,8 +108,11 @@ func TestManagerOpensAndRefreshesReadyClientOnce(t *testing.T) {
 	if err := manager.Tick(context.Background()); err != nil {
 		t.Fatalf("second Tick() error = %v", err)
 	}
-	if opener.calls != 1 || len(transport.commands) != 1 {
+	if opener.calls != 1 || len(transport.commands) != 0 {
 		t.Fatalf("steady healthy state repeated action: opener=%d commands=%d", opener.calls, len(transport.commands))
+	}
+	if got := manager.Snapshot().LastAction; got != "open" {
+		t.Fatalf("last action = %s, want open", got)
 	}
 }
 

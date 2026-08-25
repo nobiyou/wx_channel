@@ -77,8 +77,6 @@ type Config struct {
 	LoadBalancerStrategy string `mapstructure:"load_balancer_strategy"` // 负载均衡策略: roundrobin, leastconn, weighted, random
 	CompressionEnabled   bool   `mapstructure:"compression_enabled"`    // 是否启用数据压缩
 	CompressionThreshold int    `mapstructure:"compression_threshold"`  // 压缩阈值（字节），小于此值不压缩
-	MetricsEnabled       bool   `mapstructure:"metrics_enabled"`        // 是否启用 Prometheus 监控
-	MetricsPort          int    `mapstructure:"metrics_port"`           // Prometheus 监控端口
 
 	// 功能开关
 	RadarEnabled bool `mapstructure:"radar_enabled"`
@@ -232,8 +230,6 @@ func setDefaults() {
 	viper.SetDefault("load_balancer_strategy", "leastconn")
 	viper.SetDefault("compression_enabled", true)
 	viper.SetDefault("compression_threshold", 1024) // 1KB
-	viper.SetDefault("metrics_enabled", true)
-	viper.SetDefault("metrics_port", 9090)
 
 	// 功能默认值
 	viper.SetDefault("radar_enabled", false)

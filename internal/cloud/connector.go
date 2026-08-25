@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"wx_channel/internal/config"
-	"wx_channel/internal/metrics"
 	"wx_channel/internal/utils"
 	hubws "wx_channel/internal/websocket"
 
@@ -185,7 +184,6 @@ func (c *Connector) connectLoop() {
 		case <-c.ctx.Done():
 			return
 		default:
-			metrics.ReconnectAttemptsTotal.Inc()
 			err := c.connect()
 			if err != nil {
 				c.retryCount++
@@ -204,11 +202,8 @@ func (c *Connector) connectLoop() {
 
 			// 连接成功，重置计数器
 			c.retryCount = 0
-			metrics.ReconnectSuccessTotal.Inc()
-			metrics.WSConnectionsTotal.Inc()
 			utils.LogInfo("✓ 已连接到 Insight Edge")
 			c.handleConnection()
-			metrics.WSConnectionsTotal.Dec()
 			utils.LogWarn("Insight Edge 连接已断开，3秒后重新连接...")
 			time.Sleep(3 * time.Second) // 短暂延迟后重连，避免频繁重连
 		}
@@ -402,13 +397,11 @@ func (c *Connector) sendHeartbeat() error {
 	defer c.mu.Unlock()
 
 	if c.conn == nil {
-		metrics.HeartbeatsFailed.Inc()
 		return fmt.Errorf("connection closed")
 	}
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		metrics.HeartbeatsFailed.Inc()
 		return err
 	}
 
@@ -417,12 +410,9 @@ func (c *Connector) sendHeartbeat() error {
 
 	err = c.conn.Write(ctx, websocket.MessageText, data)
 	if err != nil {
-		metrics.HeartbeatsFailed.Inc()
 		return err
 	}
 
-	metrics.HeartbeatsSent.Inc()
-	metrics.WSMessagesSent.WithLabelValues("heartbeat").Inc()
 	return nil
 }
 
@@ -450,10 +440,6 @@ func (c *Connector) send(msg CloudMessage) error {
 			data = compressed
 			messageType = websocket.MessageBinary // 使用二进制消息类型标识压缩数据
 
-			// 记录压缩指标
-			metrics.CompressionBytesIn.Add(float64(originalSize))
-			metrics.CompressionBytesOut.Add(float64(len(compressed)))
-
 			compressionRate := float64(originalSize-len(compressed)) / float64(originalSize) * 100
 			utils.LogInfo("数据压缩: %d -> %d 字节 (压缩率: %.1f%%)",
 				originalSize, len(compressed), compressionRate)
@@ -464,7 +450,6 @@ func (c *Connector) send(msg CloudMessage) error {
 	ctx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 
-	metrics.WSMessagesSent.WithLabelValues(string(msg.Type)).Inc()
 	return c.conn.Write(ctx, messageType, data)
 }
 
@@ -489,8 +474,6 @@ func (c *Connector) compressData(data []byte) ([]byte, error) {
 }
 
 func (c *Connector) processMessage(msg CloudMessage) {
-	metrics.WSMessagesReceived.WithLabelValues(string(msg.Type)).Inc()
-
 	if msg.Type != MsgTypeCommand {
 		return
 	}

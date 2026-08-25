@@ -83,18 +83,17 @@ type Manager struct {
 	tickMu sync.Mutex
 	mu     sync.RWMutex
 
-	state                 string
-	wechatRunning         bool
-	processKnown          bool
-	lastProcessRunning    bool
-	unhealthySamples      int
-	startupRefreshPending bool
-	attempts              int
-	nextRetryAt           time.Time
-	cooldownUntil         time.Time
-	lastAction            string
-	lastError             string
-	updatedAt             time.Time
+	state              string
+	wechatRunning      bool
+	processKnown       bool
+	lastProcessRunning bool
+	unhealthySamples   int
+	attempts           int
+	nextRetryAt        time.Time
+	cooldownUntil      time.Time
+	lastAction         string
+	lastError          string
+	updatedAt          time.Time
 }
 
 // DefaultConfig returns the approved lifecycle timing defaults.
@@ -218,7 +217,6 @@ func (m *Manager) Tick(ctx context.Context) error {
 	m.wechatRunning = running
 	if !running {
 		m.unhealthySamples = 0
-		m.startupRefreshPending = false
 		m.attempts = 0
 		m.nextRetryAt = time.Time{}
 		m.cooldownUntil = time.Time{}
@@ -234,7 +232,6 @@ func (m *Manager) Tick(ctx context.Context) error {
 		m.attempts = 0
 		m.nextRetryAt = time.Time{}
 		m.cooldownUntil = time.Time{}
-		m.startupRefreshPending = true
 		m.lastAction = "open"
 		m.lastError = ""
 		m.setStateLocked(stateOpening, now)
@@ -251,7 +248,6 @@ func (m *Manager) Tick(ctx context.Context) error {
 	candidate, healthy := selectChannelStatus(statuses, now, m.cfg.StaleAfter)
 	if healthy {
 		m.mu.Lock()
-		pending := m.startupRefreshPending
 		m.unhealthySamples = 0
 		m.attempts = 0
 		m.nextRetryAt = time.Time{}
@@ -259,20 +255,6 @@ func (m *Manager) Tick(ctx context.Context) error {
 		m.lastError = ""
 		m.setStateLocked(stateHealthy, now)
 		m.mu.Unlock()
-		if pending {
-			err := m.transport.SendCommandToMatchingClient(isChannelPage, commandReload, map[string]interface{}{
-				"reason": "wx_channel startup",
-			})
-			m.mu.Lock()
-			m.startupRefreshPending = false
-			m.lastAction = commandReload
-			if err != nil {
-				m.lastError = fmt.Sprintf("startup refresh failed: %v", err)
-			}
-			m.updatedAt = now
-			m.mu.Unlock()
-			return err
-		}
 		return nil
 	}
 

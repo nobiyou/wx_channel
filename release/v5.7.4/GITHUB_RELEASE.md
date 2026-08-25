@@ -9,6 +9,7 @@
 - 新增 `runtime.lifecycle` 诊断、定向页面刷新/导航命令和有界退避恢复。
 - 移除页面固定 15 分钟自动刷新，保留评论导出刷新锁和手动刷新能力。
 - Cloud 版继续使用 Insight Edge 默认链路，现有配置兼容不变。
+- 移除本地 Prometheus `/metrics` 运行层，运行健康统一通过 `/api/channels/status`、`/ws/health` 和 Insight 业务指标提供。
 
 ## 下载选择
 

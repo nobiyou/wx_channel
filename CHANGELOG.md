@@ -10,6 +10,11 @@
 - 移除页面固定 15 分钟自动刷新，保留评论导出刷新锁和手动刷新能力。
 - Cloud 版继续使用 Insight Edge 默认链路，现有配置兼容不变。
 
+### Prometheus 运行层退役
+
+- 移除本地 Prometheus `/metrics` 端点、运行计数器、相关配置和直接依赖。
+- 保留 `runtime.features.metrics_enabled=false` 兼容字段，以及 `/api/channels/status`、`/ws/health` 和 Insight 业务指标。
+
 ## [5.7.3] - 2026-08-24
 
 ### 启动更新要点同步

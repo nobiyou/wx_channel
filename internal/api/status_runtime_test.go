@@ -20,7 +20,6 @@ func TestGetStatusIncludesRuntimeDiagnostics(t *testing.T) {
 		Port:           2025,
 		RadarEnabled:   false,
 		CloudEnabled:   false,
-		MetricsEnabled: true,
 	})
 	diagnostics.RecordInjectionResult(false, "administrator permission may be required")
 	diagnostics.SetLifecycleProvider(func() lifecycle.Status {

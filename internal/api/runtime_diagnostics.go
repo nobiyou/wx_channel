@@ -59,8 +59,10 @@ type RuntimeInjectionStatus struct {
 }
 
 type RuntimeFeatureStatus struct {
-	RadarEnabled   bool `json:"radar_enabled"`
-	CloudEnabled   bool `json:"cloud_enabled"`
+	RadarEnabled bool `json:"radar_enabled"`
+	CloudEnabled bool `json:"cloud_enabled"`
+	// MetricsEnabled is retained as a false-only compatibility field. The
+	// Prometheus runtime was retired and is no longer configurable or started.
 	MetricsEnabled bool `json:"metrics_enabled"`
 }
 
@@ -119,9 +121,8 @@ func (d *RuntimeDiagnostics) Snapshot() RuntimeDiagnosticsSnapshot {
 			port = cfg.Port
 		}
 		features = RuntimeFeatureStatus{
-			RadarEnabled:   cfg.RadarEnabled,
-			CloudEnabled:   cfg.CloudEnabled,
-			MetricsEnabled: cfg.MetricsEnabled,
+			RadarEnabled: cfg.RadarEnabled,
+			CloudEnabled: cfg.CloudEnabled,
 		}
 	}
 

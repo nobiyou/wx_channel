@@ -33,8 +33,6 @@ import (
 	"wx_channel/internal/websocket"
 	"wx_channel/pkg/certificate"
 	"wx_channel/pkg/proxy"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // App 结构体，用于保存依赖项和状态
@@ -318,11 +316,6 @@ func (app *App) Run() {
 		utils.Info("✓ 视频号页面生命周期管理已启动")
 	}
 
-	// 启动 Prometheus 监控服务器（如果启用）
-	if app.Cfg.MetricsEnabled {
-		go app.startMetricsServer()
-	}
-
 	// 启动云端连接器（如果启用）
 	if app.Cfg.CloudEnabled && strings.TrimSpace(app.Cfg.CloudHubURL) != "" {
 		app.CloudConnector = cloud.NewConnector(app.Cfg, app.WSHub)
@@ -529,19 +522,6 @@ func (app *App) startWebSocketServer(wsPort int) {
 	utils.Info("🔌 WebSocket服务已启动，端口: %d", wsPort)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		utils.Warn("WebSocket服务启动失败: %v", err)
-	}
-}
-
-// startMetricsServer 启动 Prometheus 监控服务器
-func (app *App) startMetricsServer() {
-	metricsAddr := fmt.Sprintf(":%d", app.Cfg.MetricsPort)
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-
-	utils.Info("✓ Prometheus 监控已启动: http://localhost%s/metrics", metricsAddr)
-
-	if err := http.ListenAndServe(metricsAddr, mux); err != nil {
-		utils.LogError("Prometheus 监控服务器启动失败: %v", err)
 	}
 }
 
