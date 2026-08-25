@@ -180,7 +180,7 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"postmessage", "iswindowvisible", "processname", "weixin", "wechatappex", "wechat_page_refresh_sent", "wechat_window_not_found",
+		"postmessage", "iswindowvisible", "processname", "weixin", "wechatappex", "setforegroundwindow", "showwindow", "sw_restore", "wechat_window_activation_failed", "wechat_page_refresh_sent", "wechat_window_not_found",
 		"wechat_window_ambiguous", "wechat_page_refresh_failed",
 	} {
 		if !strings.Contains(strings.ToLower(refresh), required) {
