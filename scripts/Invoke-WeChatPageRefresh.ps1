@@ -14,6 +14,7 @@ namespace TrendRadar {
         public const uint WM_KEYDOWN = 0x0100;
         public const uint WM_KEYUP = 0x0101;
         public const uint VK_F5 = 0x74;
+        public const int SW_RESTORE = 9;
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
@@ -23,6 +24,12 @@ namespace TrendRadar {
 
         [DllImport("user32.dll")]
         public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int command);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
     }
 }
 '@ -ErrorAction Stop
@@ -64,6 +71,14 @@ if ($foregroundCandidates.Count -eq 1) {
 } else {
     throw 'wechat_window_ambiguous'
 }
+
+[void][TrendRadar.WeChatWindow]::ShowWindow(
+    $selected.Handle,
+    [TrendRadar.WeChatWindow]::SW_RESTORE)
+if (-not [TrendRadar.WeChatWindow]::SetForegroundWindow($selected.Handle)) {
+    throw 'wechat_window_activation_failed'
+}
+Start-Sleep -Milliseconds 150
 
 if (-not [TrendRadar.WeChatWindow]::PostMessage($selected.Handle, [TrendRadar.WeChatWindow]::WM_KEYDOWN, [IntPtr][TrendRadar.WeChatWindow]::VK_F5, [IntPtr]::Zero)) {
     throw 'wechat_page_refresh_failed'
