@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"os/exec"
@@ -22,8 +23,9 @@ func TestTrendRadarRuntimeRejectsIncompleteOrMixedRouterArguments(t *testing.T) 
 		"-RuntimeJournalPath", "missing-journal", "-LtaooExePath", "missing-ltaoo", "-BatchExePath", "missing-batch",
 	}
 	cases := map[string][]string{
-		"incomplete generic": {"-RouterKind", "mihomo"},
-		"incomplete legacy":  {"-ClashExePath", "clash.exe"},
+		"incomplete generic":       {"-RouterKind", "mihomo"},
+		"incomplete legacy":        {"-ClashExePath", "clash.exe"},
+		"navigation mode conflict": {"-AutoOpenFirstShareUrl", "-AutoRefreshWechatPage"},
 		"mixed groups": {
 			"-RouterKind", "mihomo", "-RouterExePath", "mihomo.exe", "-RouterConfigPath", "config.yaml",
 			"-RouterCapabilityFingerprint", strings.Repeat("a", 64), "-ClashExePath", "clash.exe", "-ClashConfigPath", "clash.yaml",
@@ -160,9 +162,10 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	}
 	entry := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-LtaooTrendRadarBatch.ps1"))
 	refresh := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-WeChatPageRefresh.ps1"))
+	open := readRuntimeScript(t, filepath.Join(root, "scripts", "Invoke-WeChatKnownShareOpen.ps1"))
 	module := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRuntime.psm1"))
 	routerModule := readRuntimeScript(t, filepath.Join(root, "scripts", "LtaooRouter.psm1"))
-	combined := strings.ToLower(entry + "\n" + module + "\n" + routerModule)
+	combined := strings.ToLower(entry + "\n" + open + "\n" + module + "\n" + routerModule)
 
 	for _, required := range []string{
 		"-literalpath", "convertfrom-json", "allowedproperties", "currentuser\\root", "certutil.exe -user",
@@ -174,6 +177,7 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 		"-datadirectory (split-path -parent $resolvedrouterconfig)",
 		"safefailurecode", "runtime_failed",
 		"autorefreshwechatpage", "invoke-wechatpagerefresh.ps1",
+		"autoopenfirstshareurl", "invoke-wechatknownshareopen.ps1", "known_share_open_failed",
 	} {
 		if !strings.Contains(combined, required) {
 			t.Errorf("runtime scripts missing %q", required)
@@ -185,6 +189,19 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	} {
 		if !strings.Contains(strings.ToLower(refresh), required) {
 			t.Errorf("page refresh helper missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"showwindow", "setforegroundwindow", "activatewindow", "attachthreadinput", "setprocessdpiaware", "mouse_event", "wechat_entry_template", "uiautomationclient",
+		"omniboxviewviews", "setvalue", "postmessage", "wechat_known_share_opened", "wechat_entry_template_mismatch",
+	} {
+		if !strings.Contains(strings.ToLower(open), required) {
+			t.Errorf("known-share helper missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"sendkeys", "clipboard", "invoke-expression", "cmd /c"} {
+		if strings.Contains(strings.ToLower(open), forbidden) {
+			t.Errorf("known-share helper contains forbidden %q", forbidden)
 		}
 	}
 	for _, forbidden := range []string{"read-host", "install $runid", "invoke-expression", "cmd /c", "localmachine\\root"} {
@@ -216,6 +233,24 @@ func TestTrendRadarRuntimeScriptSafety(t *testing.T) {
 	}
 	if !strings.Contains(combined, "modify_proxy_router") {
 		t.Error("runtime modules missing generic router grant action")
+	}
+}
+
+func TestKnownShareEntryTemplateIsValidBase64(t *testing.T) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "scripts", "wechat-channel-entry-template.b64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatalf("entry template is not valid base64: %v", err)
+	}
+	if len(decoded) < 8 || string(decoded[:8]) != "\x89PNG\r\n\x1a\n" {
+		t.Fatal("entry template is not a PNG")
 	}
 }
 
