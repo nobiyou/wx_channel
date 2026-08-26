@@ -115,22 +115,12 @@ window.__wx_api_client = {
 
   cleanSharedFeedMediaURL: function (rawURL) {
     var trimmed = rawURL ? String(rawURL).trim() : '';
-    if (!trimmed) {
-      return '';
+    if (!trimmed || /^https?:\/\//i.test(trimmed)) {
+      return trimmed;
     }
 
     try {
-      var parsed = new URL(trimmed, window.location.origin);
-      var fileKey = (parsed.searchParams.get('encfilekey') || '').trim();
-      var token = (parsed.searchParams.get('token') || '').trim();
-      if (!fileKey || !token) {
-        return trimmed;
-      }
-
-      var clean = new URL(parsed.origin + parsed.pathname);
-      clean.searchParams.set('encfilekey', fileKey);
-      clean.searchParams.set('token', token);
-      return clean.toString();
+      return new URL(trimmed, window.location.origin).toString();
     } catch (err) {
       return trimmed;
     }

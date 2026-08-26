@@ -72,11 +72,11 @@ type BatchTask struct {
 	CreateTime   string `json:"createTime,omitempty"`   // 创建时间
 	IPRegion     string `json:"ipRegion,omitempty"`     // IP所在地
 	// 兼容数据库导出格式
-	VideoURL   string `json:"videoUrl,omitempty"`   // 视频URL（数据库格式）
-	CoverURL   string `json:"coverUrl,omitempty"`   // 封面URL（数据库格式）
-	DecryptKey string `json:"decryptKey,omitempty"` // 解密密钥（数据库格式）
-	DurationMs int64  `json:"durationMs,omitempty"` // 时长毫秒（数据库格式，字段名为duration但类型是int64）
-	Size       int64  `json:"size,omitempty"`       // 大小字节（数据库格式）
+	VideoURL     string `json:"videoUrl,omitempty"`   // 视频URL（数据库格式）
+	CoverURL     string `json:"coverUrl,omitempty"`   // 封面URL（数据库格式）
+	DecryptKey   string `json:"decryptKey,omitempty"` // 解密密钥（数据库格式）
+	DurationMs   int64  `json:"durationMs,omitempty"` // 时长毫秒（数据库格式，字段名为duration但类型是int64）
+	Size         int64  `json:"size,omitempty"`       // 大小字节（数据库格式）
 	GopeedTaskID string `json:"-"`
 	TempPath     string `json:"-"`
 	FinalPath    string `json:"-"`
@@ -672,7 +672,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 
 	downloadURL, mode := NormalizeDownloadURL(task.GetURL(), task.FileFormat)
 	if downloadURL != task.GetURL() {
-		utils.Info("🩹 [批量下载] 原始视频链接已归一化为 encfilekey+token 直链")
+		utils.Info("🩹 [批量下载] 已移除旧版 original 标记并保留签名参数")
 	}
 	connections = ResolveDownloadConnections(mode, connections)
 	if mode == downloadVideoModeOriginal {
@@ -766,6 +766,13 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 		h.cleanupTaskArtifacts(task.GopeedTaskID, actualPath, true)
 		task.GopeedTaskID = ""
 		return "", fmt.Errorf("下载文件无效")
+	}
+
+	if err := validateOriginalDownloadSize(mode, task.Size, stat.Size()); err != nil {
+		h.cleanupTaskArtifacts(task.GopeedTaskID, actualPath, true)
+		task.GopeedTaskID = ""
+		task.TempPath = ""
+		return "", err
 	}
 
 	// 解密逻辑（如果需要）

@@ -244,8 +244,8 @@ async function main() {
   assertEqual(directMediaResult.response.data.object.objectDesc.description, '短链直出视频', 'direct media share link should preserve description');
   assertEqual(
     directMediaResult.response.data.object.objectDesc.media[0].url,
-    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
-    'direct media share link should normalize media url to encfilekey+token'
+    'https://finder.video.qq.com/251/20302/stodownload?foo=1&encfilekey=abc123&token=tok456&bar=2',
+    'direct media share link should preserve the complete signed media URL'
   );
 
   const directObjectMediaEnv = loadAPIClientModule({
@@ -280,8 +280,8 @@ async function main() {
   assertEqual(directObjectMediaResult.response.data.sceneInfo.dynamicExportId, 'shared_feed', 'object media share link should synthesize shared_feed export id');
   assertEqual(
     directObjectMediaResult.response.data.object.objectDesc.media[0].url,
-    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=xyz789&token=tok000',
-    'object media share link should normalize object media url'
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=xyz789&token=tok000&junk=1',
+    'object media share link should preserve the complete media URL'
   );
 
   const sharedProfileEnv = loadAPIClientModule({

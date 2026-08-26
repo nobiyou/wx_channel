@@ -48,12 +48,13 @@ type DownloadVideoRequest struct {
 	SourceURL    string            `json:"sourceUrl"`
 	UserAgent    string            `json:"userAgent"`
 	Headers      map[string]string `json:"headers"`
-	Key          string            `json:"key"`        // 解密key（可选）
-	ForceSave    bool              `json:"forceSave"`  // 是否强制保存（即使文件已存在）
-	Resolution   string            `json:"resolution"` // 分辨率字符串（如 "1080x1920" 或 "1080p"）
-	Width        int               `json:"width"`      // 视频宽度（可选）
-	Height       int               `json:"height"`     // 视频高度（可选）
-	FileFormat   string            `json:"fileFormat"` // 文件格式（如 "hd", "sd" 等）
+	Key          string            `json:"key"`          // 解密key（可选）
+	ForceSave    bool              `json:"forceSave"`    // 是否强制保存（即使文件已存在）
+	Resolution   string            `json:"resolution"`   // 分辨率字符串（如 "1080x1920" 或 "1080p"）
+	Width        int               `json:"width"`        // 视频宽度（可选）
+	Height       int               `json:"height"`       // 视频高度（可选）
+	FileFormat   string            `json:"fileFormat"`   // 文件格式（如 "hd", "sd" 等）
+	ExpectedSize int64             `json:"expectedSize"` // 原始视频大小提示（字节，可选）
 	LikeCount    int64             `json:"likeCount"`
 	CommentCount int64             `json:"commentCount"`
 	ForwardCount int64             `json:"forwardCount"`
@@ -96,41 +97,14 @@ func normalizeOriginalVideoURL(raw string) string {
 	return parsed.String()
 }
 
-func compactOriginalVideoURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	query := parsed.Query()
-	if query.Get("X-snsvideoflag") == "original" {
-		query.Del("X-snsvideoflag")
-	}
-	filekey := strings.TrimSpace(query.Get("encfilekey"))
-	token := strings.TrimSpace(query.Get("token"))
-	if filekey == "" || token == "" {
-		parsed.RawQuery = query.Encode()
-		return parsed.String()
-	}
-	cleaned := url.URL{
-		Scheme: parsed.Scheme,
-		Host:   parsed.Host,
-		Path:   parsed.Path,
-	}
-	cleanQuery := url.Values{}
-	cleanQuery.Set("encfilekey", filekey)
-	cleanQuery.Set("token", token)
-	cleaned.RawQuery = cleanQuery.Encode()
-	return cleaned.String()
-}
-
 func NormalizeDownloadURL(videoURL string, fileFormat string) (string, downloadVideoMode) {
 	if isOriginalVideoURL(videoURL) {
-		return compactOriginalVideoURL(videoURL), downloadVideoModeOriginal
+		return normalizeOriginalVideoURL(videoURL), downloadVideoModeOriginal
 	}
 	if strings.TrimSpace(fileFormat) != "" || hasSpecificVideoSpec(videoURL) {
 		return videoURL, downloadVideoModeSpecific
 	}
-	return compactOriginalVideoURL(videoURL), downloadVideoModeOriginal
+	return normalizeOriginalVideoURL(videoURL), downloadVideoModeOriginal
 }
 
 func ResolveDownloadConnections(mode downloadVideoMode, base int) int {
@@ -152,6 +126,20 @@ func normalizeDownloadVideoURL(req DownloadVideoRequest) string {
 
 func downloadConnectionCountFromMode(base int, mode downloadVideoMode) int {
 	return ResolveDownloadConnections(mode, base)
+}
+
+// validateOriginalDownloadSize rejects a lower-quality rendition returned for
+// an original-video request. The source hint is approximate, so the same 80%
+// tolerance used by the page-session downloader is intentional.
+func validateOriginalDownloadSize(mode downloadVideoMode, expectedSize, actualSize int64) error {
+	if mode != downloadVideoModeOriginal || expectedSize <= 0 || actualSize <= 0 {
+		return nil
+	}
+	if actualSize < expectedSize && expectedSize-actualSize > expectedSize/5 {
+		return fmt.Errorf("原始视频疑似低码率流: 期望 %.2f MB，实际 %.2f MB",
+			float64(expectedSize)/(1024*1024), float64(actualSize)/(1024*1024))
+	}
+	return nil
 }
 
 func (h *UploadHandler) downloadWithHeaders(ctx context.Context, url, targetPath string, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) error {
@@ -1422,7 +1410,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		mode := downloadModeFromRequest(req)
 		normalizedURL := normalizeDownloadVideoURL(req)
 		if normalizedURL != req.VideoURL {
-			utils.Info("🩹 [视频下载] 原始视频链接已归一化为 encfilekey+token 直链")
+			utils.Info("🩹 [视频下载] 已移除旧版 original 标记并保留签名参数")
 			req.VideoURL = normalizedURL
 		}
 		connections = downloadConnectionCountFromMode(connections, mode)
@@ -1477,6 +1465,19 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 					"videoId": req.VideoID,
 					"title":   req.Title,
 					"error":   "下载文件无效",
+				})
+			}
+			return
+		}
+
+		if err := validateOriginalDownloadSize(mode, req.ExpectedSize, stat.Size()); err != nil {
+			utils.Error("❌ [视频下载] 下载大小校验失败: %v", err)
+			_ = os.Remove(actualPath)
+			if h.wsHub != nil {
+				h.wsHub.BroadcastCommand("download_failed", map[string]interface{}{
+					"videoId": req.VideoID,
+					"title":   req.Title,
+					"error":   err.Error(),
 				})
 			}
 			return

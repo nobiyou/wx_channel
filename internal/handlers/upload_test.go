@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestIsOriginalVideoURL(t *testing.T) {
 	t.Parallel()
@@ -75,6 +78,38 @@ func TestNormalizeOriginalVideoURL(t *testing.T) {
 				t.Fatalf("normalizeOriginalVideoURL(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
+	t.Parallel()
+
+	raw := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=def&basedata=base&sign=sig&web=1&extg=10f0000&svrbypass=bypass&svrnonce=123"
+	got, mode := NormalizeDownloadURL(raw, "")
+	if mode != downloadVideoModeOriginal {
+		t.Fatalf("NormalizeDownloadURL mode = %q, want %q", mode, downloadVideoModeOriginal)
+	}
+	if got != raw {
+		t.Fatalf("NormalizeDownloadURL changed signed URL without legacy marker: got %q, want %q", got, raw)
+	}
+
+	marked := raw + "&X-snsvideoflag=original"
+	got, mode = NormalizeDownloadURL(marked, "")
+	if mode != downloadVideoModeOriginal {
+		t.Fatalf("NormalizeDownloadURL marked mode = %q, want %q", mode, downloadVideoModeOriginal)
+	}
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse normalized URL: %v", err)
+	}
+	query := parsed.Query()
+	for _, key := range []string{"encfilekey", "hy", "idx", "m", "uzid", "token", "basedata", "sign", "web", "extg", "svrbypass", "svrnonce"} {
+		if query.Get(key) == "" {
+			t.Fatalf("normalized URL lost signed query parameter %q: %q", key, got)
+		}
+	}
+	if marker := query.Get("X-snsvideoflag"); marker != "" {
+		t.Fatalf("normalized URL retained legacy marker: %q", marker)
 	}
 }
 
@@ -162,6 +197,56 @@ func TestDownloadConnectionCountFromMode(t *testing.T) {
 			got := downloadConnectionCountFromMode(tt.base, tt.mode)
 			if got != tt.wantConnect {
 				t.Fatalf("downloadConnectionCountFromMode(%d, %q) = %d, want %d", tt.base, tt.mode, got, tt.wantConnect)
+			}
+		})
+	}
+}
+
+func TestValidateOriginalDownloadSize(t *testing.T) {
+	t.Parallel()
+
+	const megabyte = int64(1024 * 1024)
+	tests := []struct {
+		name         string
+		mode         downloadVideoMode
+		expectedSize int64
+		actualSize   int64
+		wantErr      bool
+	}{
+		{
+			name:         "rejects a lower-quality rendition",
+			mode:         downloadVideoModeOriginal,
+			expectedSize: 362 * megabyte,
+			actualSize:   39 * megabyte,
+			wantErr:      true,
+		},
+		{
+			name:         "allows an approximate source-size hint",
+			mode:         downloadVideoModeOriginal,
+			expectedSize: 362 * megabyte,
+			actualSize:   300 * megabyte,
+		},
+		{
+			name:         "does not apply to a specific rendition",
+			mode:         downloadVideoModeSpecific,
+			expectedSize: 362 * megabyte,
+			actualSize:   39 * megabyte,
+		},
+		{
+			name:         "does not apply without a source-size hint",
+			mode:         downloadVideoModeOriginal,
+			expectedSize: 0,
+			actualSize:   39 * megabyte,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateOriginalDownloadSize(tt.mode, tt.expectedSize, tt.actualSize)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateOriginalDownloadSize() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

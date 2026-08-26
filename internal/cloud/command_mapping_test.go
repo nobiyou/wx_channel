@@ -96,6 +96,21 @@ func TestMapCommandToAPICallDownloadVideoNormalizesAliases(t *testing.T) {
 	}
 }
 
+func TestMapCommandToAPICallDownloadVideoPreservesExpectedSize(t *testing.T) {
+	raw, mapped, err := mapCommandToAPICall("download_video", json.RawMessage(`{"videoUrl":"https://cdn.example.com/video.mp4","expectedSize":379793920}`))
+	if err != nil {
+		t.Fatalf("mapCommandToAPICall: %v", err)
+	}
+	if !mapped {
+		t.Fatalf("mapped = false, want true")
+	}
+
+	payload := decodeMappedPayload(t, raw)
+	if got := payload.Body["expectedSize"]; got != float64(379793920) {
+		t.Fatalf("expectedSize = %#v, want %d", got, 379793920)
+	}
+}
+
 func TestMapCommandToAPICallUnknownAction(t *testing.T) {
 	raw, mapped, err := mapCommandToAPICall("api_call", json.RawMessage(`{"key":"key:channels:feed_profile"}`))
 	if err != nil {

@@ -33,6 +33,7 @@ type mappedDownloadCommand struct {
 	Width        int               `json:"width,omitempty"`
 	Height       int               `json:"height,omitempty"`
 	FileFormat   string            `json:"fileFormat,omitempty"`
+	ExpectedSize int64             `json:"expectedSize,omitempty"`
 	LikeCount    int64             `json:"likeCount,omitempty"`
 	CommentCount int64             `json:"commentCount,omitempty"`
 	ForwardCount int64             `json:"forwardCount,omitempty"`
@@ -137,6 +138,9 @@ func normalizeDownloadCommand(req mappedDownloadCommand) map[string]interface{} 
 	}
 	if req.FileFormat != "" {
 		body["fileFormat"] = req.FileFormat
+	}
+	if req.ExpectedSize > 0 {
+		body["expectedSize"] = req.ExpectedSize
 	}
 	if req.LikeCount != 0 {
 		body["likeCount"] = req.LikeCount

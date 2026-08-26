@@ -594,6 +594,10 @@ function __show_feed_download_options(profile) {
   // 选项区域
   html += '<div style="padding:16px 20px;">';
 
+  if (!__wx_channels_has_true_original__(profile)) {
+    html += '<div style="margin-bottom:12px;font-size:12px;color:#f0ad4e;line-height:1.4;">微信当前未返回原始流，默认使用最高可用画质。</div>';
+  }
+
   // 视频下载选项
   if (profile.spec && profile.spec.length > 0) {
     html += '<div style="margin-bottom:12px;font-size:12px;color:#999;">选择画质:</div>';
@@ -606,7 +610,7 @@ function __show_feed_download_options(profile) {
       html += '<div class="download-option" data-index="' + index + '" style="padding:10px 16px;margin:8px 0;background:rgba(255,255,255,0.08);border-radius:6px;cursor:pointer;text-align:center;transition:background 0.2s;font-size:13px;">' + label + '</div>';
     });
   } else {
-    html += '<div class="download-option" data-index="-1" style="padding:10px 16px;margin:8px 0;background:rgba(255,255,255,0.08);border-radius:6px;cursor:pointer;text-align:center;font-size:13px;">下载视频</div>';
+    html += '<div class="download-option" data-index="-1" style="padding:10px 16px;margin:8px 0;background:rgba(255,255,255,0.08);border-radius:6px;cursor:pointer;text-align:center;font-size:13px;">' + __wx_channels_primary_download_label__(profile) + '</div>';
   }
 
   // 封面下载
