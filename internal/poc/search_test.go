@@ -23,6 +23,26 @@ func (a *fixturePageAPI) Call(context.Context, string, any) ([]byte, error) {
 	return response, nil
 }
 
+type methodFixturePageAPI struct {
+	responses map[string][][]byte
+	calls     []string
+}
+
+func (a *methodFixturePageAPI) Call(_ context.Context, method string, _ any) ([]byte, error) {
+	a.calls = append(a.calls, method)
+	pages := a.responses[method]
+	index := 0
+	for _, called := range a.calls {
+		if called == method {
+			index++
+		}
+	}
+	if index == 0 || index > len(pages) {
+		return nil, fmt.Errorf("unexpected API call %s #%d", method, index)
+	}
+	return pages[index-1], nil
+}
+
 type fixtureClock struct{ now time.Time }
 
 func (c *fixtureClock) Now() time.Time { return c.now }
@@ -100,6 +120,32 @@ func TestSearchStopsAtTenUniqueValidWorks(t *testing.T) {
 	}
 	if len(works) != 10 || coverage != CoverageTargetMet || api.calls != 1 {
 		t.Fatalf("works=%d coverage=%s calls=%d", len(works), coverage, api.calls)
+	}
+}
+
+func TestCollectSearchResolvesAccountsThroughFeedList(t *testing.T) {
+	api := &methodFixturePageAPI{responses: map[string][][]byte{
+		"finderSearch": {[]byte(`{"data":{"infoList":[{"contact":{"username":"finder-alice","nickname":"Alice"}},{"contact":{"username":"finder-bob","nickname":"Bob"}}],"lastBuff":""}}`)},
+		"finderUserPage": {
+			[]byte(`{"data":{"object":[{"id":"feed-1","objectNonceId":"nonce-1","objectDesc":{"description":"Alice work","mediaType":2}}],"lastBuffer":""}}`),
+			[]byte(`{"data":{"object":[{"id":"feed-2","objectNonceId":"nonce-2","objectDesc":{"description":"Bob work","mediaType":2}}],"lastBuffer":""}}`),
+		},
+	}}
+	options := approvedTestOptions()
+	options.Limits.Works = 2
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "account-feed-job"), &fixtureClock{})
+	works, coverage, err := collector.CollectWorks(context.Background(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(works) != 2 || coverage != CoverageTargetMet {
+		t.Fatalf("works=%d coverage=%s", len(works), coverage)
+	}
+	if works[0].WorkID == nil || *works[0].WorkID != "feed-1" || works[1].WorkID == nil || *works[1].WorkID != "feed-2" {
+		t.Fatalf("works=%+v", works)
+	}
+	if fmt.Sprint(api.calls) != "[finderSearch finderUserPage finderUserPage]" {
+		t.Fatalf("calls=%v", api.calls)
 	}
 }
 

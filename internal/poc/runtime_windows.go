@@ -172,7 +172,7 @@ func startRuntimeBridge(_ context.Context, address, token string) (Bridge, io.Cl
 func collectRestrictedPOC(ctx context.Context, bridge Bridge, store *Store, options Options, controls <-chan OperatorCommand) (Dataset, Validation, error) {
 	clock := systemClock{}
 	waiter := NewWaitController(clock, options.HumanWait, controls)
-	if result := waitForBridge(ctx, bridge, waiter, WaitLogin, 0, []string{"finderSearch", "finderGetCommentList"}); result != WaitResolved {
+	if result := waitForBridge(ctx, bridge, waiter, WaitLogin, 0, []string{"finderSearch", "finderUserPage", "finderGetCommentList"}); result != WaitResolved {
 		job, capability, coverage, reasons := EvaluateOutcome(OutcomeInput{HumanTimedOut: result == WaitTimedOut, HumanCancelled: result == WaitCancelled})
 		return Dataset{Job: Job{Status: job, CapabilityStatus: capability, CoverageStatus: coverage}}, Validation{CapabilityStatus: capability, CoverageStatus: coverage, ReasonCodes: reasons}, HumanWaitError{Result: result}
 	}

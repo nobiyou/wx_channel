@@ -87,7 +87,7 @@ func runSimulatedPOC(t *testing.T) simulatedPOCResult {
 	t.Helper()
 	server, httpServer, token := newTestBridge(t)
 	conn := connectReadyBridge(t, server, httpServer.URL, token, map[string]bool{
-		"finderSearch": true, "finderGetCommentDetail": true, "finderGetCommentList": true,
+		"finderSearch": true, "finderUserPage": true, "finderGetCommentDetail": true, "finderGetCommentList": true,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() {
@@ -163,6 +163,8 @@ func serveSimulatedPage(ctx context.Context, conn *websocket.Conn) {
 				map[string]any{"id": "fixture-sim-work-2", "objectNonceId": "fixture-sim-nonce-2", "objectDesc": map[string]any{"mediaType": 4}},
 				map[string]any{"id": "fixture-sim-work-3", "objectNonceId": "fixture-sim-nonce-3", "objectDesc": map[string]any{"mediaType": 9}},
 			}, "lastBuffer": ""}}
+		case "finderUserPage":
+			data = map[string]any{"data": map[string]any{"object": []any{}, "lastBuffer": ""}}
 		case "finderGetCommentList":
 			workID, _ := call.Body["object_id"].(string)
 			rootID := "fixture-sim-top-" + strings.TrimPrefix(workID, "fixture-sim-work-")
