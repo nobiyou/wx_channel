@@ -109,12 +109,52 @@ func (c *LtaooClient) ResolveWork(ctx context.Context, shareURL string, rank int
 }
 
 func (c *LtaooClient) Call(ctx context.Context, method string, body any) ([]byte, error) {
-	if method != commentListMethod {
-		return nil, CategorizedError{Category: ErrorMethodMissing}
-	}
 	values, ok := body.(map[string]any)
 	if !ok {
 		return nil, CategorizedError{Category: ErrorSafety}
+	}
+	if method == "finderSearch" || method == "finderUserPage" {
+		allowed := map[string]string{"keyword": "keyword", "username": "username", "next_marker": "next_marker"}
+		query := make(url.Values, len(values)+1)
+		for key, value := range values {
+			queryKey, exists := allowed[key]
+			if !exists {
+				return nil, CategorizedError{Category: ErrorSafety}
+			}
+			text, valid := requestString(value)
+			if !valid {
+				return nil, CategorizedError{Category: ErrorSafety}
+			}
+			if text != "" || key != "next_marker" {
+				query.Set(queryKey, text)
+			}
+		}
+		path := "/api/channels/contact/search"
+		if method == "finderSearch" {
+			if query.Get("keyword") == "" {
+				return nil, CategorizedError{Category: ErrorSafety}
+			}
+			query.Set("type", "3")
+		} else {
+			path = "/api/channels/contact/feed/list"
+			if query.Get("username") == "" {
+				return nil, CategorizedError{Category: ErrorSafety}
+			}
+		}
+		raw, err := c.get(ctx, path, query)
+		if err != nil {
+			return nil, err
+		}
+		data, err := decodeLtaooBusinessData(raw)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Data json.RawMessage `json:"data"`
+		}{Data: data})
+	}
+	if method != commentListMethod {
+		return nil, CategorizedError{Category: ErrorMethodMissing}
 	}
 	allowed := map[string]string{
 		"object_id": "oid", "nonce_id": "nid", "comment_id": "comment_id", "next_marker": "next_marker",
@@ -148,6 +188,32 @@ func (c *LtaooClient) Call(ctx context.Context, method string, body any) ([]byte
 		Data json.RawMessage `json:"data"`
 	}{Data: data}
 	return json.Marshal(wrapped)
+}
+
+func (c *LtaooClient) ResolveShareURL(ctx context.Context, objectID string) (string, error) {
+	if objectID == "" {
+		return "", CategorizedError{Category: ErrorSafety}
+	}
+	raw, err := c.get(ctx, "/api/channels/feed/share_url", url.Values{"oid": []string{objectID}})
+	if err != nil {
+		return "", err
+	}
+	data, err := decodeLtaooBusinessData(raw)
+	if err != nil {
+		return "", err
+	}
+	var payload map[string]any
+	if err := decodeSingleJSON(data, &payload); err != nil {
+		return "", CategorizedError{Category: ErrorStructure}
+	}
+	for _, key := range []string{"feedH5Url", "shareUrl", "share_url", "url"} {
+		if value, ok := stringField(payload, key); ok {
+			if normalized, normalizeErr := NormalizeWeChatShareURL(value); normalizeErr == nil {
+				return normalized, nil
+			}
+		}
+	}
+	return "", CategorizedError{Category: ErrorStructure}
 }
 
 func (c *LtaooClient) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
@@ -285,6 +351,37 @@ func CollectWorksFromURLs(ctx context.Context, client *LtaooClient, rawURLs []st
 		Timeout:       profileReadinessTimeout,
 		RetryInterval: profileRetryInterval,
 	})
+}
+
+// CollectWorksFromSearch discovers works through finderSearch and resolves a
+// public share URL for every selected work before publication.
+func CollectWorksFromSearch(ctx context.Context, client *LtaooClient, keyword string, limits Limits, store CollectorStore) ([]Work, []Issue) {
+	if client == nil || strings.TrimSpace(keyword) == "" || limits.Works < 1 || limits.Works > 30 || store == nil {
+		return nil, []Issue{{Stage: "content", Code: "invalid_collection_request"}}
+	}
+	collector := NewCollector(client, NewEvidenceRecorder(nil), store, batchClock{})
+	options := DefaultOptions()
+	options.Keyword = strings.TrimSpace(keyword)
+	options.Limits = limits
+	works, _, err := collector.CollectWorks(ctx, options)
+	if err != nil {
+		return works, []Issue{{Stage: "content", Code: profileIssueCode(err)}}
+	}
+	issues := make([]Issue, 0)
+	resolved := make([]Work, 0, len(works))
+	for index := range works {
+		if works[index].WorkID == nil {
+			continue
+		}
+		shareURL, resolveErr := client.ResolveShareURL(ctx, dereferenceString(works[index].WorkID))
+		if resolveErr != nil {
+			issues = append(issues, Issue{Stage: "content", Code: "share_url_unavailable", InputIndex: index + 1})
+			continue
+		}
+		works[index].Locator.PublicURL = stringPointer(shareURL)
+		resolved = append(resolved, works[index])
+	}
+	return resolved, issues
 }
 
 func collectWorksFromURLs(

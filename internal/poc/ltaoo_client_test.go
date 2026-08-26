@@ -122,6 +122,56 @@ func TestLtaooClientMapsStatusProfileAndContinuousCommentCursor(t *testing.T) {
 	}
 }
 
+func TestLtaooClientSupportsFinderSearchFeedAndShareURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/channels/contact/search":
+			if r.URL.Query().Get("type") != "3" || r.URL.Query().Get("keyword") != "启东音乐节" {
+				t.Fatalf("search query=%s", r.URL.RawQuery)
+			}
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"infoList":[{"contact":{"username":"finder-alice"}}],"lastBuff":"next"}}}`)
+		case "/api/channels/contact/feed/list":
+			if r.URL.Query().Get("username") != "finder-alice" {
+				t.Fatalf("feed query=%s", r.URL.RawQuery)
+			}
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":[{"id":"work-1","objectNonceId":"nonce-1","objectDesc":{"mediaType":2}}],"lastBuffer":""}}}`)
+		case "/api/channels/feed/share_url":
+			if r.URL.Query().Get("oid") != "work-1" {
+				t.Fatalf("share query=%s", r.URL.RawQuery)
+			}
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"feedH5Url":"https://weixin.qq.com/sph/generated-1"}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := client.Call(context.Background(), "finderSearch", map[string]any{"keyword": "启东音乐节", "next_marker": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := parseSearchPageDetails(search)
+	if err != nil || len(page.contacts) != 1 {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	feed, err := client.Call(context.Background(), "finderUserPage", map[string]any{"username": "finder-alice", "next_marker": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, _, _, err := parseFeedPage(feed)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%d err=%v", len(items), err)
+	}
+	share, err := client.ResolveShareURL(context.Background(), "work-1")
+	if err != nil || share != "https://weixin.qq.com/sph/generated-1" {
+		t.Fatalf("share=%q err=%v", share, err)
+	}
+}
+
 func TestNewLtaooClientRejectsUnsafeAPIBase(t *testing.T) {
 	for _, base := range []string{
 		"https://127.0.0.1:2023", "http://localhost:2023", "http://0.0.0.0:2023",

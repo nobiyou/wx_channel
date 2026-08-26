@@ -138,7 +138,7 @@ func validateBatchRequest(request *BatchRequest, runRoot string) error {
 	if request.Keyword == "" || len([]rune(request.Keyword)) > 200 || strings.ContainsAny(request.Keyword, "\r\n\x00") {
 		return errors.New("batch keyword is invalid")
 	}
-	if len(request.ContentURLs) == 0 || len(request.ContentURLs) > 10 {
+	if len(request.ContentURLs) > 10 {
 		return errors.New("batch content URL count is invalid")
 	}
 	seenURLs := make(map[string]struct{}, len(request.ContentURLs))
@@ -153,7 +153,7 @@ func validateBatchRequest(request *BatchRequest, runRoot string) error {
 		seenURLs[normalized] = struct{}{}
 		request.ContentURLs[index] = normalized
 	}
-	if request.Limits.Works < 1 || request.Limits.Works > 10 ||
+	if request.Limits.Works < 1 || request.Limits.Works > 30 ||
 		request.Limits.TopLevelCommentsPerWork < 1 || request.Limits.TopLevelCommentsPerWork > 100 ||
 		request.Limits.RepliesPerComment < 0 || request.Limits.RepliesPerComment > 20 ||
 		request.Limits.RepliesPerWork < 0 || request.Limits.RepliesPerWork > 200 {
@@ -217,7 +217,11 @@ func RunLtaooBatch(ctx context.Context, request BatchRequest, client *LtaooClien
 		issues = append(issues, Issue{Stage: "startup", Code: "ltaoo_unavailable"})
 		result.Status = BatchFailed
 	} else {
-		works, issues = CollectWorksFromURLs(ctx, client, request.ContentURLs, request.Limits.Works)
+		if len(request.ContentURLs) > 0 {
+			works, issues = CollectWorksFromURLs(ctx, client, request.ContentURLs, request.Limits.Works)
+		} else {
+			works, issues = CollectWorksFromSearch(ctx, client, request.Keyword, request.Limits, stateStore)
+		}
 		if len(works) == 0 {
 			result.Status = BatchFailed
 		}
