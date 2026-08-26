@@ -44,6 +44,18 @@ type Collector struct {
 	currentWorkRank int
 }
 
+type searchContact struct {
+	username string
+	item     map[string]any
+}
+
+type searchPage struct {
+	works         []map[string]any
+	contacts      []searchContact
+	nextMarker    string
+	markerPresent bool
+}
+
 func NewCollector(api PageAPI, evidence *EvidenceRecorder, store CollectorStore, clock Clock) *Collector {
 	return &Collector{api: api, evidence: evidence, store: store, clock: clock, retryPolicy: DefaultRetryPolicy()}
 }
@@ -168,14 +180,14 @@ func (c *Collector) CollectWorks(ctx context.Context, options Options) ([]Work, 
 			}
 			return works, CoverageIncomplete, err
 		}
-		items, nextMarker, markerPresent, err := parseSearchPage(raw)
+		page, err := parseSearchPageDetails(raw)
 		if err != nil {
 			if checkpointErr := c.saveSearchCheckpoint("search", marker, works); checkpointErr != nil {
 				return works, CoverageIncomplete, checkpointErr
 			}
 			return works, CoverageIncomplete, CategorizedError{Category: ErrorStructure}
 		}
-		for index, item := range items {
+		for index, item := range page.works {
 			id, ok := stringField(item, "id")
 			if !ok || id == "" {
 				continue
@@ -192,35 +204,92 @@ func (c *Collector) CollectWorks(ctx context.Context, options Options) ([]Work, 
 				break
 			}
 		}
+		feedIncomplete := false
+		seenContacts := make(map[string]struct{}, len(page.contacts))
+		for contactIndex, contact := range page.contacts {
+			if _, duplicate := seenContacts[contact.username]; duplicate {
+				continue
+			}
+			seenContacts[contact.username] = struct{}{}
+			feedMarker := ""
+			seenFeedMarkers := map[string]struct{}{}
+			for len(works) < options.Limits.Works {
+				feedRaw, feedSource, feedErr := c.call(ctx, "finderUserPage", map[string]any{"username": contact.username, "next_marker": feedMarker})
+				if feedErr != nil {
+					feedIncomplete = true
+					break
+				}
+				feedItems, nextFeedMarker, feedMarkerPresent, parseErr := parseFeedPage(feedRaw)
+				if parseErr != nil {
+					feedIncomplete = true
+					break
+				}
+				for itemIndex, item := range feedItems {
+					if item == nil {
+						continue
+					}
+					if _, ok := item["contact"]; !ok && contact.item != nil {
+						item["contact"] = contact.item
+					}
+					id, ok := stringField(item, "id")
+					if !ok || id == "" {
+						continue
+					}
+					if _, duplicate := seenIDs[id]; duplicate {
+						continue
+					}
+					seenIDs[id] = struct{}{}
+					rank := len(works) + 1
+					itemSource := feedSource
+					itemSource.Ordinal = itemIndex + 1
+					works = append(works, mapSearchWork(item, id, options.Keyword, rank, pageNumber+contactIndex+1, itemIndex+1, itemSource))
+					if len(works) == options.Limits.Works {
+						break
+					}
+				}
+				if !feedMarkerPresent || nextFeedMarker == "" {
+					break
+				}
+				if _, repeated := seenFeedMarkers[nextFeedMarker]; repeated {
+					feedIncomplete = true
+					break
+				}
+				seenFeedMarkers[nextFeedMarker] = struct{}{}
+				feedMarker = nextFeedMarker
+			}
+		}
 		if len(works) >= options.Limits.Works {
-			if err := c.saveSearchCheckpoint("search_complete", nextMarker, works); err != nil {
+			if err := c.saveSearchCheckpoint("search_complete", page.nextMarker, works); err != nil {
 				return works, CoverageIncomplete, err
 			}
 			return works, CoverageTargetMet, nil
 		}
-		if !markerPresent {
+		if !page.markerPresent {
 			if err := c.saveSearchCheckpoint("search_incomplete", "", works); err != nil {
 				return works, CoverageIncomplete, err
 			}
+			if len(page.contacts) > 0 && !feedIncomplete {
+				return works, CoverageSourceExhausted, nil
+			}
 			return works, CoverageIncomplete, nil
 		}
-		if nextMarker == "" {
+		if page.nextMarker == "" {
 			if err := c.saveSearchCheckpoint("search_complete", "", works); err != nil {
 				return works, CoverageIncomplete, err
 			}
 			return works, CoverageSourceExhausted, nil
 		}
-		if _, repeated := seenMarkers[nextMarker]; repeated {
-			if err := c.saveSearchCheckpoint("search_incomplete", nextMarker, works); err != nil {
+		if _, repeated := seenMarkers[page.nextMarker]; repeated {
+			if err := c.saveSearchCheckpoint("search_incomplete", page.nextMarker, works); err != nil {
 				return works, CoverageIncomplete, err
 			}
 			return works, CoverageIncomplete, nil
 		}
-		if err := c.saveSearchCheckpoint("search", nextMarker, works); err != nil {
+		if err := c.saveSearchCheckpoint("search", page.nextMarker, works); err != nil {
 			return works, CoverageIncomplete, err
 		}
-		seenMarkers[nextMarker] = struct{}{}
-		marker = nextMarker
+		seenMarkers[page.nextMarker] = struct{}{}
+		marker = page.nextMarker
 	}
 	return works, CoverageTargetMet, nil
 }
@@ -257,27 +326,40 @@ func (c *Collector) saveSearchCheckpoint(phase, marker string, works []Work) err
 }
 
 func parseSearchPage(raw []byte) ([]map[string]any, string, bool, error) {
+	page, err := parseSearchPageDetails(raw)
+	if err != nil {
+		return nil, "", false, err
+	}
+	if len(page.works) == 0 && len(page.contacts) > 0 {
+		return nil, "", false, errors.New("search response contains accounts, not works")
+	}
+	return page.works, page.nextMarker, page.markerPresent, nil
+}
+
+func parseSearchPageDetails(raw []byte) (searchPage, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var root map[string]any
 	if err := decoder.Decode(&root); err != nil {
-		return nil, "", false, errors.New("decode search response")
+		return searchPage{}, errors.New("decode search response")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return nil, "", false, errors.New("search response contains trailing JSON")
+		return searchPage{}, errors.New("search response contains trailing JSON")
 	}
 	data, ok := root["data"].(map[string]any)
 	if !ok {
-		return nil, "", false, errors.New("search response data is missing")
+		return searchPage{}, errors.New("search response data is missing")
 	}
 	container := data
 	if nested, ok := data["data"].(map[string]any); ok {
 		container = nested
 	}
-	rawItems, ok := container["objectList"].([]any)
-	if !ok {
-		return nil, "", false, errors.New("search object list is missing")
+	page := searchPage{}
+	rawItems, hasWorks := container["objectList"].([]any)
+	rawContacts, hasContacts := container["infoList"].([]any)
+	if !hasWorks && !hasContacts {
+		return searchPage{}, errors.New("search object list is missing")
 	}
 	items := make([]map[string]any, 0, len(rawItems))
 	for _, rawItem := range rawItems {
@@ -287,13 +369,73 @@ func parseSearchPage(raw []byte) ([]map[string]any, string, bool, error) {
 			items = append(items, nil)
 		}
 	}
+	page.works = items
+	for _, rawContact := range rawContacts {
+		item, ok := rawContact.(map[string]any)
+		if !ok {
+			continue
+		}
+		contact, ok := item["contact"].(map[string]any)
+		if !ok {
+			contact = item
+		}
+		username, ok := stringField(contact, "username")
+		if ok && username != "" {
+			page.contacts = append(page.contacts, searchContact{username: username, item: contact})
+		}
+	}
 	markerValue, markerPresent := container["lastBuffer"]
+	if !markerPresent {
+		markerValue, markerPresent = container["lastBuff"]
+	}
+	if !markerPresent {
+		return page, nil
+	}
+	marker, ok := markerValue.(string)
+	if !ok {
+		return searchPage{}, errors.New("search marker is not a string")
+	}
+	page.nextMarker, page.markerPresent = marker, true
+	return page, nil
+}
+
+func parseFeedPage(raw []byte) ([]map[string]any, string, bool, error) {
+	var root map[string]any
+	if err := decodeSingleJSON(raw, &root); err != nil {
+		return nil, "", false, errors.New("decode feed list response")
+	}
+	data, ok := root["data"].(map[string]any)
+	if !ok {
+		return nil, "", false, errors.New("feed list response data is missing")
+	}
+	container := data
+	if nested, ok := data["data"].(map[string]any); ok {
+		container = nested
+	}
+	rawItems, ok := container["object"].([]any)
+	if !ok {
+		rawItems, ok = container["objectList"].([]any)
+	}
+	if !ok {
+		return nil, "", false, errors.New("feed list object is missing")
+	}
+	items := make([]map[string]any, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		item, ok := rawItem.(map[string]any)
+		if ok {
+			items = append(items, item)
+		}
+	}
+	markerValue, markerPresent := container["lastBuffer"]
+	if !markerPresent {
+		markerValue, markerPresent = container["lastBuff"]
+	}
 	if !markerPresent {
 		return items, "", false, nil
 	}
 	marker, ok := markerValue.(string)
 	if !ok {
-		return nil, "", false, errors.New("search marker is not a string")
+		return nil, "", false, errors.New("feed list marker is not a string")
 	}
 	return items, marker, true, nil
 }

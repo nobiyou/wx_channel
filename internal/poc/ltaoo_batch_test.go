@@ -45,7 +45,7 @@ func TestLoadBatchRequestRejectsUnknownFieldsUnsafeOutputAndInvalidLimits(t *tes
 		{"duplicate link", func(value map[string]any, _ string) {
 			value["content_urls"] = []string{"https://weixin.qq.com/sph/a", "https://weixin.qq.com/sph/a/"}
 		}},
-		{"too many works", func(value map[string]any, _ string) { value["limits"].(map[string]any)["works"] = 11 }},
+		{"too many works", func(value map[string]any, _ string) { value["limits"].(map[string]any)["works"] = 31 }},
 		{"mismatched reply limits", func(value map[string]any, _ string) { value["limits"].(map[string]any)["replies_per_comment"] = 0 }},
 	}
 	for _, test := range tests {
@@ -57,6 +57,22 @@ func TestLoadBatchRequestRejectsUnknownFieldsUnsafeOutputAndInvalidLimits(t *tes
 				t.Fatal("invalid request accepted")
 			}
 		})
+	}
+}
+
+func TestLoadBatchRequestAcceptsKeywordDiscoveryWithoutLinks(t *testing.T) {
+	runRoot := t.TempDir()
+	requestPath := filepath.Join(runRoot, "request.json")
+	writeBatchRequestFixture(t, requestPath, runRoot, func(value map[string]any, _ string) {
+		value["content_urls"] = []string{}
+		value["limits"].(map[string]any)["works"] = 30
+	})
+	request, err := LoadBatchRequest(requestPath, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.ContentURLs) != 0 || request.Limits.Works != 30 {
+		t.Fatalf("request=%+v", request)
 	}
 }
 
@@ -143,6 +159,39 @@ func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) 
 	}
 	if _, err := FinalizeLtaooBatch(request, runRoot, receiptPath); err == nil {
 		t.Fatal("existing final batch was overwritten")
+	}
+}
+
+func TestRunLtaooBatchKeywordDiscoveryGeneratesPublicURL(t *testing.T) {
+	server := newBatchFixtureServer(t, "")
+	defer server.Close()
+	runRoot := t.TempDir()
+	requestPath := filepath.Join(runRoot, "request.json")
+	writeBatchRequestFixture(t, requestPath, runRoot, func(value map[string]any, _ string) {
+		value["content_urls"] = []string{}
+		value["limits"].(map[string]any)["works"] = 1
+	})
+	request, err := LoadBatchRequest(requestPath, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewLtaooClient(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := RunLtaooBatch(context.Background(), request, client, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Counts.Works != 1 || draft.Status != BatchSucceeded {
+		t.Fatalf("draft=%+v", draft)
+	}
+	contents, err := os.ReadFile(filepath.Join(runRoot, "batch.partial-"+request.RunID, "contents.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "https://weixin.qq.com/sph/generated-batch-1") {
+		t.Fatalf("contents=%s", contents)
 	}
 }
 
@@ -374,6 +423,12 @@ func newBatchFixtureServer(t *testing.T, forbidden string) *httptest.Server {
 			_, _ = fmt.Fprint(w, `{"code":0,"data":{"api":{"listening":true},"proxy":{"listening":true}}}`)
 		case "/api/channels/feed/profile":
 			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":{"id":"batch-work-1","objectNonceId":"batch-nonce-1","objectDesc":{"description":"batch title","mediaType":2}}}}}`)
+		case "/api/channels/contact/search":
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"infoList":[{"contact":{"username":"batch-finder"}}],"lastBuff":""}}}`)
+		case "/api/channels/contact/feed/list":
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"object":[{"id":"batch-work-1","objectNonceId":"batch-nonce-1","objectDesc":{"description":"batch title","mediaType":2}}],"lastBuffer":""}}}`)
+		case "/api/channels/feed/share_url":
+			_, _ = fmt.Fprint(w, `{"code":0,"data":{"errCode":0,"data":{"feedH5Url":"https://weixin.qq.com/sph/generated-batch-1"}}}`)
 		case "/api/channels/feed/comment/list":
 			if r.URL.Query().Get("comment_id") == "" {
 				_, _ = fmt.Fprintf(w, `{"code":0,"data":{"errCode":0,"data":{"commentInfo":[{"commentId":"batch-root-1","content":"public root","expandCommentCount":2,"privateHeader":%q}],"lastBuffer":""}}}`, forbidden)

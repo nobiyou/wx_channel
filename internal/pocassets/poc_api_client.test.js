@@ -6,7 +6,7 @@ const path = require('path');
 
 const source = fs.readFileSync(path.join(__dirname, 'poc_api_client.js'), 'utf8');
 
-for (const method of ['finderSearch', 'finderGetCommentDetail', 'finderGetCommentList']) {
+for (const method of ['finderSearch', 'finderUserPage', 'finderGetCommentDetail', 'finderGetCommentList']) {
   assert(source.includes(method), `missing allowed method ${method}`);
 }
 for (const forbidden of ['console.', 'fetch(', 'commentLike', 'commentPost', 'finderPost', 'publish', 'download', '?token=']) {

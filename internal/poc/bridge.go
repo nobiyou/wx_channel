@@ -29,6 +29,7 @@ const (
 
 var allowedMethods = map[string]struct{}{
 	"finderSearch":           {},
+	"finderUserPage":         {},
 	"finderGetCommentDetail": {},
 	"finderGetCommentList":   {},
 }

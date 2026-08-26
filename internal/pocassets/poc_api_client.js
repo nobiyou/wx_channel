@@ -1,12 +1,13 @@
 (function () {
   'use strict';
   const config = window.__WX_CHANNEL_POC_CONFIG__;
-  const allowed = new Set(['finderSearch', 'finderGetCommentDetail', 'finderGetCommentList']);
+  const allowed = new Set(['finderSearch', 'finderUserPage', 'finderGetCommentDetail', 'finderGetCommentList']);
   const ws = new WebSocket(`ws://127.0.0.1:${config.port}/ws/api`, ['wx-poc-v1', `auth.${config.token}`]);
 
   function methods() {
     return {
       finderSearch: !!(window.WXU && WXU.API2 && typeof WXU.API2.finderSearch === 'function'),
+      finderUserPage: !!(window.WXU && WXU.API && typeof WXU.API.finderUserPage === 'function'),
       finderGetCommentDetail: !!(window.WXU && WXU.API && typeof WXU.API.finderGetCommentDetail === 'function'),
       finderGetCommentList: !!(window.WXU && WXU.API && typeof WXU.API.finderGetCommentList === 'function')
     };
@@ -23,6 +24,7 @@
   async function invoke(method, body) {
     if (!allowed.has(method)) throw new Error('method_not_allowed');
     if (method === 'finderSearch') return WXU.API2.finderSearch({query: body.keyword, scene: 19, requestId: String(Date.now()), lastBuffer: body.next_marker || '', lastBuff: body.next_marker || ''});
+    if (method === 'finderUserPage') return WXU.API.finderUserPage({username: body.username, finderUsername: window.__wx_username || body.username, lastBuffer: body.next_marker || '', needFansCount: 0, objectId: '0'});
     if (method === 'finderGetCommentDetail') return WXU.API.finderGetCommentDetail({needObject: 1, lastBuffer: '', scene: 146, direction: 2, identityScene: 2, pullScene: 6, objectid: String(body.object_id).split('_')[0], objectNonceId: body.nonce_id, encrypted_objectid: ''});
     const payload = body.comment_id ? {direction: 2, identityScene: 2, objectId: body.object_id, rootCommentId: body.comment_id, lastBuffer: body.next_marker || undefined} : {finderBasereq: {scene: 140, ctxInfo: {clientReportBuff: '{"entranceId":"1002"}'}, objectBaseInfos: []}, objectId: body.object_id, objectNonceId: body.nonce_id, direction: 2, identityScene: 2, lastBuffer: body.next_marker || undefined, enterSessionId: String(Date.now())};
     return WXU.API.finderGetCommentList(payload);
