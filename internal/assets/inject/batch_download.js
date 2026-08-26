@@ -843,8 +843,10 @@ async function __batch_download_selected__() {
     // 构建批量下载请求数据
     var batchVideos = formattedVideos.map(function(video) {
       var authorName = video.nickname || (video.contact && video.contact.nickname) || '未知作者';
-      var normalizedDownload = typeof __wx_channels_normalize_video_download__ === 'function'
-        ? __wx_channels_normalize_video_download__(video, null)
+      var normalizedDownload = typeof __wx_channels_normalize_batch_video_download__ === 'function'
+        ? __wx_channels_normalize_batch_video_download__(video)
+        : typeof __wx_channels_normalize_video_download__ === 'function'
+          ? __wx_channels_normalize_video_download__(video, null)
         : {
           mode: 'original',
           url: video.url || '',

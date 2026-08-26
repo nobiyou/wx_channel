@@ -536,6 +536,14 @@ function __wx_channels_normalize_video_download__(profile, spec) {
   return normalized;
 }
 
+function __wx_channels_normalize_batch_video_download__(profile) {
+  var spec = null;
+  if (!__wx_channels_has_true_original__(profile)) {
+    spec = __wx_channels_get_best_available_spec__(profile);
+  }
+  return __wx_channels_normalize_video_download__(profile, spec);
+}
+
 async function __wx_channels_download_via_backend__(profile, filename, normalized) {
   var authorName = profile.nickname || (profile.contact && profile.contact.nickname) || '未知作者';
   var hasKey = !!(profile.key && profile.key.length > 0);

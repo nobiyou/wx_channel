@@ -102,6 +102,14 @@ function main() {
     '最高可用画质 (xWT111)',
     'primary label should disclose that the fallback is a rendition',
   );
+  const batchFallback = sandbox.__wx_channels_normalize_batch_video_download__(availableProfile);
+  assertEqual(batchFallback.mode, 'specific', 'batch mode should fall back to a specific rendition');
+  assertEqual(batchFallback.fileFormat, 'xWT111', 'batch fallback should use the highest available rendition');
+  assertEqual(
+    batchFallback.url,
+    profile.url + '&X-snsvideoflag=xWT111',
+    'batch fallback should append the selected rendition without losing signed parameters',
+  );
 
   const trueOriginalProfile = Object.assign({}, profile, {
     media: Object.assign({}, profile.media, {
@@ -122,6 +130,11 @@ function main() {
     normalize(trueOriginalProfile, null).url,
     'https://finder.video.qq.com/full/original.mp4',
     'original mode should prefer the explicit fullUrl over the preview URL',
+  );
+  assertEqual(
+    sandbox.__wx_channels_normalize_batch_video_download__(trueOriginalProfile).mode,
+    'original',
+    'batch mode should preserve a real original URL',
   );
 
   const original = normalize(profile, null);

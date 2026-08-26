@@ -221,6 +221,13 @@ func TestValidateOriginalDownloadSize(t *testing.T) {
 			wantErr:      true,
 		},
 		{
+			name:         "rejects the reported 4.26 MB to 0.25 MB shrink",
+			mode:         downloadVideoModeOriginal,
+			expectedSize: 4*megabyte + 26*megabyte/100,
+			actualSize:   25 * megabyte / 100,
+			wantErr:      true,
+		},
+		{
 			name:         "allows an approximate source-size hint",
 			mode:         downloadVideoModeOriginal,
 			expectedSize: 362 * megabyte,
