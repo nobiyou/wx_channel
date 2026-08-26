@@ -20,7 +20,27 @@ func newTestAPIClient(id string) (*Client, context.CancelFunc) {
 		cancel:   cancel,
 		apiReady: true,
 		methods:  map[string]bool{"finderGetCommentList": true},
+		lastSeen: time.Now(),
 	}, cancel
+}
+
+func TestGetClientForKeySkipsStaleClient(t *testing.T) {
+	hub := NewHub()
+	stale, cancelStale := newTestAPIClient("stale")
+	defer cancelStale()
+	stale.lastSeen = time.Now().Add(-2 * defaultLivenessTimeout)
+	fresh, cancelFresh := newTestAPIClient("fresh")
+	defer cancelFresh()
+	hub.clients[stale] = true
+	hub.clients[fresh] = true
+
+	client, err := hub.GetClientForKey("key:channels:fetch_feed_comment_list")
+	if err != nil {
+		t.Fatalf("GetClientForKey() error = %v", err)
+	}
+	if client != fresh {
+		t.Fatalf("GetClientForKey() selected %q, want fresh client", client.ID)
+	}
 }
 
 func TestCallAPIRetriesOnDisconnectedClient(t *testing.T) {

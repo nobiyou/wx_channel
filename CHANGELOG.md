@@ -1,5 +1,15 @@
 # wx_channel 更新日志
 
+## [5.7.6] - 2026-08-26
+
+### Cloud/Insight Edge 保活与分享解析
+
+- 修复 Cloud 客户端与 Insight Edge 的 WebSocket 心跳协议：Edge 返回同 ID 的 `heartbeat_ack`，客户端确认 ACK 后再刷新连接活跃时间，避免约 150 秒无业务消息时误断线。
+- 增加 WebSocket 写入串行化和页面 API 心跳确认超时重连，降低心跳 ACK 与远程指令并发写入造成的连接异常。
+- `/api/channels/status` 增加 `fresh_clients`、`schedulable_clients`、`last_pong_at`、平台可用状态和过期阈值；过期客户端不再参与 API 调度。
+- 分享链接解析增加规范 HTTPS 地址校验、批量上限、重复 URL 去重、并发解析、单项/批次超时和结构化错误码。
+- 统一无可用客户端、无就绪客户端和请求超时的错误识别，减少解析和搜索接口返回不一致。
+
 ## [5.7.5] - 2026-08-26
 
 ### 视频号下载链路修复

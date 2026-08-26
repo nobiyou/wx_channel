@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"errors"
 	"math/rand"
 	"sort"
 	"sync/atomic"
@@ -25,7 +24,7 @@ func NewRoundRobinSelector() *RoundRobinSelector {
 // Select 轮询选择客户端
 func (s *RoundRobinSelector) Select(clients map[*Client]bool) (*Client, error) {
 	if len(clients) == 0 {
-		return nil, errors.New("no available client")
+		return nil, ErrNoAvailableClient
 	}
 
 	// 将 map 转换为 slice
@@ -53,7 +52,7 @@ func NewLeastConnectionSelector() *LeastConnectionSelector {
 // Select 选择活跃请求最少的客户端
 func (s *LeastConnectionSelector) Select(clients map[*Client]bool) (*Client, error) {
 	if len(clients) == 0 {
-		return nil, errors.New("no available client")
+		return nil, ErrNoAvailableClient
 	}
 
 	var selected *Client
@@ -68,7 +67,7 @@ func (s *LeastConnectionSelector) Select(clients map[*Client]bool) (*Client, err
 	}
 
 	if selected == nil {
-		return nil, errors.New("no available client")
+		return nil, ErrNoAvailableClient
 	}
 
 	return selected, nil
@@ -92,7 +91,7 @@ func NewWeightedSelector(weights map[string]int) *WeightedSelector {
 // Select 根据权重选择客户端
 func (s *WeightedSelector) Select(clients map[*Client]bool) (*Client, error) {
 	if len(clients) == 0 {
-		return nil, errors.New("no available client")
+		return nil, ErrNoAvailableClient
 	}
 
 	// 计算总权重
@@ -129,7 +128,7 @@ func (s *WeightedSelector) Select(clients map[*Client]bool) (*Client, error) {
 		return c, nil
 	}
 
-	return nil, errors.New("no available client")
+	return nil, ErrNoAvailableClient
 }
 
 // getWeight 获取客户端权重
@@ -156,7 +155,7 @@ func NewRandomSelector() *RandomSelector {
 // Select 随机选择客户端
 func (s *RandomSelector) Select(clients map[*Client]bool) (*Client, error) {
 	if len(clients) == 0 {
-		return nil, errors.New("no available client")
+		return nil, ErrNoAvailableClient
 	}
 
 	// 将 map 转换为 slice

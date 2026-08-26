@@ -388,7 +388,7 @@ func selectChannelStatus(statuses []websocket.ClientStatus, now time.Time, stale
 }
 
 func statusFresh(status websocket.ClientStatus, now time.Time, staleAfter time.Duration) bool {
-	for _, raw := range []string{status.LastPingAt, status.LastSeenAt} {
+	for _, raw := range []string{status.LastPongAt, status.LastPingAt, status.LastSeenAt} {
 		if raw == "" {
 			continue
 		}

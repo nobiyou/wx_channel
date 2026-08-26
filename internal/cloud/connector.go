@@ -294,8 +294,8 @@ func (c *Connector) handleConnection() {
 		}
 
 		// 处理心跳响应
-		if msg.Type == "heartbeat_ack" {
-			// 心跳响应，更新最后接收时间
+		if msg.Type == MsgTypeHeartbeatAck {
+			// 心跳响应会刷新下一轮读取等待窗口。
 			continue
 		}
 

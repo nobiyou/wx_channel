@@ -26,6 +26,7 @@ type Client struct {
 	cancel         context.CancelFunc
 	closed         bool
 	lastPing       time.Time
+	lastPong       time.Time
 	lastSeen       time.Time
 	pagePath       string
 	href           string
@@ -268,9 +269,12 @@ func (c *Client) pingLoop() {
 
 			if err != nil {
 				utils.LogError("Ping 失败: %v", err)
+				c.Close()
 				return
 			}
-			c.lastPing = time.Now()
+			// coder/websocket.Ping waits for the peer's pong. Record the
+			// acknowledgement rather than treating an outbound ping as liveness.
+			c.TouchPong()
 		}
 	}
 }
@@ -286,6 +290,15 @@ func (c *Client) TouchPing() {
 	now := time.Now()
 	c.lastPing = now
 	c.lastSeen = now
+	c.mu.Unlock()
+}
+
+// TouchPong records a successful protocol-level heartbeat acknowledgement.
+func (c *Client) TouchPong() {
+	c.mu.Lock()
+	now := time.Now()
+	c.lastPing = now
+	c.lastPong = now
 	c.mu.Unlock()
 }
 
@@ -340,6 +353,10 @@ func (c *Client) SupportsKey(key string) bool {
 }
 
 func (c *Client) Status() ClientStatus {
+	return c.statusAt(time.Now(), defaultLivenessTimeout)
+}
+
+func (c *Client) statusAt(now time.Time, staleAfter time.Duration) ClientStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -356,21 +373,48 @@ func (c *Client) Status() ClientStatus {
 	if !c.lastPing.IsZero() {
 		lastPingAt = c.lastPing.Format(time.RFC3339)
 	}
+	lastPongAt := ""
+	if !c.lastPong.IsZero() {
+		lastPongAt = c.lastPong.Format(time.RFC3339)
+	}
 
 	return ClientStatus{
 		RemoteAddr:      c.RemoteAddr,
 		PagePath:        c.pagePath,
 		Href:            c.href,
 		APIReady:        c.apiReady,
+		Fresh:           isFreshAt(now, staleAfter, c.lastPong, c.lastSeen),
 		Methods:         methods,
 		ActiveRequests:  int(atomic.LoadInt32(&c.activeRequests)),
 		LastSeenAt:      lastSeenAt,
 		LastPingAt:      lastPingAt,
+		LastPongAt:      lastPongAt,
 		SupportsSearch:  c.apiReady && methods["finderSearch"],
 		SupportsFeed:    c.apiReady && methods["finderUserPage"],
 		SupportsProfile: c.apiReady && methods["finderGetCommentDetail"],
 		SupportsComment: c.apiReady && methods["finderGetCommentList"],
 	}
+}
+
+func (c *Client) IsFresh(now time.Time, staleAfter time.Duration) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return isFreshAt(now, staleAfter, c.lastPong, c.lastSeen)
+}
+
+func isFreshAt(now time.Time, staleAfter time.Duration, timestamps ...time.Time) bool {
+	if staleAfter <= 0 {
+		return true
+	}
+	for _, timestamp := range timestamps {
+		if timestamp.IsZero() || timestamp.After(now) {
+			continue
+		}
+		if now.Sub(timestamp) <= staleAfter {
+			return true
+		}
+	}
+	return false
 }
 
 // GetActiveRequests 获取活跃请求数

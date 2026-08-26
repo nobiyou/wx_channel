@@ -13,6 +13,8 @@ window.__wx_api_client = {
   reconnectDelay: 3000,
   requests: {},
   heartbeatTimer: null,
+  heartbeatAckTimer: null,
+  heartbeatPending: false,
   lastHeartbeatTime: 0,
   missedHeartbeats: 0,
   apiMethods: {},
@@ -415,9 +417,7 @@ window.__wx_api_client = {
         self.ws.close(1000, 'Page unloading');
       }
 
-      if (self.heartbeatTimer) {
-        clearInterval(self.heartbeatTimer);
-      }
+      self.stopHeartbeat();
 
       if (self.reconnectTimer) {
         clearTimeout(self.reconnectTimer);
@@ -590,6 +590,12 @@ window.__wx_api_client = {
     } else if (msg.type === 'cmd') {
       this.handleCommand(msg.data);
     } else if (msg.type === 'pong') {
+      if (this.heartbeatAckTimer) {
+        clearTimeout(this.heartbeatAckTimer);
+        this.heartbeatAckTimer = null;
+      }
+      this.heartbeatPending = false;
+      this.missedHeartbeats = 0;
       this.lastHeartbeatTime = Date.now();
     }
   },
@@ -1009,9 +1015,14 @@ window.__wx_api_client = {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
+    if (this.heartbeatAckTimer) {
+      clearTimeout(this.heartbeatAckTimer);
+      this.heartbeatAckTimer = null;
+    }
 
     // 重置心跳计数
     this.missedHeartbeats = 0;
+    this.heartbeatPending = false;
     this.lastHeartbeatTime = Date.now();
 
     // 每 30 秒发送一次心跳
@@ -1029,6 +1040,11 @@ window.__wx_api_client = {
       this.heartbeatTimer = null;
       console.log('[API客户端] ⏹️ 心跳已停止');
     }
+    if (this.heartbeatAckTimer) {
+      clearTimeout(this.heartbeatAckTimer);
+      this.heartbeatAckTimer = null;
+    }
+    this.heartbeatPending = false;
   },
 
   // 发送心跳
@@ -1058,6 +1074,22 @@ window.__wx_api_client = {
       return;
     }
 
+    if (this.heartbeatPending) {
+      this.missedHeartbeats++;
+      if (this.missedHeartbeats >= 3) {
+        console.error('[API客户端] 心跳未收到确认，触发重连...');
+        this.stopHeartbeat();
+        try {
+          this.ws.close();
+        } catch (e) {
+          // ignore
+        }
+        this.connected = false;
+        this.connect();
+      }
+      return;
+    }
+
     try {
       var heartbeat = {
         type: 'ping',
@@ -1065,12 +1097,32 @@ window.__wx_api_client = {
       };
 
       this.ws.send(JSON.stringify(heartbeat));
-      this.lastHeartbeatTime = Date.now();
-      this.missedHeartbeats = 0;
+      this.heartbeatPending = true;
+      var self = this;
+      this.heartbeatAckTimer = setTimeout(function () {
+        self.heartbeatAckTimer = null;
+        if (!self.heartbeatPending) {
+          return;
+        }
+        self.heartbeatPending = false;
+        self.missedHeartbeats++;
+        if (self.missedHeartbeats >= 3) {
+          console.error('[API客户端] 心跳确认超时，触发重连...');
+          self.stopHeartbeat();
+          try {
+            self.ws.close();
+          } catch (e) {
+            // ignore
+          }
+          self.connected = false;
+          self.connect();
+        }
+      }, 10000);
 
       console.log('[API客户端] 💓 心跳已发送');
     } catch (err) {
       console.error('[API客户端] 发送心跳失败:', err);
+      this.heartbeatPending = false;
       this.missedHeartbeats++;
     }
   }

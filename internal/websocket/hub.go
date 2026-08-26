@@ -27,20 +27,52 @@ type Hub struct {
 	reqSeq     uint64
 
 	// 负载均衡选择器
-	selector ClientSelector
+	selector        ClientSelector
+	livenessTimeout time.Duration
 }
 
-var errClientDisconnected = errors.New("websocket client disconnected")
+const defaultLivenessTimeout = 90 * time.Second
+
+var (
+	errClientDisconnected = errors.New("websocket client disconnected")
+	ErrNoAvailableClient  = errors.New("no available client")
+	ErrNoReadyClient      = errors.New("no ready client")
+	ErrRequestTimeout     = errors.New("request timeout")
+)
 
 // NewHub 创建新的 Hub
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		requests:   make(map[string]chan APICallResponse),
-		selector:   NewLeastConnectionSelector(), // 默认使用最少连接选择器
+		clients:         make(map[*Client]bool),
+		register:        make(chan *Client),
+		unregister:      make(chan *Client),
+		requests:        make(map[string]chan APICallResponse),
+		selector:        NewLeastConnectionSelector(), // 默认使用最少连接选择器
+		livenessTimeout: defaultLivenessTimeout,
 	}
+}
+
+// SetLivenessTimeout controls when an open client is considered stale for API
+// dispatch and status aggregation.
+func (h *Hub) SetLivenessTimeout(timeout time.Duration) {
+	if h == nil || timeout <= 0 {
+		return
+	}
+	h.mu.Lock()
+	h.livenessTimeout = timeout
+	h.mu.Unlock()
+}
+
+func (h *Hub) LivenessTimeout() time.Duration {
+	if h == nil {
+		return defaultLivenessTimeout
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.livenessTimeout <= 0 {
+		return defaultLivenessTimeout
+	}
+	return h.livenessTimeout
 }
 
 // Run 启动 Hub
@@ -86,25 +118,34 @@ func (h *Hub) GetClient() (*Client, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	freshClients := make(map[*Client]bool)
+	now := time.Now()
+	for client := range h.clients {
+		if client.isClosed() || client.ctx.Err() != nil || !client.IsFresh(now, h.livenessTimeout) {
+			continue
+		}
+		freshClients[client] = true
+	}
+
 	// 使用负载均衡选择器选择客户端
 	if h.selector != nil {
-		return h.selector.Select(h.clients)
+		return h.selector.Select(freshClients)
 	}
 
 	// 如果没有选择器，使用默认逻辑（向后兼容）
 	// 优先使用最后注册的客户端
 	if h.lastClient != nil {
-		if _, ok := h.clients[h.lastClient]; ok {
+		if _, ok := freshClients[h.lastClient]; ok {
 			return h.lastClient, nil
 		}
 	}
 
 	// 如果最后注册的客户端不可用，使用任意一个
-	for client := range h.clients {
+	for client := range freshClients {
 		return client, nil
 	}
 
-	return nil, errors.New("no available client")
+	return nil, ErrNoAvailableClient
 }
 
 // GetClientForKey 获取支持指定 API 的客户端
@@ -117,8 +158,9 @@ func (h *Hub) getClientForKey(key string, excluded map[*Client]struct{}) (*Clien
 	defer h.mu.RUnlock()
 
 	filtered := make(map[*Client]bool)
+	now := time.Now()
 	for client := range h.clients {
-		if _, skip := excluded[client]; skip || client.isClosed() || client.ctx.Err() != nil {
+		if _, skip := excluded[client]; skip || client.isClosed() || client.ctx.Err() != nil || !client.IsFresh(now, h.livenessTimeout) {
 			continue
 		}
 		if client.SupportsKey(key) {
@@ -127,7 +169,7 @@ func (h *Hub) getClientForKey(key string, excluded map[*Client]struct{}) (*Clien
 	}
 
 	if len(filtered) == 0 {
-		return nil, fmt.Errorf("no ready client for key: %s", key)
+		return nil, fmt.Errorf("%w for key: %s", ErrNoReadyClient, key)
 	}
 
 	if h.selector != nil {
@@ -138,7 +180,7 @@ func (h *Hub) getClientForKey(key string, excluded map[*Client]struct{}) (*Clien
 		return client, nil
 	}
 
-	return nil, fmt.Errorf("no ready client for key: %s", key)
+	return nil, fmt.Errorf("%w for key: %s", ErrNoReadyClient, key)
 }
 
 // SetSelector 设置负载均衡选择器
@@ -160,8 +202,9 @@ func (h *Hub) ClientStatuses() []ClientStatus {
 	defer h.mu.RUnlock()
 
 	statuses := make([]ClientStatus, 0, len(h.clients))
+	now := time.Now()
 	for client := range h.clients {
-		statuses = append(statuses, client.Status())
+		statuses = append(statuses, client.statusAt(now, h.livenessTimeout))
 	}
 	return statuses
 }
@@ -203,7 +246,7 @@ func (h *Hub) CallAPIContext(ctx context.Context, key string, body interface{}, 
 			if lastDisconnect != nil {
 				return nil, lastDisconnect
 			}
-			return nil, fmt.Errorf("request timeout after %v", timeout)
+			return nil, fmt.Errorf("%w after %v", ErrRequestTimeout, timeout)
 		}
 
 		client, err := h.getClientForKey(key, excluded)
@@ -324,7 +367,7 @@ func (h *Hub) callAPIOnClient(ctx context.Context, client *Client, key string, b
 
 	case <-timer.C:
 		utils.LogError("API 调用超时: ID=%s, Timeout=%v", reqID, timeout)
-		return nil, fmt.Errorf("request timeout after %v", timeout)
+		return nil, fmt.Errorf("%w after %v", ErrRequestTimeout, timeout)
 	}
 }
 

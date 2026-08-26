@@ -66,6 +66,15 @@ function main() {
   env.api.handleCommand({ action: 'channel_reload', payload: { reason: 'locked' } });
   env.api.handleCommand({ action: 'channel_navigate', payload: { url: 'https://channels.weixin.qq.com/web/pages/home' } });
   assert(env.calls.refresh.length === 1 && env.calls.assigned.length === 1, 'refresh lock must block lifecycle commands');
+
+  env.api.connected = true;
+  env.api.ws = { send() {}, close() {} };
+  env.api.startHeartbeat();
+  env.api.sendHeartbeat();
+  assert(env.api.heartbeatPending === true, 'heartbeat must wait for a pong acknowledgement');
+  env.api.handleMessage({ type: 'pong' });
+  assert(env.api.heartbeatPending === false && env.api.missedHeartbeats === 0, 'pong must acknowledge heartbeat');
+  env.api.stopHeartbeat();
 }
 
 main();

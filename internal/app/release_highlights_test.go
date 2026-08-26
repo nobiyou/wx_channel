@@ -21,11 +21,11 @@ func TestReleaseHighlightsMatchCurrentVersion(t *testing.T) {
 
 	joined := strings.Join(releaseHighlights[:], "\n")
 	for _, expected := range []string{
-		"原始流识别修复",
-		"最高画质回退",
-		"下载链路加固",
-		"低码率防误报",
-		"界面提示对齐",
+		"WebSocket 保活修复",
+		"连接状态可观测",
+		"分享链接批量解析",
+		"分享地址校验强化",
+		"API 调度错误收敛",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("release highlights missing %q", expected)

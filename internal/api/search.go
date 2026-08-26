@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -127,7 +128,7 @@ func (s *SearchService) SearchContact(w http.ResponseWriter, r *http.Request) {
 
 	data, err := s.callAPI("key:channels:contact_list", body, 60*time.Second)
 	if err != nil {
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for search. Please open a supported page and wait for API initialization.")
 			return
 		}
@@ -211,11 +212,21 @@ func writeSearchError(w http.ResponseWriter, err error) {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+	if isClientUnavailableError(err) {
 		response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for search. Please open a supported page and wait for API initialization.")
 		return
 	}
 	response.Error(w, http.StatusInternalServerError, err.Error())
+}
+
+func isClientUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, websocket.ErrNoAvailableClient) ||
+		errors.Is(err, websocket.ErrNoReadyClient) ||
+		strings.Contains(err.Error(), "no available client") ||
+		strings.Contains(err.Error(), "no ready client")
 }
 
 // GetFeedListRequest 获取视频列表请求参数
@@ -263,7 +274,7 @@ func (s *SearchService) GetFeedList(w http.ResponseWriter, r *http.Request) {
 
 	data, err := s.callAPI("key:channels:feed_list", body, 60*time.Second)
 	if err != nil {
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for feed list.")
 			return
 		}
@@ -321,13 +332,49 @@ func normalizeFeedProfileURL(raw string) string {
 }
 
 func isSharedFeedURL(raw string) bool {
-	normalized := strings.ToLower(normalizeFeedProfileURL(raw))
+	normalized := strings.TrimSpace(normalizeFeedProfileURL(raw))
 	if normalized == "" {
 		return false
 	}
 
-	return strings.Contains(normalized, "weixin.qq.com/sph/") ||
-		strings.Contains(normalized, "channels.weixin.qq.com/finder-preview/pages/sph")
+	parsed, err := url.Parse(normalized)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.User != nil || parsed.Port() != "" {
+		return false
+	}
+
+	switch {
+	case strings.EqualFold(parsed.Hostname(), "weixin.qq.com"):
+		if parsed.RawQuery != "" || parsed.Fragment != "" {
+			return false
+		}
+		prefix := "/sph/"
+		if !strings.HasPrefix(parsed.Path, prefix) {
+			return false
+		}
+		token := strings.TrimPrefix(parsed.Path, prefix)
+		return isSharedFeedToken(token)
+	case strings.EqualFold(parsed.Hostname(), "channels.weixin.qq.com"):
+		return parsed.Fragment == "" &&
+			parsed.Path == "/finder-preview/pages/sph" &&
+			isSharedFeedToken(parsed.Query().Get("id"))
+	default:
+		return false
+	}
+}
+
+func isSharedFeedToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	for i := 0; i < len(token); i++ {
+		c := token[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func feedProfileAPIKey(req GetFeedProfileRequest) string {
@@ -365,13 +412,17 @@ func normalizePageContextAPIError(err error) error {
 }
 
 func (s *SearchService) fetchSharedFeedResolveProfile(req GetFeedProfileRequest) ([]byte, error) {
+	return s.fetchSharedFeedResolveProfileContext(context.Background(), req, 60*time.Second)
+}
+
+func (s *SearchService) fetchSharedFeedResolveProfileContext(ctx context.Context, req GetFeedProfileRequest, timeout time.Duration) ([]byte, error) {
 	body := websocket.FeedProfileBody{
 		ObjectID: req.ObjectID,
 		NonceID:  req.NonceID,
 		URL:      req.URL,
 	}
 
-	return s.callAPI("key:channels:shared_feed_resolve", body, 60*time.Second)
+	return s.callAPIWithContext(ctx, "key:channels:shared_feed_resolve", body, timeout)
 }
 
 // GetFeedCommentListRequest 获取视频评论列表请求参数
@@ -481,7 +532,7 @@ func (s *SearchService) GetFeedProfile(w http.ResponseWriter, r *http.Request) {
 	data, err := s.fetchFeedProfile(req, false)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for feed profile.")
 			return
 		}
@@ -514,7 +565,7 @@ func (s *SearchService) GetSharedFeedProfile(w http.ResponseWriter, r *http.Requ
 	data, err := s.fetchFeedProfile(req, true)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for shared feed profile.")
 			return
 		}
@@ -572,7 +623,7 @@ func (s *SearchService) GetFeedCommentList(w http.ResponseWriter, r *http.Reques
 	data, err := s.callAPI("key:channels:fetch_feed_comment_list", body, 60*time.Second)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for feed comment list.")
 			return
 		}
@@ -627,7 +678,7 @@ func (s *SearchService) ExportFeedComments(w http.ResponseWriter, r *http.Reques
 	result, err := s.exportFeedComments(req)
 	if err != nil {
 		err = normalizePageContextAPIError(err)
-		if strings.Contains(err.Error(), "no available client") || strings.Contains(err.Error(), "no ready client") {
+		if isClientUnavailableError(err) {
 			response.ErrorWithStatus(w, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "No ready WeChat page is available for feed comment export.")
 			return
 		}
@@ -961,8 +1012,13 @@ func extractRegionText(ipRegionInfo interface{}, fallback interface{}) string {
 
 // GetStatus 获取 WebSocket 连接状态
 func (s *SearchService) GetStatus(w http.ResponseWriter, r *http.Request) {
-	clientStatuses := s.hub.ClientStatuses()
+	clientStatuses := []websocket.ClientStatus(nil)
+	if s.hub != nil {
+		clientStatuses = s.hub.ClientStatuses()
+	}
 	readyCount := 0
+	freshCount := 0
+	schedulableCount := 0
 	searchReadyCount := 0
 	feedReadyCount := 0
 	profileReadyCount := 0
@@ -971,29 +1027,51 @@ func (s *SearchService) GetStatus(w http.ResponseWriter, r *http.Request) {
 		if client.APIReady {
 			readyCount++
 		}
-		if client.SupportsSearch {
+		if client.Fresh {
+			freshCount++
+		}
+		if client.Fresh && client.APIReady {
+			schedulableCount++
+		}
+		if client.Fresh && client.SupportsSearch {
 			searchReadyCount++
 		}
-		if client.SupportsFeed {
+		if client.Fresh && client.SupportsFeed {
 			feedReadyCount++
 		}
-		if client.SupportsProfile {
+		if client.Fresh && client.SupportsProfile {
 			profileReadyCount++
 		}
-		if client.SupportsComment {
+		if client.Fresh && client.SupportsComment {
 			commentReadyCount++
+		}
+	}
+	platformStatuses := buildChannelPlatformStatuses(clientStatuses)
+	availableStatusCount := 0
+	for _, platformStatus := range platformStatuses {
+		if platformStatus.Available {
+			availableStatusCount++
 		}
 	}
 
 	status := map[string]interface{}{
-		"connected":             s.hub.ClientCount() > 0,
-		"clients":               s.hub.ClientCount(),
+		"connected":             len(clientStatuses) > 0,
+		"clients":               len(clientStatuses),
 		"ready_clients":         readyCount,
+		"fresh_clients":         freshCount,
+		"schedulable_clients":   schedulableCount,
 		"search_ready_clients":  searchReadyCount,
 		"feed_ready_clients":    feedReadyCount,
 		"profile_ready_clients": profileReadyCount,
 		"comment_ready_clients": commentReadyCount,
 		"client_list":           clientStatuses,
+		"statuses":              platformStatuses,
+		"available_count":       availableStatusCount,
+		"total_count":           len(platformStatuses),
+		"status_updated_at":     time.Now().UTC().Format(time.RFC3339),
+	}
+	if s.hub != nil {
+		status["stale_after_seconds"] = int(s.hub.LivenessTimeout() / time.Second)
 	}
 	if s.runtimeDiagnostics != nil {
 		status["runtime"] = s.runtimeDiagnostics.Snapshot()

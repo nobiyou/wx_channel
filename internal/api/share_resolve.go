@@ -1,16 +1,25 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"wx_channel/internal/response"
+	"wx_channel/internal/websocket"
 )
 
 const (
-	shareResolveChannelPage = "page"
+	shareResolveChannelPage  = "page"
+	maxShareResolveURLs      = 50
+	shareResolveWorkers      = 4
+	shareResolveBatchTimeout = 90 * time.Second
+	shareResolveItemTimeout  = 20 * time.Second
 )
 
 type resolveSharedFeedLinksRequest struct {
@@ -34,9 +43,24 @@ type resolvedSharedFeedItem struct {
 }
 
 type failedSharedFeedItem struct {
-	InputURL string `json:"inputUrl"`
-	Channel  string `json:"channel,omitempty"`
-	Error    string `json:"error"`
+	InputURL  string `json:"inputUrl"`
+	Channel   string `json:"channel,omitempty"`
+	ErrorCode string `json:"errorCode"`
+	Error     string `json:"error"`
+}
+
+type shareResolveJob struct {
+	index    int
+	inputURL string
+}
+
+type shareResolveResult struct {
+	inputURL    string
+	duplicateOf int
+	duplicate   bool
+	processed   bool
+	resolved    *resolvedSharedFeedItem
+	failed      *failedSharedFeedItem
 }
 
 // ResolveSharedFeedLinks resolves share links into batch-download-ready video items.
@@ -46,6 +70,7 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req resolveSharedFeedLinksRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, 400, "Invalid request body")
@@ -56,37 +81,74 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 		response.Error(w, 400, "urls is required")
 		return
 	}
+	if len(req.URLs) > maxShareResolveURLs {
+		response.Error(w, 400, fmt.Sprintf("too many urls (max %d)", maxShareResolveURLs))
+		return
+	}
 
-	resolved := make([]resolvedSharedFeedItem, 0, len(req.URLs))
-	failed := make([]failedSharedFeedItem, 0)
-
-	for _, rawURL := range req.URLs {
+	results := make([]shareResolveResult, len(req.URLs))
+	jobs := make([]shareResolveJob, 0, len(req.URLs))
+	leaders := make(map[string]int, len(req.URLs))
+	for index, rawURL := range req.URLs {
 		inputURL := normalizeFeedProfileURL(rawURL)
+		results[index].inputURL = inputURL
 		if inputURL == "" {
-			failed = append(failed, failedSharedFeedItem{
-				InputURL: strings.TrimSpace(rawURL),
-				Error:    "url is required",
-			})
+			results[index].inputURL = strings.TrimSpace(rawURL)
+			results[index].failed = &failedSharedFeedItem{
+				InputURL:  results[index].inputURL,
+				ErrorCode: "missing_url",
+				Error:     "url is required",
+			}
+			results[index].processed = true
 			continue
 		}
 		if !isSharedFeedURL(inputURL) {
-			failed = append(failed, failedSharedFeedItem{
-				InputURL: inputURL,
-				Error:    "invalid shared feed url",
-			})
+			results[index].failed = &failedSharedFeedItem{
+				InputURL:  inputURL,
+				ErrorCode: "invalid_url",
+				Error:     "invalid shared feed url",
+			}
+			results[index].processed = true
 			continue
 		}
+		if leader, exists := leaders[inputURL]; exists {
+			results[index].duplicateOf = leader
+			results[index].duplicate = true
+			continue
+		}
+		leaders[inputURL] = index
+		jobs = append(jobs, shareResolveJob{index: index, inputURL: inputURL})
+	}
 
-		item, err := s.resolveSharedFeedLink(inputURL)
-		if err != nil {
-			failed = append(failed, failedSharedFeedItem{
-				InputURL: inputURL,
-				Channel:  item.Channel,
-				Error:    err.Error(),
-			})
+	ctx, cancel := context.WithTimeout(r.Context(), shareResolveBatchTimeout)
+	defer cancel()
+	resolveSharedFeedJobs(ctx, s, jobs, results)
+
+	for index := range results {
+		if !results[index].duplicate {
 			continue
 		}
-		resolved = append(resolved, item)
+		leader := results[results[index].duplicateOf]
+		results[index].processed = true
+		if leader.resolved != nil {
+			item := *leader.resolved
+			item.InputURL = results[index].inputURL
+			results[index].resolved = &item
+		} else if leader.failed != nil {
+			failure := *leader.failed
+			failure.InputURL = results[index].inputURL
+			results[index].failed = &failure
+		}
+	}
+
+	resolved := make([]resolvedSharedFeedItem, 0, len(req.URLs))
+	failed := make([]failedSharedFeedItem, 0, len(req.URLs))
+	for _, result := range results {
+		if result.resolved != nil {
+			resolved = append(resolved, *result.resolved)
+		} else if result.failed != nil {
+			failed = append(failed, *result.failed)
+		}
 	}
 
 	response.Success(w, map[string]interface{}{
@@ -96,12 +158,77 @@ func (s *SearchService) ResolveSharedFeedLinks(w http.ResponseWriter, r *http.Re
 }
 
 func (s *SearchService) resolveSharedFeedLink(inputURL string) (resolvedSharedFeedItem, error) {
-	data, err := s.fetchSharedFeedResolveProfile(GetFeedProfileRequest{URL: inputURL})
+	return s.resolveSharedFeedLinkContext(context.Background(), inputURL)
+}
+
+func (s *SearchService) resolveSharedFeedLinkContext(ctx context.Context, inputURL string) (resolvedSharedFeedItem, error) {
+	data, err := s.fetchSharedFeedResolveProfileContext(ctx, GetFeedProfileRequest{URL: inputURL}, shareResolveItemTimeout)
 	if err != nil {
 		return resolvedSharedFeedItem{Channel: shareResolveChannelPage}, err
 	}
 
 	return buildResolvedSharedFeedItemFromPage(inputURL, data)
+}
+
+func resolveSharedFeedJobs(ctx context.Context, service *SearchService, jobs []shareResolveJob, results []shareResolveResult) {
+	if len(jobs) == 0 {
+		return
+	}
+	workerCount := shareResolveWorkers
+	if len(jobs) < workerCount {
+		workerCount = len(jobs)
+	}
+
+	jobCh := make(chan shareResolveJob, len(jobs))
+	for _, job := range jobs {
+		jobCh <- job
+	}
+	close(jobCh)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				itemCtx, cancel := context.WithTimeout(ctx, shareResolveItemTimeout)
+				item, err := service.resolveSharedFeedLinkContext(itemCtx, job.inputURL)
+				cancel()
+				results[job.index].processed = true
+				if err != nil {
+					results[job.index].failed = &failedSharedFeedItem{
+						InputURL:  job.inputURL,
+						Channel:   item.Channel,
+						ErrorCode: shareResolveErrorCode(err),
+						Error:     err.Error(),
+					}
+					continue
+				}
+				results[job.index].resolved = &item
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func shareResolveErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if isClientUnavailableError(err) {
+		return "no_ready_client"
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, websocket.ErrRequestTimeout) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "request_canceled"
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "decode page response") || strings.Contains(message, "missing media") {
+		return "invalid_response"
+	}
+	return "resolve_failed"
 }
 
 func buildResolvedSharedFeedItemFromPage(inputURL string, raw []byte) (resolvedSharedFeedItem, error) {

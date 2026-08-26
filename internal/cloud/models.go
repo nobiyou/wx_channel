@@ -6,9 +6,10 @@ import json "github.com/json-iterator/go"
 type MessageType string
 
 const (
-	MsgTypeHeartbeat MessageType = "heartbeat" // 心跳
-	MsgTypeCommand   MessageType = "command"   // 指令
-	MsgTypeResponse  MessageType = "response"  // 响应
+	MsgTypeHeartbeat    MessageType = "heartbeat"     // 心跳
+	MsgTypeHeartbeatAck MessageType = "heartbeat_ack" // 心跳响应
+	MsgTypeCommand      MessageType = "command"       // 指令
+	MsgTypeResponse     MessageType = "response"      // 响应
 )
 
 // CloudMessage 云端消息包装

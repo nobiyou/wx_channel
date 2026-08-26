@@ -66,13 +66,13 @@ type FeedCommentListBody struct {
 
 // ClientStateBody 前端客户端状态
 type ClientStateBody struct {
-	PagePath   string          `json:"pagePath"`
-	Href       string          `json:"href"`
-	APIReady   bool            `json:"apiReady"`
-	Methods    map[string]bool `json:"methods"`
-	Timestamp  int64           `json:"timestamp"`
-	UserAgent  string          `json:"userAgent,omitempty"`
-	Visible    bool            `json:"visible,omitempty"`
+	PagePath  string          `json:"pagePath"`
+	Href      string          `json:"href"`
+	APIReady  bool            `json:"apiReady"`
+	Methods   map[string]bool `json:"methods"`
+	Timestamp int64           `json:"timestamp"`
+	UserAgent string          `json:"userAgent,omitempty"`
+	Visible   bool            `json:"visible,omitempty"`
 }
 
 type ClientStatus struct {
@@ -80,10 +80,12 @@ type ClientStatus struct {
 	PagePath        string          `json:"page_path"`
 	Href            string          `json:"href"`
 	APIReady        bool            `json:"api_ready"`
+	Fresh           bool            `json:"fresh"`
 	Methods         map[string]bool `json:"methods"`
 	ActiveRequests  int             `json:"active_requests"`
 	LastSeenAt      string          `json:"last_seen_at"`
 	LastPingAt      string          `json:"last_ping_at"`
+	LastPongAt      string          `json:"last_pong_at"`
 	SupportsSearch  bool            `json:"supports_search"`
 	SupportsFeed    bool            `json:"supports_feed"`
 	SupportsProfile bool            `json:"supports_profile"`
