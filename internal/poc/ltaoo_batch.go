@@ -154,8 +154,8 @@ func validateBatchRequest(request *BatchRequest, runRoot string) error {
 		request.ContentURLs[index] = normalized
 	}
 	if request.Limits.Works < 1 || request.Limits.Works > 30 ||
-		request.Limits.TopLevelCommentsPerWork < 1 || request.Limits.TopLevelCommentsPerWork > 100 ||
-		request.Limits.RepliesPerComment < 0 || request.Limits.RepliesPerComment > 20 ||
+		request.Limits.TopLevelCommentsPerWork < 1 || request.Limits.TopLevelCommentsPerWork > 500 ||
+		request.Limits.RepliesPerComment < 0 || request.Limits.RepliesPerComment > 100 ||
 		request.Limits.RepliesPerWork < 0 || request.Limits.RepliesPerWork > 200 {
 		return errors.New("batch limits are invalid")
 	}

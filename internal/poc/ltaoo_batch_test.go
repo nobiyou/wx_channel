@@ -76,6 +76,53 @@ func TestLoadBatchRequestAcceptsKeywordDiscoveryWithoutLinks(t *testing.T) {
 	}
 }
 
+func TestLoadBatchRequestAcceptsExpandedWechatLimits(t *testing.T) {
+	runRoot := t.TempDir()
+	requestPath := filepath.Join(runRoot, "request.json")
+	writeBatchRequestFixture(t, requestPath, runRoot, func(value map[string]any, _ string) {
+		limits := value["limits"].(map[string]any)
+		limits["works"] = 30
+		limits["top_level_comments_per_work"] = 500
+		limits["replies_per_comment"] = 100
+		limits["replies_per_work"] = 200
+	})
+	request, err := LoadBatchRequest(requestPath, runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Limits.Works != 30 || request.Limits.TopLevelCommentsPerWork != 500 ||
+		request.Limits.RepliesPerComment != 100 || request.Limits.RepliesPerWork != 200 {
+		t.Fatalf("request=%+v", request)
+	}
+}
+
+func TestLoadBatchRequestRejectsExpandedLimitOverflow(t *testing.T) {
+	for name, field := range map[string]string{
+		"top-level comments": "top_level_comments_per_work",
+		"replies per comment": "replies_per_comment",
+		"replies per work": "replies_per_work",
+	} {
+		t.Run(name, func(t *testing.T) {
+			runRoot := t.TempDir()
+			requestPath := filepath.Join(runRoot, "request.json")
+			writeBatchRequestFixture(t, requestPath, runRoot, func(value map[string]any, _ string) {
+				limits := value["limits"].(map[string]any)
+				switch field {
+				case "top_level_comments_per_work":
+					limits[field] = 501
+				case "replies_per_comment":
+					limits[field] = 101
+				case "replies_per_work":
+					limits[field] = 201
+				}
+			})
+			if _, err := LoadBatchRequest(requestPath, runRoot); err == nil {
+				t.Fatal("overflow limit accepted")
+			}
+		})
+	}
+}
+
 func TestRunAndFinalizeLtaooBatchPublishesOnlyClosedVerifiedFiles(t *testing.T) {
 	const forbidden = "NEVER_PERSIST_COOKIE_HEADER_OR_CURSOR"
 	server := newBatchFixtureServer(t, forbidden)

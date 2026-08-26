@@ -165,6 +165,24 @@ func TestTopLevelStopsAt100AndMarksTruncated(t *testing.T) {
 	}
 }
 
+func TestTopLevelStopsAt500AndMarksTruncated(t *testing.T) {
+	items := make([]map[string]any, 501)
+	for index := range items {
+		items[index] = map[string]any{"commentId": fmt.Sprintf("fixture-expanded-top-%03d", index+1), "content": "fixture-expanded-limit", "contentType": 1}
+	}
+	options := approvedTestOptions()
+	options.Limits.TopLevelCommentsPerWork = 500
+	api := &fixturePageAPI{responses: [][]byte{commentPage(t, items, "fixture-more")}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "expanded-top-limit-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-expanded-top-work", "fixture-expanded-top-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 500 || summary.TopLevel != 500 || !summary.Truncated || !containsReason(summary.Reasons, "top_level_limit") {
+		t.Fatalf("count=%d summary=%+v", len(comments), summary)
+	}
+}
+
 func TestExactTopLevelLimitStillMarksTruncated(t *testing.T) {
 	items := make([]map[string]any, 100)
 	for index := range items {
@@ -212,6 +230,31 @@ func TestRepliesStopAt200PerWorkAndMarksTruncated(t *testing.T) {
 	}
 	if api.calls != 11 {
 		t.Fatalf("calls=%d", api.calls)
+	}
+}
+
+func TestRepliesStopAt100PerCommentAndMarksTruncated(t *testing.T) {
+	top := []map[string]any{{"commentId": "fixture-expanded-root", "content": "fixture-root", "expandCommentCount": 101}}
+	replies := make([]map[string]any, 101)
+	for index := range replies {
+		replies[index] = map[string]any{
+			"commentId": fmt.Sprintf("fixture-expanded-reply-%03d", index+1),
+			"replyCommentId": "fixture-expanded-root",
+			"rootCommentId": "fixture-expanded-root",
+			"content": "fixture-expanded-reply-limit",
+			"contentType": 1,
+		}
+	}
+	options := approvedTestOptions()
+	options.Limits.RepliesPerComment = 100
+	api := &fixturePageAPI{responses: [][]byte{commentPage(t, top, ""), commentPage(t, replies, "")}}
+	collector := NewCollector(api, NewEvidenceRecorder(nil), newTestStore(t, "expanded-reply-limit-job"), &fixtureClock{})
+	comments, summary, err := collector.CollectComments(context.Background(), options, fixtureWork("fixture-expanded-reply-work", "fixture-expanded-reply-nonce", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 101 || summary.Replies != 100 || !summary.Truncated || !containsReason(summary.Reasons, "reply_per_comment_limit") {
+		t.Fatalf("count=%d summary=%+v", len(comments), summary)
 	}
 }
 
