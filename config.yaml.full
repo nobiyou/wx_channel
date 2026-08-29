@@ -112,7 +112,10 @@ web_console_token: "@dongzuren"
 
 # 允许的来源（CORS）
 allowed_origins:
-  - "*"
+  - "http://127.0.0.1:2025"
+  - "http://localhost:2025"
+  - "https://channels.weixin.qq.com"
+  - "https://mp.weixin.qq.com"
 
 # ==================== 时间配置 ====================
 

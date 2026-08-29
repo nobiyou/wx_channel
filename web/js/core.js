@@ -265,7 +265,7 @@ const ApiClient = {
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-            throw new Error(error.error || `HTTP ${response.status}`);
+            throw new Error(error.message || error.error || `HTTP ${response.status}`);
         }
 
         return await response.json();
@@ -371,6 +371,73 @@ const ApiClient = {
 
     // Search
     async search(query) { return await this.request('GET', `/search?q=${encodeURIComponent(query)}`); },
+
+    // Official Accounts
+    async getOfficialAccounts(params = {}) {
+        const query = new URLSearchParams();
+        const keyword = String(params.keyword || '').trim();
+        if (keyword) query.set('keyword', keyword);
+        if (params.page) query.set('page', String(params.page));
+        if (params.page_size) query.set('page_size', String(params.page_size));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await this.request('GET', `/mp/list${suffix}`);
+    },
+    async getOfficialArticles(params = {}) {
+        const query = new URLSearchParams();
+        ['biz', 'keyword', 'archive_status', 'sort'].forEach((name) => {
+            const value = String(params[name] || '').trim();
+            if (value) query.set(name, value);
+        });
+        if (params.page) query.set('page', String(params.page));
+        if (params.page_size) query.set('page_size', String(params.page_size));
+        if (params.descending !== undefined) query.set('descending', String(Boolean(params.descending)));
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return await this.request('GET', `/mp/articles${suffix}`);
+    },
+    async getOfficialSyncStatus(biz, mode = 'history') {
+        const query = new URLSearchParams({ biz: String(biz || '').trim(), mode });
+        return await this.request('GET', `/mp/sync?${query.toString()}`);
+    },
+    async startOfficialSync(biz, mode = 'history', resume = true) {
+        return await this.request('POST', '/mp/sync', { biz, mode, resume });
+    },
+    async cancelOfficialSync(id) {
+        return await this.request('DELETE', `/mp/sync/${encodeURIComponent(String(id || ''))}`);
+    },
+    async getOfficialMetricSyncStatus(biz) {
+        const query = new URLSearchParams({ biz: String(biz || '').trim() });
+        return await this.request('GET', `/mp/metrics/sync?${query.toString()}`);
+    },
+    async startOfficialMetricSync(biz, force = false, resume = true) {
+        return await this.request('POST', '/mp/metrics/sync', { biz, force, resume });
+    },
+    async cancelOfficialMetricSync(id) {
+        return await this.request('DELETE', `/mp/metrics/sync/${encodeURIComponent(String(id || ''))}`);
+    },
+    async downloadOfficialCatalog(format = 'json') {
+        return await this.downloadFile(`/mp/catalog/export?format=${encodeURIComponent(format)}`);
+    },
+    async importOfficialCatalog(file, options = {}) {
+        if (!file) throw new Error('请选择目录文件');
+        const query = new URLSearchParams();
+        if (options.conflictPolicy) query.set('conflict_policy', options.conflictPolicy);
+        if (options.dryRun !== undefined) query.set('dry_run', String(Boolean(options.dryRun)));
+        const serviceUrl = ConnectionManager.getServiceUrl();
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        const headers = { 'Content-Type': file.type || 'application/octet-stream' };
+        const token = getLocalAuthToken();
+        if (token) headers['X-Local-Auth'] = token;
+        const response = await fetch(`${serviceUrl}/api/mp/catalog/import${suffix}`, {
+            method: 'POST',
+            headers,
+            body: file
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || (payload && payload.code !== undefined && Number(payload.code) !== 0)) {
+            throw new Error(payload.message || payload.error || `HTTP ${response.status}`);
+        }
+        return payload;
+    },
 
     // Batch Download
     async startBatchDownload(videos, forceRedownload = false) {

@@ -114,12 +114,13 @@ function getStatusText(status) {
 // UI Navigation
 // ============================================
 let currentPage = 'dashboard';
-const validPages = ['dashboard', 'browse', 'downloads', 'batch', 'queue', 'settings', 'help', 'radar'];
+const validPages = ['dashboard', 'browse', 'downloads', 'batch', 'official-accounts', 'queue', 'settings', 'help', 'radar'];
 const pageTitles = {
     dashboard: '仪表盘',
     browse: '浏览记录',
     downloads: '下载记录',
     batch: '批量下载',
+    'official-accounts': '公众号',
     queue: '下载队列',
     settings: '设置',
     help: '帮助',
@@ -139,6 +140,9 @@ function navigateTo(page, updateHistory = true) {
             clearInterval(window.queueBatchProgressInterval);
             window.queueBatchProgressInterval = null;
         }
+    }
+    if (currentPage === 'official-accounts' && page !== 'official-accounts' && typeof clearOfficialAccountMetricSyncPoll === 'function') {
+        clearOfficialAccountMetricSyncPoll();
     }
 
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -224,6 +228,11 @@ async function loadPageData(page) {
                 // 检测批量下载任务并显示进度卡片
                 if (typeof checkAndShowBatchProgressForBatchPage === 'function') {
                     await checkAndShowBatchProgressForBatchPage();
+                }
+                break;
+            case 'official-accounts':
+                if (typeof loadOfficialAccounts === 'function') {
+                    await loadOfficialAccounts();
                 }
                 break;
             case 'queue': await loadDownloadQueue(); break;

@@ -120,10 +120,10 @@ func (c *Client) ReadPump() {
 
 	for {
 
-		// 使用 context 控制读取超时
-		ctx, cancel := context.WithTimeout(c.ctx, 300*time.Second)
-		messageType, message, err := c.Conn.Read(ctx)
-		cancel()
+		// 连接存活由 pingLoop 的协议级 Ping/Pong 负责检测。不要给单次
+		// Read 绑定固定超时，否则后台 WebView 暂停应用层 heartbeat 时，
+		// 仍然能响应协议控制帧的连接也会被误判为空闲。
+		messageType, message, err := c.Conn.Read(c.ctx)
 
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded") {

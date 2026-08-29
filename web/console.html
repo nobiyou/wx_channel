@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>视频号下载控制台</title>
     <link rel="icon" type="image/png" href="icon.png">
-    <link rel="stylesheet" href="css/app.css?v=1764987636">
+    <link rel="stylesheet" href="css/app.css?v=20260827">
 </head>
 
 <body>
@@ -80,6 +80,13 @@
                             <line x1="9" y1="15" x2="15" y2="15" />
                         </svg>
                         <span>批量下载</span>
+                    </a>
+                    <a class="nav-item" data-page="official-accounts" onclick="navigateTo('official-accounts')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                            <path d="M8 10h8M8 14h5" />
+                        </svg>
+                        <span>公众号</span>
                     </a>
                     <a class="nav-item" data-page="radar" onclick="navigateTo('radar')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -833,6 +840,74 @@
                     <div id="batchLogList" class="batch-log-container">
                         <div class="batch-log-item" style="color: var(--text-muted);">等待下载任务...</div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Official Accounts Page -->
+            <div class="page-view" id="page-official-accounts">
+                <div class="official-account-page-header">
+                    <div>
+                        <div class="official-account-kicker">LOCAL CATALOG / WECHAT MP</div>
+                        <h2 class="official-account-page-title">公众号资料库</h2>
+                        <p class="official-account-page-subtitle">账号、历史文章和互动指标统一保存在本机，目录可分页查询并可迁移。</p>
+                    </div>
+                    <div class="official-account-transfer-actions">
+                        <button class="btn btn-secondary btn-small" type="button" onclick="exportOfficialCatalog('json')" title="导出无凭证 JSON 目录">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+                            导出 JSON
+                        </button>
+                        <button class="btn btn-secondary btn-small" type="button" onclick="exportOfficialCatalog('zip')" title="导出无凭证 ZIP 目录">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+                            导出 ZIP
+                        </button>
+                        <button class="btn btn-secondary btn-small" type="button" onclick="triggerOfficialCatalogImport()" title="导入 JSON 或 ZIP 目录">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4"></path><path d="m7 9 5-5 5 5"></path><path d="M5 20h14"></path></svg>
+                            导入目录
+                        </button>
+                        <input id="officialCatalogImportInput" type="file" accept=".json,.zip,application/json,application/zip,application/x-zip-compressed" hidden>
+                    </div>
+                </div>
+
+                <div class="official-account-transfer-bar">
+                    <span class="official-account-transfer-label">导入策略</span>
+                    <select id="officialCatalogConflictPolicy" aria-label="导入冲突策略">
+                        <option value="merge">冲突时合并更新</option>
+                        <option value="skip">冲突时跳过</option>
+                        <option value="error">发现冲突即停止</option>
+                    </select>
+                    <label class="official-account-check"><input id="officialCatalogDryRun" type="checkbox"> 仅预检，不写入</label>
+                    <span class="official-account-transfer-note">导出文件不含短期凭证；归档文件仍按本机路径管理。</span>
+                </div>
+
+                <form class="filter-bar official-account-filter-bar" onsubmit="searchOfficialAccounts(event)">
+                    <div class="filter-left">
+                        <div class="global-search official-account-search">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                            <input type="search" id="officialAccountSearchInput" placeholder="搜索已捕获的公众号名称或 biz" autocomplete="off" oninput="handleOfficialAccountSearchInput(this.value)">
+                        </div>
+                    </div>
+                    <div class="filter-right">
+                        <button class="btn btn-primary btn-small" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>搜索</button>
+                        <button class="btn btn-secondary btn-small" type="button" onclick="resetOfficialAccountSearch()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4"></path><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4"></path></svg>重置</button>
+                    </div>
+                </form>
+
+                <div class="official-account-workspace">
+                    <section class="card official-account-panel official-account-account-panel">
+                        <div class="card-header">
+                            <div><h3 class="card-title">已捕获账号</h3><p class="official-account-panel-caption">只显示本地已建立会话的账号</p></div>
+                            <span class="official-account-count" id="officialAccountCount">等待加载</span>
+                        </div>
+                        <div class="official-account-status" id="officialAccountStatus">打开公众号文章或主页后，账号会自动入库。</div>
+                        <div class="official-account-list" id="officialAccountsList">
+                            <div class="official-account-empty"><div class="official-account-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5"></path><path d="M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"></path></svg></div><p>暂无已捕获的公众号</p><span>打开公众号文章或主页后，账号会显示在这里</span></div>
+                        </div>
+                        <div class="official-account-pager" id="officialAccountPager"></div>
+                    </section>
+
+                    <section class="card official-account-panel official-account-detail" id="officialAccountDetail">
+                        <div class="official-account-empty official-account-detail-empty"><div class="official-account-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v5h4M8 12h8M8 16h6"></path></svg></div><p>选择一个公众号</p><span>这里会显示文章目录、指标快照和同步状态</span></div>
+                    </section>
                 </div>
             </div>
 
@@ -1851,13 +1926,14 @@
     <div class="message-area" id="messageArea"></div>
 
     <!-- JS Modules -->
-    <script src="js/core.js?v=1764987636"></script>
-    <script src="js/ui.js?v=1764987636"></script>
-    <script src="js/radar.js?v=1764987636"></script>
-    <script src="js/pages-browse.js?v=1764987636"></script>
-    <script src="js/pages-download.js?v=1764987636"></script>
-    <script src="js/pages-settings.js?v=1764987636"></script>
-    <script src="js/video-player.js?v=1764987636"></script>
+    <script src="js/core.js?v=20260827"></script>
+    <script src="js/ui.js?v=20260827"></script>
+    <script src="js/pages-official-account.js?v=20260828"></script>
+    <script src="js/radar.js?v=20260827"></script>
+    <script src="js/pages-browse.js?v=20260827"></script>
+    <script src="js/pages-download.js?v=20260827"></script>
+    <script src="js/pages-settings.js?v=20260827"></script>
+    <script src="js/video-player.js?v=20260827"></script>
 </body>
 
 </html>

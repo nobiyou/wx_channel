@@ -283,6 +283,241 @@ CREATE INDEX IF NOT EXISTS idx_radar_logs_check_time ON radar_logs(check_time);
 		Description: "Add video_list column to radar_logs for per-video details",
 		Up:          `ALTER TABLE radar_logs ADD COLUMN video_list TEXT DEFAULT '';`,
 	},
+	{
+		Version:     15,
+		Description: "Create public-account article catalog, metric snapshots, and sync state",
+		Up: `
+-- Captured public-account profile metadata. Credentials remain outside the
+-- catalog and are never returned by catalog queries or exports.
+CREATE TABLE IF NOT EXISTS mp_accounts (
+    biz TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    author_id TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'capture',
+    is_effective INTEGER NOT NULL DEFAULT 0,
+    account_error TEXT NOT NULL DEFAULT '',
+    discovered_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    last_sync_at INTEGER,
+    sync_status TEXT NOT NULL DEFAULT 'never',
+    sync_error TEXT NOT NULL DEFAULT '',
+    article_count INTEGER NOT NULL DEFAULT 0,
+    archived_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_accounts_nickname ON mp_accounts(nickname);
+CREATE INDEX IF NOT EXISTS idx_mp_accounts_updated_at ON mp_accounts(updated_at DESC, biz DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_accounts_sync_status ON mp_accounts(sync_status);
+
+-- One logical article record per stable archive identity.
+CREATE TABLE IF NOT EXISTS mp_articles (
+    article_key TEXT PRIMARY KEY,
+    biz TEXT NOT NULL,
+    mid TEXT NOT NULL DEFAULT '',
+    idx INTEGER NOT NULL DEFAULT 0,
+    file_id INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '',
+    digest TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    content_url TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL DEFAULT '',
+    cover_url TEXT NOT NULL DEFAULT '',
+    publish_time INTEGER,
+    is_multi INTEGER NOT NULL DEFAULT 0,
+    is_original INTEGER NOT NULL DEFAULT 0,
+    is_paid INTEGER NOT NULL DEFAULT 0,
+    is_pay_subscribe INTEGER NOT NULL DEFAULT 0,
+    item_show_type INTEGER NOT NULL DEFAULT 0,
+    source_deleted INTEGER NOT NULL DEFAULT 0,
+    first_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    archive_status TEXT NOT NULL DEFAULT 'not_archived',
+    archive_dir TEXT NOT NULL DEFAULT '',
+    archive_html TEXT NOT NULL DEFAULT '',
+    archive_manifest TEXT NOT NULL DEFAULT '',
+    archived_at INTEGER,
+    raw_metadata TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (biz) REFERENCES mp_accounts(biz) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_articles_biz_publish
+    ON mp_articles(biz, publish_time DESC, article_key DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_articles_biz_seen
+    ON mp_articles(biz, last_seen_at DESC, article_key DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_articles_archive_status
+    ON mp_articles(biz, archive_status, publish_time DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_articles_title ON mp_articles(title);
+
+-- Resource metadata points at files, while article HTML and binaries stay on
+-- the configured filesystem archive.
+CREATE TABLE IF NOT EXISTS mp_article_assets (
+    article_key TEXT NOT NULL,
+    resource_key TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL DEFAULT '',
+    local_path TEXT NOT NULL DEFAULT '',
+    sha256 TEXT NOT NULL DEFAULT '',
+    size INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    PRIMARY KEY (article_key, resource_key),
+    FOREIGN KEY (article_key) REFERENCES mp_articles(article_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_article_assets_status
+    ON mp_article_assets(status, updated_at DESC);
+
+-- Metrics are append-only observations. Nullable counters preserve the
+-- distinction between an upstream zero and an unavailable field.
+CREATE TABLE IF NOT EXISTS mp_article_metric_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_key TEXT NOT NULL,
+    observed_at INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    view_count INTEGER,
+    like_count INTEGER,
+    comment_count INTEGER,
+    share_count INTEGER,
+    collect_count INTEGER,
+    reward_count INTEGER,
+    raw_metadata TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (article_key) REFERENCES mp_articles(article_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_metrics_article_observed
+    ON mp_article_metric_snapshots(article_key, observed_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_metrics_observed
+    ON mp_article_metric_snapshots(observed_at DESC, id DESC);
+
+-- A run is resumable at page boundaries and records partial failures instead
+-- of converting an expired credential into an empty successful result.
+CREATE TABLE IF NOT EXISTS mp_sync_runs (
+    id TEXT PRIMARY KEY,
+    biz TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'history',
+    status TEXT NOT NULL DEFAULT 'queued',
+    offset INTEGER NOT NULL DEFAULT 0,
+    next_offset INTEGER NOT NULL DEFAULT 0,
+    page_size INTEGER NOT NULL DEFAULT 10,
+    page_count INTEGER NOT NULL DEFAULT 0,
+    fetched INTEGER NOT NULL DEFAULT 0,
+    inserted INTEGER NOT NULL DEFAULT 0,
+    updated INTEGER NOT NULL DEFAULT 0,
+    can_continue INTEGER NOT NULL DEFAULT 1,
+    started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    finished_at INTEGER,
+    error TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (biz) REFERENCES mp_accounts(biz) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_sync_runs_biz_started
+    ON mp_sync_runs(biz, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_sync_runs_status
+    ON mp_sync_runs(status, started_at DESC);
+`,
+	},
+	{
+		Version:     16,
+		Description: "Make public-account metric snapshot imports idempotent",
+		Up: `
+-- A deterministic fingerprint prevents importing the same observation twice
+-- while preserving append-only history for observations with changed values.
+ALTER TABLE mp_article_metric_snapshots ADD COLUMN snapshot_hash TEXT NOT NULL DEFAULT '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mp_article_metric_snapshot_hash
+    ON mp_article_metric_snapshots(snapshot_hash)
+    WHERE snapshot_hash <> '';
+`,
+	},
+	{
+		Version:     17,
+		Description: "Add resumable public-account metric collection state and runs",
+		Up: `
+-- One latest collection state per article. Historical observations stay in
+-- mp_article_metric_snapshots and are never overwritten by a retry.
+CREATE TABLE IF NOT EXISTS mp_article_metric_states (
+    article_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    unknown_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at INTEGER,
+    last_success_at INTEGER,
+    last_observed_at INTEGER,
+    next_retry_at INTEGER,
+    last_source TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    FOREIGN KEY (article_key) REFERENCES mp_articles(article_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_metric_states_retry
+    ON mp_article_metric_states(status, next_retry_at, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_metric_states_updated
+    ON mp_article_metric_states(updated_at DESC, article_key ASC);
+
+-- Independent metric runs keep article-history pagination and interaction
+-- collection resumable without mixing their counters or cancellation state.
+CREATE TABLE IF NOT EXISTS mp_metric_sync_runs (
+    id TEXT PRIMARY KEY,
+    biz TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    force INTEGER NOT NULL DEFAULT 0,
+    total INTEGER NOT NULL DEFAULT 0,
+    attempted INTEGER NOT NULL DEFAULT 0,
+    stored INTEGER NOT NULL DEFAULT 0,
+    unknown INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    finished_at INTEGER,
+    error TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (biz) REFERENCES mp_accounts(biz) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mp_metric_sync_runs_biz_started
+    ON mp_metric_sync_runs(biz, started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_mp_metric_sync_runs_status
+    ON mp_metric_sync_runs(status, started_at DESC);
+`,
+	},
+	{
+		Version:     18,
+		Description: "Add durable cursor fields to public-account metric sync runs",
+		Up: `
+-- Metric collection uses a keyset cursor so force-refresh jobs resume without
+-- replaying the already checkpointed prefix after a process restart.
+ALTER TABLE mp_metric_sync_runs ADD COLUMN after_publish_time INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_metric_sync_runs ADD COLUMN after_article_key TEXT NOT NULL DEFAULT '';
+`,
+	},
+	{
+		Version:     19,
+		Description: "Add public-account media metadata to article catalog",
+		Up: `
+ALTER TABLE mp_articles ADD COLUMN subtype INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_articles ADD COLUMN copyright_stat INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_articles ADD COLUMN duration INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_articles ADD COLUMN audio_fileid INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_articles ADD COLUMN play_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE mp_articles ADD COLUMN malicious_title_reason_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE mp_articles ADD COLUMN malicious_content_type INTEGER NOT NULL DEFAULT 0;
+`,
+	},
+	{
+		Version:     20,
+		Description: "Add public-account video identity to article catalog",
+		Up: `
+ALTER TABLE mp_articles ADD COLUMN video_id TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // runMigrations 执行所有待处理的迁移

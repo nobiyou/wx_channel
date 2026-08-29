@@ -21,18 +21,18 @@ func TestReleaseHighlightsMatchCurrentVersion(t *testing.T) {
 
 	joined := strings.Join(releaseHighlights[:], "\n")
 	for _, expected := range []string{
-		"批量下载修复",
-		"下载模式对齐",
-		"签名参数保持",
-		"低码率防误保存",
-		"边界回归覆盖",
+		"公众号资料库",
+		"历史文章同步",
+		"互动指标采集",
+		"文章归档迁移",
+		"控制台与页面稳定性",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("release highlights missing %q", expected)
 		}
 	}
 
-	for _, retired := range []string{"评论异步导出", "进度保护完善"} {
+	for _, retired := range []string{"批量下载修复", "下载模式对齐"} {
 		if strings.Contains(joined, retired) {
 			t.Fatalf("release highlights still contain retired v5.7.0 item %q", retired)
 		}
@@ -62,7 +62,7 @@ func TestPrintTitleRendersCurrentReleaseHighlights(t *testing.T) {
 			t.Fatalf("startup title missing release highlight %q", highlight)
 		}
 	}
-	for _, retired := range []string{"评论异步导出", "进度保护完善"} {
+	for _, retired := range []string{"批量下载修复", "下载模式对齐"} {
 		if strings.Contains(rendered, retired) {
 			t.Fatalf("startup title still contains retired v5.7.0 item %q", retired)
 		}

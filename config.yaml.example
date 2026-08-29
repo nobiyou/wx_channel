@@ -37,6 +37,13 @@ machine_id: ""
 # true: 启用后台自动监控，修改后需重启程序
 radar_enabled: false
 
+# 浏览器来源白名单。保留这些内置来源才能使用控制台、视频号和公众号页面功能。
+allowed_origins:
+  - "http://127.0.0.1:2025"
+  - "http://localhost:2025"
+  - "https://channels.weixin.qq.com"
+  - "https://mp.weixin.qq.com"
+
 # 下载文件名模板（留空则使用默认标题命名）
 # 可用变量: {date} {datetime} {author} {title} {duration} {video_id} {size}
 download_filename_template: ""

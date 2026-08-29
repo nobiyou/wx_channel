@@ -203,6 +203,15 @@ func setDefaults() {
 	viper.SetDefault("save_delay", 500*time.Millisecond)
 
 	viper.SetDefault("web_console_token", "@dongzuren")
+	// Keep the built-in clients reachable while retaining an explicit origin
+	// allowlist for browser requests. The video page and local console use
+	// separate origins from the official-account page.
+	viper.SetDefault("allowed_origins", []string{
+		"http://127.0.0.1:2025",
+		"http://localhost:2025",
+		"https://channels.weixin.qq.com",
+		"https://mp.weixin.qq.com",
+	})
 
 	viper.SetDefault("upload_chunk_concurrency", 4)
 	viper.SetDefault("upload_merge_concurrency", 1)

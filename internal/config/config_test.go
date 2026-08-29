@@ -44,6 +44,12 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "", cfg.DownloadFilenameTemplate)
 	assert.Equal(t, 500*time.Millisecond, cfg.SaveDelay)
 	assert.False(t, cfg.RadarEnabled)
+	assert.Equal(t, []string{
+		"http://127.0.0.1:2025",
+		"http://localhost:2025",
+		"https://channels.weixin.qq.com",
+		"https://mp.weixin.qq.com",
+	}, cfg.AllowedOrigins)
 	assert.Equal(t, DefaultCloudHubURL, cfg.CloudHubURL)
 }
 

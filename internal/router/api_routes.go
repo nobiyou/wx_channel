@@ -6,6 +6,7 @@ import (
 	"wx_channel/internal/api"
 	"wx_channel/internal/config"
 	"wx_channel/internal/handlers"
+	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/websocket"
 
 	"strings"
@@ -15,18 +16,42 @@ import (
 
 // APIRouter 管理所有 API 路由
 type APIRouter struct {
-	mux                *http.ServeMux
-	consoleHandler     *handlers.ConsoleAPIHandler
-	searchService      *api.SearchService
-	systemService      *api.SystemService
-	logsService        *api.LogsService
-	exportService      *api.ExportAPI
-	proxyService       *api.ProxyService
-	certificateService *api.CertificateService
-	versionService     *api.VersionAPI
-	radarAPI           *api.RadarServiceAPI
-	allowedOrigins     []string
-	secretToken        string
+	mux                             *http.ServeMux
+	consoleHandler                  *handlers.ConsoleAPIHandler
+	searchService                   *api.SearchService
+	systemService                   *api.SystemService
+	logsService                     *api.LogsService
+	exportService                   *api.ExportAPI
+	proxyService                    *api.ProxyService
+	certificateService              *api.CertificateService
+	versionService                  *api.VersionAPI
+	radarAPI                        *api.RadarServiceAPI
+	officialAccountService          *officialaccount.Service
+	officialAccountRoutesRegistered bool
+	articleArchiveRoutesRegistered  bool
+	allowedOrigins                  []string
+	secretToken                     string
+}
+
+// SetOfficialAccountService mounts the optional public-account collection API.
+// Keeping it optional preserves the router's existing construction contract.
+func (r *APIRouter) SetOfficialAccountService(service *officialaccount.Service) {
+	if r == nil || service == nil || r.mux == nil || r.officialAccountRoutesRegistered {
+		return
+	}
+	r.officialAccountService = service
+	service.RegisterRoutes(r.mux)
+	r.officialAccountRoutesRegistered = true
+}
+
+// SetArticleArchiveHandler mounts the article download adapter separately from
+// the video queue and the official-account credential service.
+func (r *APIRouter) SetArticleArchiveHandler(handler *handlers.ArticleArchiveHandler) {
+	if r == nil || handler == nil || r.mux == nil || r.articleArchiveRoutesRegistered {
+		return
+	}
+	handler.RegisterRoutes(r.mux)
+	r.articleArchiveRoutesRegistered = true
 }
 
 // Handle implements Interceptor

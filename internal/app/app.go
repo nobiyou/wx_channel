@@ -26,6 +26,7 @@ import (
 	"wx_channel/internal/database"
 	"wx_channel/internal/handlers"
 	"wx_channel/internal/lifecycle"
+	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/router"
 	"wx_channel/internal/services"
 	"wx_channel/internal/storage"
@@ -58,13 +59,15 @@ type App struct {
 	StaticFileHandler *handlers.StaticFileHandler
 
 	// 服务
-	WSHub              *websocket.Hub
-	SearchService      *api.SearchService
-	RadarService       *services.RadarService  // 自动轮询雷达
-	GopeedService      *services.GopeedService // Add GopeedService
-	CloudConnector     *cloud.Connector
-	RuntimeDiagnostics *api.RuntimeDiagnostics
-	Lifecycle          *lifecycle.Manager
+	WSHub                  *websocket.Hub
+	SearchService          *api.SearchService
+	RadarService           *services.RadarService  // 自动轮询雷达
+	GopeedService          *services.GopeedService // Add GopeedService
+	ArticleArchiveHandler  *handlers.ArticleArchiveHandler
+	CloudConnector         *cloud.Connector
+	OfficialAccountService *officialaccount.Service
+	RuntimeDiagnostics     *api.RuntimeDiagnostics
+	Lifecycle              *lifecycle.Manager
 
 	// 路由器
 	APIRouter *router.APIRouter
@@ -131,6 +134,23 @@ func (app *App) initDownloadRecords() error {
 	return nil
 }
 
+func (app *App) initOfficialAccountService() error {
+	downloadsDir, err := utils.ResolveDownloadDir(app.Cfg.DownloadsDir)
+	if err != nil {
+		return fmt.Errorf("解析公众号凭证目录失败: %v", err)
+	}
+	service, err := officialaccount.NewService(filepath.Join(downloadsDir, "mp.json"))
+	if err != nil {
+		return err
+	}
+	if err := service.SetCatalogRepository(database.NewOfficialAccountRepository()); err != nil {
+		return fmt.Errorf("初始化公众号文章索引失败: %w", err)
+	}
+	service.SetAPIOrigin(fmt.Sprintf("http://127.0.0.1:%d", app.Port+1))
+	app.OfficialAccountService = service
+	return nil
+}
+
 // Run 启动应用
 func (app *App) Run() {
 	os_env := runtime.GOOS
@@ -190,6 +210,11 @@ func (app *App) Run() {
 			app.LogInitMsg = ""
 		}
 	}
+	if err := app.initOfficialAccountService(); err != nil {
+		utils.HandleError(err, "初始化公众号采集服务")
+	} else {
+		utils.Info("✓ 公众号文章采集服务已就绪")
+	}
 
 	app.printEnvConfig()
 
@@ -206,6 +231,20 @@ func (app *App) Run() {
 	app.Lifecycle = lifecycle.NewDefaultManager(app.WSHub)
 	app.RuntimeDiagnostics.SetLifecycleProvider(app.Lifecycle.Snapshot)
 	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
+	if app.OfficialAccountService != nil {
+		app.APIRouter.SetOfficialAccountService(app.OfficialAccountService)
+	}
+	if app.OfficialAccountService != nil && app.GopeedService != nil && app.Cfg != nil {
+		app.ArticleArchiveHandler = handlers.NewArticleArchiveHandler(
+			app.OfficialAccountService,
+			app.GopeedService,
+			func() (string, error) {
+				return app.Cfg.GetResolvedDownloadsDir()
+			},
+		)
+		app.ArticleArchiveHandler.SetConnections(app.Cfg.DownloadConnections)
+		app.APIRouter.SetArticleArchiveHandler(app.ArticleArchiveHandler)
+	}
 
 	// 初始化静态文件处理器
 	app.StaticFileHandler = handlers.NewStaticFileHandler()
@@ -236,6 +275,11 @@ func (app *App) Run() {
 		assets.APIClientJS,
 		assets.KeepAliveJS,
 		app.Version,
+	)
+	app.ScriptHandler.SetOfficialAccountScript(
+		assets.OfficialAccountJS,
+		fmt.Sprintf("http://127.0.0.1:%d", app.Port+1),
+		app.Cfg.SecretToken,
 	)
 
 	// 初始化拦截器
@@ -404,6 +448,10 @@ func (app *App) HandleRequest(Conn *SunnyNet.HttpConn) {
 	if Conn.Type == public.HttpSendRequest {
 		Conn.Request.Header.Del("Accept-Encoding")
 
+		if app.OfficialAccountService != nil && app.OfficialAccountService.CaptureRequest(Conn.Request) {
+			utils.LogFileInfo("[公众号] 已从微信请求捕获页面凭证 | Host=%s | Path=%s", Conn.Request.URL.Hostname(), Conn.Request.URL.Path)
+		}
+
 		for _, interceptor := range app.requestInterceptors {
 			if interceptor != nil && interceptor.Handle(Conn) {
 				return
@@ -495,6 +543,9 @@ func (app *App) startWebSocketServer(wsPort int) {
 	// 挂载主 API Router，允许通过 WS 端口 (2026) 直接访问管理 API
 	if app.APIRouter != nil {
 		mux.Handle("/api/", app.APIRouter)
+	}
+	if app.OfficialAccountService != nil {
+		app.OfficialAccountService.RegisterPublicRoutes(mux)
 	}
 
 	wsHandler := websocket.NewHandler(app.WSHub, app.Cfg.AllowedOrigins, app.Cfg.SecretToken)

@@ -2,14 +2,18 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	htmlstd "html"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/utils"
 
 	"wx_channel/pkg/util"
@@ -20,21 +24,36 @@ import (
 
 // ScriptHandler JavaScript注入处理器
 type ScriptHandler struct {
-	coreJS          []byte
-	decryptJS       []byte
-	downloadJS      []byte
-	homeJS          []byte
-	feedJS          []byte
-	profileJS       []byte
-	batchDownloadJS []byte
-	zipJS           []byte
-	fileSaverJS     []byte
-	mittJS          []byte
-	eventbusJS      []byte
-	utilsJS         []byte
-	apiClientJS     []byte
-	keepAliveJS     []byte
-	version         string
+	coreJS                []byte
+	decryptJS             []byte
+	downloadJS            []byte
+	homeJS                []byte
+	feedJS                []byte
+	profileJS             []byte
+	batchDownloadJS       []byte
+	zipJS                 []byte
+	fileSaverJS           []byte
+	mittJS                []byte
+	eventbusJS            []byte
+	utilsJS               []byte
+	apiClientJS           []byte
+	keepAliveJS           []byte
+	officialAccountJS     []byte
+	officialAccountOrigin string
+	officialAccountToken  string
+	version               string
+}
+
+var officialAccountCSPNoncePattern = regexp.MustCompile(`(?i)(?:'nonce-|nonce-)([^'";\s]+)`)
+
+// SetOfficialAccountScript enables the isolated public-account page injection.
+func (h *ScriptHandler) SetOfficialAccountScript(script []byte, origin, token string) {
+	if h == nil {
+		return
+	}
+	h.officialAccountJS = script
+	h.officialAccountOrigin = strings.TrimRight(strings.TrimSpace(origin), "/")
+	h.officialAccountToken = strings.TrimSpace(token)
 }
 
 // NewScriptHandler 创建脚本处理器
@@ -137,8 +156,65 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 		return true
 	}
 
+	if host == "mp.weixin.qq.com" && h.hasOfficialAccountPage(path) {
+		biz := ""
+		if Conn.Request != nil && Conn.Request.URL != nil {
+			query := Conn.Request.URL.Query()
+			biz = firstNonEmpty(query.Get("__biz"), query.Get("biz"))
+		}
+		nonce := officialAccountCSPNonce(Conn.Response.Header)
+		injected := h.buildOfficialAccountInjection(biz, nonce)
+		lowerHTML := strings.ToLower(html)
+		if bodyIndex := strings.LastIndex(lowerHTML, "</body>"); bodyIndex >= 0 {
+			html = html[:bodyIndex] + injected + html[bodyIndex:]
+		} else if headIndex := strings.Index(lowerHTML, "</head>"); headIndex >= 0 {
+			html = html[:headIndex] + injected + html[headIndex:]
+		} else {
+			html = injected + html
+		}
+		Conn.Response.Header.Set("__debug", "append_official_account_script")
+		if nonce != "" {
+			utils.LogFileInfo("[脚本注入] 公众号页面检测到 CSP nonce，已应用到采集脚本")
+		}
+		utils.LogFileInfo("[脚本注入] 公众号文章页面已注入采集脚本 | Host=%s | Path=%s", host, path)
+		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(html)))
+		return true
+	}
+
 	Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(html)))
 	return true
+}
+
+func (h *ScriptHandler) hasOfficialAccountPage(path string) bool {
+	if len(h.officialAccountJS) == 0 {
+		return false
+	}
+	return officialaccount.IsOfficialAccountPath(path)
+}
+
+func officialAccountCSPNonce(headers http.Header) string {
+	if headers == nil {
+		return ""
+	}
+	for _, name := range []string{"Content-Security-Policy", "Content-Security-Policy-Report-Only"} {
+		if match := officialAccountCSPNoncePattern.FindStringSubmatch(headers.Get(name)); len(match) > 1 {
+			return strings.TrimSpace(match[1])
+		}
+	}
+	return ""
+}
+
+func (h *ScriptHandler) buildOfficialAccountInjection(biz, nonce string) string {
+	config, _ := json.Marshal(map[string]string{
+		"origin": h.officialAccountOrigin,
+		"token":  h.officialAccountToken,
+		"biz":    strings.TrimSpace(biz),
+	})
+	attrs := ""
+	if nonce != "" {
+		attrs = ` nonce="` + htmlstd.EscapeString(nonce) + `"`
+	}
+	return fmt.Sprintf(`<script%s>window.__wx_channels_mp_config__=%s;</script><script%s>%s</script>`, attrs, config, attrs, string(h.officialAccountJS))
 }
 
 // HandleJavaScriptResponse 处理JavaScript响应，修改JavaScript代码

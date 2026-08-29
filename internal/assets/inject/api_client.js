@@ -8,6 +8,7 @@ window.__wx_api_client = {
   connected: false,
   connecting: false,
   initialized: false,
+  unloading: false,
   connectToken: 0,
   reconnectTimer: null,
   reconnectDelay: 3000,
@@ -413,6 +414,7 @@ window.__wx_api_client = {
 
     window.addEventListener('beforeunload', function () {
       // 页面即将关闭，清理资源
+      self.unloading = true;
       if (self.ws && self.connected) {
         self.ws.close(1000, 'Page unloading');
       }
@@ -425,12 +427,43 @@ window.__wx_api_client = {
     });
   },
 
+  // 安排一次幂等重连。socket 参数用于避免旧连接事件误伤新连接。
+  scheduleReconnect: function (reason, socket) {
+    if (this.unloading) {
+      return;
+    }
+    var self = this;
+    this.connected = false;
+    this.connecting = false;
+    this.stopHeartbeat();
+
+    if (!this.reconnectTimer) {
+      console.log('[API客户端] 计划重连:', reason || '连接异常', 'delay=' + this.reconnectDelay + 'ms');
+      this.reconnectTimer = setTimeout(function () {
+        self.reconnectTimer = null;
+        self.connect();
+      }, this.reconnectDelay);
+    }
+
+    var target = socket || this.ws;
+    if (target && (target.readyState === WebSocket.OPEN || target.readyState === WebSocket.CONNECTING)) {
+      try {
+        target.close(1000, 'reconnect');
+      } catch (e) {
+        // ignore
+      }
+    }
+  },
+
   // 连接 WebSocket
   connect: function () {
+    if (this.unloading) {
+      return;
+    }
     if (this.connected) {
       return;
     }
-    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+    if (this.connecting || (this.ws && this.ws.readyState === WebSocket.CONNECTING)) {
       console.log('[API客户端] 连接已在进行中，跳过重复 connect');
       return;
     }
@@ -471,9 +504,7 @@ window.__wx_api_client = {
     if (index >= ports.length) {
       this.connecting = false;
       console.error('[API客户端] 所有端口都连接失败，3秒后重试...');
-      this.reconnectTimer = setTimeout(function () {
-        self.connect();
-      }, this.reconnectDelay);
+      this.scheduleReconnect('所有端口连接失败');
       return;
     }
 
@@ -492,14 +523,23 @@ window.__wx_api_client = {
     try {
       var ws = new WebSocket(wsUrl);
       this.ws = ws;
+      var opened = false;
+      var advanced = false;
+      var connectTimeout;
+      var advance = function () {
+        if (opened || advanced) return;
+        advanced = true;
+        clearTimeout(connectTimeout);
+        self.tryConnect(ports, index + 1, token);
+      };
 
       // 设置连接超时（5秒）
-      var connectTimeout = setTimeout(function () {
+      connectTimeout = setTimeout(function () {
         if (token !== self.connectToken) return;
         if (!self.connected && self.ws === ws && ws.readyState !== WebSocket.OPEN) {
           console.log('[API客户端] 连接超时，尝试下一个端口...');
-          ws.close();
-          self.tryConnect(ports, index + 1, token);
+          advance();
+          try { ws.close(); } catch (e) {}
         }
       }, 5000);
 
@@ -508,6 +548,7 @@ window.__wx_api_client = {
           try { ws.close(); } catch (e) {}
           return;
         }
+        opened = true;
         clearTimeout(connectTimeout);
         self.connected = true;
         self.connecting = false;
@@ -548,7 +589,9 @@ window.__wx_api_client = {
         console.error('[API客户端] ❌ WebSocket 错误:', error);
         // 如果还没有连接成功，尝试下一个端口
         if (!self.connected) {
-          self.tryConnect(ports, index + 1, token);
+          advance();
+        } else {
+          self.scheduleReconnect('WebSocket error', ws);
         }
       };
 
@@ -557,23 +600,13 @@ window.__wx_api_client = {
         clearTimeout(connectTimeout);
         console.log('[API客户端] 🔌 连接关闭:', event.code, event.reason);
 
-        // 停止心跳
         self.stopHeartbeat();
-        self.connecting = false;
-
-        if (self.connected) {
-          // 之前连接成功过，现在断开了，需要重连
-          self.connected = false;
-          console.log('[API客户端] 连接已关闭，3秒后重连...');
-
-          // 自动重连（使用之前成功的端口）
-          self.reconnectTimer = setTimeout(function () {
-            self.connect();
-          }, self.reconnectDelay);
-        } else {
-          // 连接从未成功，尝试下一个端口
-          self.tryConnect(ports, index + 1, token);
+        if (!opened) {
+          self.connecting = true;
+          advance();
+          return;
         }
+        self.scheduleReconnect('WebSocket closed', ws);
       };
     } catch (err) {
       this.connecting = false;
@@ -1049,27 +1082,14 @@ window.__wx_api_client = {
 
   // 发送心跳
   sendHeartbeat: function () {
-    if (!this.connected || !this.ws) {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn('[API客户端] 无法发送心跳：未连接');
       this.missedHeartbeats++;
 
       // 连续 3 次心跳失败，触发重连
       if (this.missedHeartbeats >= 3) {
         console.error('[API客户端] 心跳连续失败，触发重连...');
-        this.stopHeartbeat();
-
-        // 关闭当前连接
-        if (this.ws) {
-          try {
-            this.ws.close();
-          } catch (e) {
-            // ignore
-          }
-        }
-
-        // 立即重连
-        this.connected = false;
-        this.connect();
+        this.scheduleReconnect('心跳连接不可用', this.ws);
       }
       return;
     }
@@ -1078,44 +1098,31 @@ window.__wx_api_client = {
       this.missedHeartbeats++;
       if (this.missedHeartbeats >= 3) {
         console.error('[API客户端] 心跳未收到确认，触发重连...');
-        this.stopHeartbeat();
-        try {
-          this.ws.close();
-        } catch (e) {
-          // ignore
-        }
-        this.connected = false;
-        this.connect();
+        this.scheduleReconnect('心跳未收到确认', this.ws);
       }
       return;
     }
 
     try {
+      var heartbeatSocket = this.ws;
       var heartbeat = {
         type: 'ping',
         timestamp: Date.now()
       };
 
-      this.ws.send(JSON.stringify(heartbeat));
+      heartbeatSocket.send(JSON.stringify(heartbeat));
       this.heartbeatPending = true;
       var self = this;
       this.heartbeatAckTimer = setTimeout(function () {
         self.heartbeatAckTimer = null;
-        if (!self.heartbeatPending) {
+        if (!self.heartbeatPending || !self.connected || self.ws !== heartbeatSocket) {
           return;
         }
         self.heartbeatPending = false;
         self.missedHeartbeats++;
         if (self.missedHeartbeats >= 3) {
           console.error('[API客户端] 心跳确认超时，触发重连...');
-          self.stopHeartbeat();
-          try {
-            self.ws.close();
-          } catch (e) {
-            // ignore
-          }
-          self.connected = false;
-          self.connect();
+          self.scheduleReconnect('心跳确认超时', heartbeatSocket);
         }
       }, 10000);
 
@@ -1124,6 +1131,9 @@ window.__wx_api_client = {
       console.error('[API客户端] 发送心跳失败:', err);
       this.heartbeatPending = false;
       this.missedHeartbeats++;
+      if (this.missedHeartbeats >= 3) {
+        this.scheduleReconnect('心跳发送失败', this.ws);
+      }
     }
   }
 };

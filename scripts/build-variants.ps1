@@ -1,3 +1,7 @@
+param(
+    [string]$PackageReleaseDir = ''
+)
+
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -93,6 +97,16 @@ function Set-VariantDefaults {
 }
 
 function Invoke-GoWinres {
+    $resourcePaths = @(
+        (Join-Path $repoRoot 'rsrc_windows_386.syso'),
+        (Join-Path $repoRoot 'rsrc_windows_amd64.syso')
+    )
+    $missingResources = @($resourcePaths | Where-Object { -not (Test-Path $_) })
+    if ($missingResources.Count -eq 0) {
+        Write-Host '==> Reuse existing Windows resources' -ForegroundColor DarkGray
+        return
+    }
+
     $command = Get-Command go-winres -ErrorAction SilentlyContinue
     if ($null -ne $command) {
         & $command.Source make
@@ -144,6 +158,7 @@ function New-ZipPackage {
         Copy-Item (Join-Path $repoRoot 'README.md') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.example') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.full') $tempDir -Force
+        Copy-Item (Join-Path $repoRoot 'web') (Join-Path $tempDir 'web') -Recurse -Force
         Copy-Item $ReleaseExe (Join-Path $tempDir $PackageExeName) -Force
 
         if (Test-Path $ZipPath) {
@@ -159,7 +174,11 @@ function New-ZipPackage {
 }
 
 $version = Get-AppVersion
-$releaseDir = Join-Path $repoRoot ("release\v{0}" -f $version)
+$releaseDir = if ([string]::IsNullOrWhiteSpace($PackageReleaseDir)) {
+    Join-Path $repoRoot ("release\v{0}" -f $version)
+} else {
+    [System.IO.Path]::GetFullPath($PackageReleaseDir)
+}
 $variants = @(
     [pscustomobject]@{
         Label = 'standard'

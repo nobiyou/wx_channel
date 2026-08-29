@@ -47,6 +47,69 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function loadReconnectClient() {
+  const source = fs.readFileSync(path.resolve(__dirname, 'api_client.js'), 'utf8');
+  const sockets = [];
+
+  function FakeWebSocket(url) {
+    this.url = url;
+    this.readyState = FakeWebSocket.CONNECTING;
+    this.send = function () {};
+    this.close = function () {
+      this.readyState = FakeWebSocket.CLOSED;
+    };
+    sockets.push(this);
+  }
+  FakeWebSocket.CONNECTING = 0;
+  FakeWebSocket.OPEN = 1;
+  FakeWebSocket.CLOSING = 2;
+  FakeWebSocket.CLOSED = 3;
+
+  const sandbox = {
+    console: { log() {}, warn() {}, error() {} },
+    window: {},
+    document: {
+      readyState: 'complete',
+      hidden: false,
+      addEventListener() {},
+      dispatchEvent() {},
+    },
+    location: {
+      href: 'https://channels.weixin.qq.com/web/pages/home',
+      origin: 'https://channels.weixin.qq.com',
+      reload() {},
+      assign() {},
+    },
+    navigator: { userAgent: 'node-test' },
+    localStorage: { getItem() { return null; }, setItem() {} },
+    URL,
+    URLSearchParams,
+    Date,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    CustomEvent: function CustomEvent(type, init) {
+      return { type, detail: init ? init.detail : undefined };
+    },
+    WebSocket: FakeWebSocket,
+    fetch() { return Promise.resolve({}); },
+  };
+  sandbox.window = sandbox;
+  sandbox.window.addEventListener = function () {};
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox, { filename: 'api_client.js' });
+  return { api: sandbox.window.__wx_api_client, sockets };
+}
+
+function clearReconnectTimer(api) {
+  if (api.reconnectTimer) {
+    clearTimeout(api.reconnectTimer);
+    api.reconnectTimer = null;
+  }
+  api.stopHeartbeat();
+}
+
 function main() {
   const env = loadClient();
   env.api.handleCommand({ action: 'channel_reload', payload: { reason: 'test-reload' } });
@@ -75,6 +138,20 @@ function main() {
   env.api.handleMessage({ type: 'pong' });
   assert(env.api.heartbeatPending === false && env.api.missedHeartbeats === 0, 'pong must acknowledge heartbeat');
   env.api.stopHeartbeat();
+
+  const reconnectEnv = loadReconnectClient();
+  const reconnectAPI = reconnectEnv.api;
+  const socket = reconnectEnv.sockets[0];
+  assert(socket, 'client init must create a WebSocket');
+  socket.readyState = 1;
+  socket.onopen();
+  assert(reconnectAPI.connected === true, 'open socket must mark client connected');
+  reconnectAPI.reconnectDelay = 60000;
+  socket.readyState = 3;
+  socket.onclose({ code: 1000, reason: 'server idle close' });
+  assert(reconnectAPI.connected === false, 'closed socket must mark client disconnected');
+  assert(reconnectAPI.reconnectTimer !== null, 'closed socket must schedule reconnect');
+  clearReconnectTimer(reconnectAPI);
 }
 
 main();

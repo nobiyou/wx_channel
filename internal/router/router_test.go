@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"wx_channel/internal/config"
+	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/websocket"
 
 	"github.com/qtgolang/SunnyNet/SunnyNet"
@@ -52,6 +53,100 @@ func TestSystemAPI(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+}
+
+func TestOfficialAccountRoutesCanBeMounted(t *testing.T) {
+	router := newTestRouter()
+	service := officialaccount.NewMemoryService()
+	if err := service.Upsert(officialaccount.Account{Biz: "biz-1", Nickname: "公众号", Key: "key-1"}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+	router.SetOfficialAccountService(service)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mp/list", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected mounted account route to return 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "biz-1") || strings.Contains(recorder.Body.String(), "key-1") {
+		t.Fatalf("unexpected account response: %s", recorder.Body.String())
+	}
+}
+
+func TestOfficialAccountListFiltersByKeyword(t *testing.T) {
+	router := newTestRouter()
+	service := officialaccount.NewMemoryService()
+	if err := service.Upsert(officialaccount.Account{Biz: "biz-target", Nickname: "目标公众号", Key: "secret-target"}); err != nil {
+		t.Fatalf("upsert target account: %v", err)
+	}
+	if err := service.Upsert(officialaccount.Account{Biz: "biz-other", Nickname: "其他公众号", Key: "secret-other"}); err != nil {
+		t.Fatalf("upsert other account: %v", err)
+	}
+	router.SetOfficialAccountService(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/mp/list?keyword=%E7%9B%AE%E6%A0%87", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected filtered list 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "biz-target") || strings.Contains(recorder.Body.String(), "biz-other") {
+		t.Fatalf("unexpected filtered account response: %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "secret-target") || strings.Contains(recorder.Body.String(), "secret-other") {
+		t.Fatalf("filtered account response leaked credentials: %s", recorder.Body.String())
+	}
+}
+
+func TestOfficialAccountRefreshAllowsWeChatPageOrigin(t *testing.T) {
+	cfg := &config.Config{
+		Port:           2025,
+		AllowedOrigins: []string{"https://mp.weixin.qq.com"},
+	}
+	router := NewAPIRouter(cfg, websocket.NewHub(), SunnyNet.NewSunny())
+	service := officialaccount.NewMemoryService()
+	router.SetOfficialAccountService(service)
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/api/mp/refresh", nil)
+	preflight.Header.Set("Origin", "https://mp.weixin.qq.com")
+	preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	preflight.Header.Set("Access-Control-Request-Headers", "content-type")
+	preflightRecorder := httptest.NewRecorder()
+	router.ServeHTTP(preflightRecorder, preflight)
+	if preflightRecorder.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight 204, got %d: %s", preflightRecorder.Code, preflightRecorder.Body.String())
+	}
+	if got := preflightRecorder.Header().Get("Access-Control-Allow-Origin"); got != "https://mp.weixin.qq.com" {
+		t.Fatalf("expected WeChat origin to be allowed, got %q", got)
+	}
+
+	payload := `{"biz":"biz-1","nickname":"测试公众号","avatar_url":"https://mmbiz.qpic.cn/avatar/1","author_id":"author-1","uin":"uin-1","key":"key-1","pass_ticket":"ticket-1"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/mp/refresh", strings.NewReader(payload))
+	request.Header.Set("Origin", "https://mp.weixin.qq.com")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected metadata refresh 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	accounts := service.ListAccounts()
+	if len(accounts) != 1 || accounts[0].Nickname != "测试公众号" {
+		t.Fatalf("metadata refresh did not update account: %+v", accounts)
+	}
+
+	metadataRequest := httptest.NewRequest(http.MethodPost, "/api/mp/metadata", strings.NewReader(`{"biz":"biz-1","nickname":"页面名称","avatar_url":"https://mmbiz.qpic.cn/avatar/2","author_id":"author-2"}`))
+	metadataRequest.Header.Set("Origin", "https://mp.weixin.qq.com")
+	metadataRequest.Header.Set("Content-Type", "application/json")
+	metadataRecorder := httptest.NewRecorder()
+	router.ServeHTTP(metadataRecorder, metadataRequest)
+	if metadataRecorder.Code != http.StatusOK {
+		t.Fatalf("expected metadata enrichment 200, got %d: %s", metadataRecorder.Code, metadataRecorder.Body.String())
+	}
+	accounts = service.ListAccounts()
+	if len(accounts) != 1 || accounts[0].Nickname != "页面名称" || accounts[0].AvatarURL == "" {
+		t.Fatalf("metadata enrichment did not update account: %+v", accounts)
 	}
 }
 
