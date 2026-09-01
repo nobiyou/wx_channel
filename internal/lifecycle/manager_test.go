@@ -71,11 +71,13 @@ func testManager(probe *fakeProbe, opener *fakeOpener, transport *fakeTransport,
 
 func readyStatus(now time.Time) websocket.ClientStatus {
 	return websocket.ClientStatus{
-		PagePath:   "/web/pages/home",
-		Href:       "https://channels.weixin.qq.com/web/pages/home",
-		APIReady:   true,
-		LastPingAt: now.Format(time.RFC3339),
-		LastSeenAt: now.Format(time.RFC3339),
+		PagePath:         "/web/pages/home",
+		Href:             "https://channels.weixin.qq.com/web/pages/home",
+		APIReady:         true,
+		Fresh:            true,
+		ApplicationFresh: true,
+		LastPingAt:       now.Format(time.RFC3339),
+		LastSeenAt:       now.Format(time.RFC3339),
 	}
 }
 
@@ -228,6 +230,45 @@ func TestManagerRejectsStaleReadyPage(t *testing.T) {
 	}
 }
 
+func TestManagerDoesNotTreatProtocolPongAsApplicationFresh(t *testing.T) {
+	now := time.Date(2026, 8, 25, 8, 0, 0, 0, time.Local)
+	stale := readyStatus(now.Add(-91 * time.Second))
+	stale.Fresh = false
+	stale.ApplicationFresh = false
+	stale.ProtocolFresh = true
+	stale.LastPongAt = now.Format(time.RFC3339)
+	probe := &fakeProbe{running: true}
+	opener := &fakeOpener{}
+	transport := &fakeTransport{statuses: []websocket.ClientStatus{stale}}
+	manager := testManager(probe, opener, transport, &now)
+
+	_ = manager.Tick(context.Background())
+	_ = manager.Tick(context.Background())
+	if len(transport.commands) != 0 || opener.calls != 2 {
+		t.Fatalf("protocol-fresh recovery = commands=%#v opener=%d, want external opener fallback", transport.commands, opener.calls)
+	}
+}
+
+func TestManagerReloadsAfterFunctionalProbeFailure(t *testing.T) {
+	now := time.Date(2026, 8, 25, 8, 0, 0, 0, time.Local)
+	failed := readyStatus(now)
+	failed.Fresh = false
+	failed.APIFunctional = false
+	failed.APIProbeStatus = "failed"
+	failed.APIFunctionalFresh = false
+	failed.APIProbeError = "功能探针超时"
+	probe := &fakeProbe{running: true}
+	opener := &fakeOpener{}
+	transport := &fakeTransport{statuses: []websocket.ClientStatus{failed}}
+	manager := testManager(probe, opener, transport, &now)
+
+	_ = manager.Tick(context.Background())
+	_ = manager.Tick(context.Background())
+	if len(transport.commands) != 1 || transport.commands[0].action != commandReload {
+		t.Fatalf("functional failure recovery commands = %#v, want one reload", transport.commands)
+	}
+}
+
 func TestManagerSnapshotIncludesProbeError(t *testing.T) {
 	now := time.Date(2026, 8, 25, 8, 0, 0, 0, time.Local)
 	probe := &fakeProbe{err: errors.New("access denied")}
@@ -239,5 +280,18 @@ func TestManagerSnapshotIncludesProbeError(t *testing.T) {
 	status := manager.Snapshot()
 	if status.State != stateWaitingForWeChat || status.LastError == "" {
 		t.Fatalf("status = %#v, want waiting state with error", status)
+	}
+}
+
+func TestNewDefaultManagerWithAutoOpenDisabled(t *testing.T) {
+	manager := NewDefaultManagerWithAutoOpen(&fakeTransport{}, false)
+	if manager == nil {
+		t.Fatal("manager is nil")
+	}
+	if manager.cfg.Enabled {
+		t.Fatal("auto-open disabled manager must not be enabled")
+	}
+	if got := manager.Snapshot().State; got != stateDisabled {
+		t.Fatalf("state = %s, want %s", got, stateDisabled)
 	}
 }

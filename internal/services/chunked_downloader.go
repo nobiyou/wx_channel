@@ -473,8 +473,12 @@ func (d *ChunkedDownloader) prepareDownloadPath(item *database.QueueItem) (strin
 		SizeBytes:  item.TotalSize,
 	}, includeVideoID, template)
 	filename = utils.EnsureExtension(filename, ".mp4")
+	requiredSuffix := ""
+	if includeVideoID && template == "" {
+		requiredSuffix = utils.VideoFilenameRequiredSuffix(filename, item.VideoID)
+	}
 
-	return filepath.Join(downloadDir, filename), nil
+	return utils.BuildDownloadFilePath(downloadDir, filename, requiredSuffix), nil
 }
 
 // verifyFileIntegrity 验证下载的文件大小是否与预期大小匹配

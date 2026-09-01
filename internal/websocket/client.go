@@ -14,6 +14,11 @@ import (
 	json "github.com/json-iterator/go"
 )
 
+// The functional probe runs less frequently than the transport heartbeat, so
+// allow a few probe intervals before an otherwise application-live page is
+// considered stale.
+const defaultAPIFunctionalLivenessTimeout = 3 * defaultLivenessTimeout
+
 // Client 表示一个 WebSocket 客户端连接
 type Client struct {
 	ID             string // 客户端 ID
@@ -31,6 +36,10 @@ type Client struct {
 	pagePath       string
 	href           string
 	apiReady       bool
+	apiFunctional  bool
+	apiProbeStatus string
+	apiProbeAt     time.Time
+	apiProbeError  string
 	methods        map[string]bool
 	activeRequests int32 // 活跃请求数（原子操作）
 }
@@ -39,15 +48,16 @@ type Client struct {
 func NewClient(conn *websocket.Conn, hub *Hub) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		Conn:       conn,
-		RemoteAddr: "unknown",
-		send:       make(chan []byte, 256),
-		hub:        hub,
-		ctx:        ctx,
-		cancel:     cancel,
-		lastPing:   time.Now(),
-		lastSeen:   time.Now(),
-		methods:    make(map[string]bool),
+		Conn:           conn,
+		RemoteAddr:     "unknown",
+		send:           make(chan []byte, 256),
+		hub:            hub,
+		ctx:            ctx,
+		cancel:         cancel,
+		lastPing:       time.Now(),
+		lastSeen:       time.Now(),
+		apiProbeStatus: "unknown",
+		methods:        make(map[string]bool),
 	}
 }
 
@@ -55,15 +65,16 @@ func NewClient(conn *websocket.Conn, hub *Hub) *Client {
 func NewClientWithAddr(conn *websocket.Conn, hub *Hub, remoteAddr string) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
-		Conn:       conn,
-		RemoteAddr: remoteAddr,
-		send:       make(chan []byte, 256),
-		hub:        hub,
-		ctx:        ctx,
-		cancel:     cancel,
-		lastPing:   time.Now(),
-		lastSeen:   time.Now(),
-		methods:    make(map[string]bool),
+		Conn:           conn,
+		RemoteAddr:     remoteAddr,
+		send:           make(chan []byte, 256),
+		hub:            hub,
+		ctx:            ctx,
+		cancel:         cancel,
+		lastPing:       time.Now(),
+		lastSeen:       time.Now(),
+		apiProbeStatus: "unknown",
+		methods:        make(map[string]bool),
 	}
 }
 
@@ -309,6 +320,17 @@ func (c *Client) UpdateState(state ClientStateBody) {
 	c.pagePath = state.PagePath
 	c.href = state.Href
 	c.apiReady = state.APIReady
+	c.apiFunctional = state.APIFunctional
+	if state.APIProbeStatus != "" {
+		c.apiProbeStatus = state.APIProbeStatus
+	}
+	if c.apiProbeStatus == "" {
+		c.apiProbeStatus = "unknown"
+	}
+	c.apiProbeError = state.APIProbeError
+	if state.APIProbeAt > 0 {
+		c.apiProbeAt = time.UnixMilli(state.APIProbeAt)
+	}
 	c.lastSeen = time.Now()
 	if state.Timestamp > 0 {
 		c.lastPing = time.UnixMilli(state.Timestamp)
@@ -377,18 +399,35 @@ func (c *Client) statusAt(now time.Time, staleAfter time.Duration) ClientStatus 
 	if !c.lastPong.IsZero() {
 		lastPongAt = c.lastPong.Format(time.RFC3339)
 	}
+	lastAPIProbeAt := ""
+	if !c.apiProbeAt.IsZero() {
+		lastAPIProbeAt = c.apiProbeAt.Format(time.RFC3339)
+	}
+
+	applicationFresh := isFreshAt(now, staleAfter, c.lastSeen)
+	protocolFresh := isFreshAt(now, staleAfter, c.lastPong)
+	apiFunctionalFresh := isAPIFunctionallyFreshAt(now, c.apiProbeStatus, c.apiProbeAt)
 
 	return ClientStatus{
-		RemoteAddr:      c.RemoteAddr,
-		PagePath:        c.pagePath,
-		Href:            c.href,
-		APIReady:        c.apiReady,
-		Fresh:           isFreshAt(now, staleAfter, c.lastPong, c.lastSeen),
+		RemoteAddr:         c.RemoteAddr,
+		PagePath:           c.pagePath,
+		Href:               c.href,
+		APIReady:           c.apiReady,
+		APIFunctional:      c.apiFunctional,
+		APIProbeStatus:     c.apiProbeStatus,
+		APIFunctionalFresh: apiFunctionalFresh,
+		ApplicationFresh:   applicationFresh,
+		ProtocolFresh:      protocolFresh,
+		// API dispatch requires the page JavaScript to be alive and, once a
+		// probe is applicable, the exposed WXU API to have responded.
+		Fresh:           applicationFresh && apiFunctionalFresh,
 		Methods:         methods,
 		ActiveRequests:  int(atomic.LoadInt32(&c.activeRequests)),
 		LastSeenAt:      lastSeenAt,
 		LastPingAt:      lastPingAt,
 		LastPongAt:      lastPongAt,
+		LastAPIProbeAt:  lastAPIProbeAt,
+		APIProbeError:   c.apiProbeError,
 		SupportsSearch:  c.apiReady && methods["finderSearch"],
 		SupportsFeed:    c.apiReady && methods["finderUserPage"],
 		SupportsProfile: c.apiReady && methods["finderGetCommentDetail"],
@@ -399,7 +438,28 @@ func (c *Client) statusAt(now time.Time, staleAfter time.Duration) ClientStatus 
 func (c *Client) IsFresh(now time.Time, staleAfter time.Duration) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return isFreshAt(now, staleAfter, c.lastPong, c.lastSeen)
+	return isFreshAt(now, staleAfter, c.lastSeen) &&
+		isAPIFunctionallyFreshAt(now, c.apiProbeStatus, c.apiProbeAt)
+}
+
+func isAPIFunctionallyFreshAt(now time.Time, status string, observedAt time.Time) bool {
+	switch status {
+	case "failed":
+		return false
+	case "ok":
+		// An older client may report ok without a timestamp. Keep it
+		// compatible until it sends its first timestamped state update.
+		if observedAt.IsZero() {
+			return true
+		}
+		return isFreshAt(now, defaultAPIFunctionalLivenessTimeout, observedAt)
+	case "unknown", "unavailable", "", "deferred":
+		// There is no safe probe target on pages without a loaded feed. The
+		// application heartbeat still protects those pages.
+		return true
+	default:
+		return true
+	}
 }
 
 func isFreshAt(now time.Time, staleAfter time.Duration, timestamps ...time.Time) bool {

@@ -179,8 +179,9 @@ window.__wx_keep_alive = {
             });
             document.dispatchEvent(event);
 
-            // 主动触发 WebSocket ping（如果存在）
-            this.triggerWebSocketPing();
+            // 应用层 WebSocket 心跳由 api_client.js 唯一负责；这里补发
+            // 客户端状态，避免保活脚本维护第二个连接引用。
+            this.reportClientState();
 
             // 可选：发送到后端（如果需要）
             // this.sendHeartbeatToBackend();
@@ -191,17 +192,15 @@ window.__wx_keep_alive = {
         console.log('[页面保活] ✅ 心跳监控已启动 (2分钟间隔，无视页面可见性)');
     },
 
-    // 触发 WebSocket ping（保持 WebSocket 连接活跃）
-    triggerWebSocketPing: function () {
+    // 补发客户端状态（保持应用层活跃证据更新）
+    reportClientState: function () {
         try {
-            // 查找页面中的 WebSocket 连接并发送 ping
-            if (window.__wsConnection) {
-                const pingMsg = JSON.stringify({ type: 'ping', timestamp: Date.now() });
-                window.__wsConnection.send(pingMsg);
-                console.log('[页面保活] 📡 WebSocket ping 已发送');
+            if (window.__wx_api_client && typeof window.__wx_api_client.sendClientState === 'function') {
+                window.__wx_api_client.sendClientState();
+                console.log('[页面保活] 📡 客户端状态已上报');
             }
         } catch (e) {
-            // 忽略错误（WebSocket 可能不存在或已关闭）
+            // WebSocket 可能尚未连接或正在重连
         }
     },
 

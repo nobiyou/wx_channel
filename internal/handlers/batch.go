@@ -546,15 +546,24 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		SizeText:   task.SizeMB,
 	}, includeVideoID, filenameTemplate)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
+	requiredSuffix := ""
+	if includeVideoID && strings.TrimSpace(filenameTemplate) == "" {
+		requiredSuffix = utils.VideoFilenameRequiredSuffix(cleanFilename, task.ID)
+	}
 	desiredPath := task.FinalPath
 	if strings.TrimSpace(desiredPath) == "" {
-		desiredPath = filepath.Join(savePath, cleanFilename)
+		desiredPath = utils.BuildDownloadFilePath(savePath, cleanFilename, requiredSuffix)
 		if !forceRedownload {
 			if _, err := os.Stat(desiredPath); err == nil {
-				desiredPath = utils.GenerateUniquePath(savePath, cleanFilename)
+				desiredPath = utils.GenerateUniquePathWithSuffix(savePath, cleanFilename, requiredSuffix)
 				utils.Info("🪪 [批量下载] 同名文件已存在，将使用新文件名: %s", filepath.Base(desiredPath))
 			}
 		}
+		task.FinalPath = desiredPath
+	} else {
+		// 历史任务可能保存了旧版超长路径，恢复时重新按当前预算投影文件名。
+		desiredDir := filepath.Dir(desiredPath)
+		desiredPath = filepath.Join(desiredDir, utils.FitFilenameToDirectory(desiredDir, filepath.Base(desiredPath), requiredSuffix))
 		task.FinalPath = desiredPath
 	}
 
@@ -596,7 +605,7 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 			timeout = h.getConfig().DownloadTimeout
 		}
 		downloadCtx, cancel := context.WithTimeout(ctx, timeout)
-		actualPath, err := h.downloadVideoOnce(downloadCtx, task, desiredPath, taskIdx)
+		actualPath, err := h.downloadVideoOnce(downloadCtx, task, desiredPath, requiredSuffix, taskIdx)
 		cancel()
 
 		if err == nil {
@@ -620,7 +629,7 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 }
 
 // downloadVideoOnce 执行一次下载尝试（支持断点续传）
-func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, desiredPath string, taskIdx int) (string, error) {
+func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, desiredPath, requiredSuffix string, taskIdx int) (string, error) {
 	// 使用 Gopeed 下载
 	if h.gopeedService == nil {
 		return "", fmt.Errorf("Gopeed下载服务未初始化")
@@ -787,7 +796,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 		utils.Info("✓ [批量下载] 解密完成")
 	}
 
-	finalPath, err := utils.MoveFileToAvailablePath(actualPath, desiredPath)
+	finalPath, err := utils.MoveFileToAvailablePathWithSuffix(actualPath, desiredPath, requiredSuffix)
 	if err != nil {
 		h.cleanupTaskArtifacts(task.GopeedTaskID, actualPath, true)
 		task.GopeedTaskID = ""
@@ -870,13 +879,11 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 		}
 	}
 
-	// 创建下载记录
-	// 使用格式化后的文件名作为标题，确保与实际文件名一致
-	cleanTitle := utils.CleanFilename(task.Title)
+	// 数据库保留完整原始标题；文件名长度只约束实际落盘路径。
 	record := &database.DownloadRecord{
 		ID:           task.ID,
 		VideoID:      task.ID,
-		Title:        cleanTitle,
+		Title:        task.Title,
 		Author:       task.GetAuthor(),
 		CoverURL:     coverURL,
 		Duration:     duration,

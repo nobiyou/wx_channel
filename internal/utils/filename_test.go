@@ -32,7 +32,7 @@ func TestBuildVideoFilename_UsesTemplateWhenConfigured(t *testing.T) {
 	}
 
 	filename := BuildVideoFilename(meta, false, "{date}_{author}_{title}_{duration}")
-	want := "2026-05-20_ExampleCreator_Welcome to my livestream"
+	want := "2026-05-20_ExampleCreator_Welcome to my livestream_1h54m28s"
 	if filename != want {
 		t.Fatalf("filename = %s, want %s", filename, want)
 	}
@@ -159,6 +159,81 @@ func TestCleanFilename_IllegalChars(t *testing.T) {
 
 	t.Logf("原始标题: %s", illegalTitle)
 	t.Logf("清理后标题: %s", cleaned)
+}
+
+func TestCleanFilenameForDownload_PreservesLongTitle(t *testing.T) {
+	longTitle := strings.Repeat("这是一个较长的视频标题", 12)
+	cleaned := CleanFilenameForDownload(longTitle)
+
+	if cleaned != longTitle {
+		t.Fatalf("下载标题不应在未知目录预算下提前截断: got length %d, want length %d", UTF16Length(cleaned), UTF16Length(longTitle))
+	}
+}
+
+func TestTruncateUTF16_DoesNotSplitSurrogatePair(t *testing.T) {
+	value := strings.Repeat("a", 179) + "😀z"
+	truncated := TruncateUTF16(value, 180)
+
+	if truncated != strings.Repeat("a", 179) {
+		t.Fatalf("truncated = %q, want 179 ASCII characters without a partial emoji", truncated)
+	}
+	if UTF16Length(truncated) > 180 {
+		t.Fatalf("UTF-16 length = %d, want <= 180", UTF16Length(truncated))
+	}
+}
+
+func TestBuildDownloadFilePath_UsesDirectoryBudgetAndKeepsSuffix(t *testing.T) {
+	dir := filepath.Join("C:\\downloads", strings.Repeat("nested", 8))
+	suffix := "_video-001_1080x1920"
+	filename := strings.Repeat("长标题", 100) + suffix + ".mp4"
+
+	path := BuildDownloadFilePath(dir, filename, suffix)
+	base := filepath.Base(path)
+
+	if UTF16Length(path) > MaxDownloadPathLengthUTF16 {
+		t.Fatalf("path UTF-16 length = %d, want <= %d: %s", UTF16Length(path), MaxDownloadPathLengthUTF16, path)
+	}
+	if !strings.HasSuffix(base, suffix+".mp4") {
+		t.Fatalf("base = %q, want to keep suffix %q", base, suffix+".mp4")
+	}
+
+	titlePart := strings.TrimSuffix(strings.TrimSuffix(base, ".mp4"), suffix)
+	if UTF16Length(titlePart) > MaxDownloadFilenameBodyLengthUTF16 {
+		t.Fatalf("title part UTF-16 length = %d, want <= %d", UTF16Length(titlePart), MaxDownloadFilenameBodyLengthUTF16)
+	}
+}
+
+func TestGenerateUniquePathWithSuffix_RechecksBudgetForSequence(t *testing.T) {
+	dir := t.TempDir()
+	suffix := "_video-001_1080p"
+	filename := strings.Repeat("标题", 120) + suffix + ".mp4"
+	first := FitFilenameToDirectory(dir, filename, suffix)
+	if err := os.WriteFile(filepath.Join(dir, first), []byte("existing"), 0644); err != nil {
+		t.Fatalf("prepare existing file: %v", err)
+	}
+
+	next := GenerateUniquePathWithSuffix(dir, filename, suffix)
+	base := filepath.Base(next)
+	if !strings.HasSuffix(base, "(1)"+suffix+".mp4") {
+		t.Fatalf("base = %q, want sequence before preserved suffix", base)
+	}
+	if UTF16Length(next) > MaxDownloadPathLengthUTF16 {
+		t.Fatalf("unique path UTF-16 length = %d, want <= %d", UTF16Length(next), MaxDownloadPathLengthUTF16)
+	}
+}
+
+func TestBuildVideoFilename_LongTitleIsBoundAtFinalPath(t *testing.T) {
+	filename := BuildVideoFilename(VideoFilenameMeta{
+		Title:   strings.Repeat("长", 100),
+		VideoID: "video-001",
+	}, true, "")
+
+	if UTF16Length(filename) <= 50 {
+		t.Fatalf("filename UTF-16 length = %d, expected the old 50-character cap to be removed before path fitting", UTF16Length(filename))
+	}
+	if !strings.HasSuffix(filename, "_video-001.mp4") {
+		t.Fatalf("filename = %q, want video ID suffix", filename)
+	}
 }
 
 func TestCleanFolderName_LongName(t *testing.T) {

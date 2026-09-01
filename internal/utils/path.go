@@ -69,6 +69,12 @@ func BuildTempDownloadPath(targetPath, hint string) string {
 
 // MoveFileToAvailablePath 将源文件移动到目标路径；若目标已存在，则自动选择不冲突的新路径。
 func MoveFileToAvailablePath(srcPath, desiredPath string) (string, error) {
+	return MoveFileToAvailablePathWithSuffix(srcPath, desiredPath, "")
+}
+
+// MoveFileToAvailablePathWithSuffix 将源文件移动到目标路径，并在重名时
+// 保留视频命名中的关键后缀。
+func MoveFileToAvailablePathWithSuffix(srcPath, desiredPath, requiredSuffix string) (string, error) {
 	if strings.TrimSpace(srcPath) == "" {
 		return "", fmt.Errorf("源文件路径为空")
 	}
@@ -82,11 +88,12 @@ func MoveFileToAvailablePath(srcPath, desiredPath string) (string, error) {
 
 	baseName := filepath.Base(desiredPath)
 	dir := filepath.Dir(desiredPath)
-	candidate := desiredPath
+	baseName = FitFilenameToDirectory(dir, baseName, requiredSuffix)
+	candidate := filepath.Join(dir, baseName)
 
 	for attempt := 0; attempt < 1000; attempt++ {
 		if attempt > 0 || pathExists(candidate) {
-			candidate = GenerateUniquePath(dir, baseName)
+			candidate = GenerateUniquePathWithSuffix(dir, baseName, requiredSuffix)
 		}
 
 		if err := os.Rename(srcPath, candidate); err == nil {

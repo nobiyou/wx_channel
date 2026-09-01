@@ -723,23 +723,13 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 清理文件名
-	cleanFilename := utils.CleanFilename(req.Filename)
+	cleanFilename := utils.CleanFilenameForDownload(req.Filename)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
 
 	// 冲突处理
-	base := filepath.Base(cleanFilename)
-	ext := filepath.Ext(cleanFilename)
-	baseName := strings.TrimSuffix(base, ext)
-	finalPath := filepath.Join(savePath, cleanFilename)
+	finalPath := utils.BuildDownloadFilePath(savePath, cleanFilename, "")
 	if _, err := os.Stat(finalPath); err == nil {
-		// 文件已存在，生成唯一文件名
-		for i := 1; i < 1000; i++ {
-			candidate := filepath.Join(savePath, fmt.Sprintf("%s(%d)%s", baseName, i, ext))
-			if _, existsErr := os.Stat(candidate); os.IsNotExist(existsErr) {
-				finalPath = candidate
-				break
-			}
-		}
+		finalPath = utils.GenerateUniquePath(savePath, cleanFilename)
 	}
 
 	// 合并分片
@@ -889,21 +879,14 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 清理文件名
-	cleanFilename := utils.CleanFilename(filename)
+	cleanFilename := utils.CleanFilenameForDownload(filename)
 	cleanFilename = utils.EnsureExtension(cleanFilename, ".mp4")
+	requiredSuffix := utils.VideoFilenameRequiredSuffix(cleanFilename, videoID)
 
 	// 生成唯一文件名
-	filePath := filepath.Join(savePath, cleanFilename)
+	filePath := utils.BuildDownloadFilePath(savePath, cleanFilename, requiredSuffix)
 	if _, statErr := os.Stat(filePath); statErr == nil {
-		base := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
-		ext := filepath.Ext(cleanFilename)
-		for i := 1; i < 1000; i++ {
-			candidate := filepath.Join(savePath, fmt.Sprintf("%s(%d)%s", base, i, ext))
-			if _, existsErr := os.Stat(candidate); os.IsNotExist(existsErr) {
-				filePath = candidate
-				break
-			}
-		}
+		filePath = utils.GenerateUniquePathWithSuffix(savePath, cleanFilename, requiredSuffix)
 	}
 
 	// 保存文件
@@ -1065,7 +1048,7 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 	// 生成文件名：使用视频标题，如果没有则使用视频ID
 	var filename string
 	if req.Title != "" {
-		filename = utils.CleanFilename(req.Title)
+		filename = utils.CleanFilenameForDownload(req.Title)
 	} else if req.VideoID != "" {
 		filename = "cover_" + req.VideoID
 	} else {
@@ -1074,7 +1057,7 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 
 	// 确保文件扩展名
 	filename = utils.EnsureExtension(filename, ".jpg")
-	coverPath := filepath.Join(savePath, filename)
+	coverPath := utils.BuildDownloadFilePath(savePath, filename, "")
 
 	// 检查文件是否已存在
 	if !req.ForceSave {
@@ -1270,6 +1253,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		hasResolutionInFilename = strings.Contains(filename, "_"+cleanResolution) || strings.Contains(filename, cleanResolution)
 	}
 
+	qualitySuffix := ""
 	// 如果有分辨率信息且文件名中还没有，添加到文件名中（与前端命名方式一致）
 	if !hasResolutionInFilename && (req.FileFormat != "" || req.Width > 0 || req.Height > 0 || req.Resolution != "") {
 		var qualityInfo string
@@ -1289,6 +1273,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			cleanResolution = strings.ReplaceAll(cleanResolution, "X", "x")
 			qualityInfo += "_" + cleanResolution
 		}
+		qualityInfo = utils.CleanFilenameForDownload(qualityInfo)
+		qualitySuffix = "_" + qualityInfo
 
 		// 在添加分辨率信息前，需要先移除扩展名
 		base := strings.TrimSuffix(filename, filepath.Ext(filename))
@@ -1296,15 +1282,51 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		if ext == "" {
 			ext = ".mp4"
 		}
-		filename = base + "_" + qualityInfo + ext
+		filename = base + qualitySuffix + ext
 		utils.Info("📐 [视频下载] 添加分辨率信息到文件名: %s", qualityInfo)
 	} else if hasResolutionInFilename {
 		utils.Info("📐 [视频下载] 文件名中已包含分辨率信息，跳过添加")
 	}
+	if qualitySuffix == "" && hasResolutionInFilename {
+		// 前端可能已经带上了分辨率但没有完整的质量标识，仍保护实际存在的尾段。
+		base := strings.TrimSuffix(filename, filepath.Ext(filename))
+		resolutionSuffix := ""
+		if req.Width > 0 && req.Height > 0 {
+			resolutionSuffix = fmt.Sprintf("_%dx%d", req.Width, req.Height)
+		} else if req.Resolution != "" {
+			cleanResolution := strings.ReplaceAll(req.Resolution, " ", "")
+			cleanResolution = strings.ReplaceAll(cleanResolution, "×", "x")
+			cleanResolution = strings.ReplaceAll(cleanResolution, "X", "x")
+			resolutionSuffix = "_" + cleanResolution
+		}
+		if resolutionSuffix != "" && strings.HasSuffix(base, resolutionSuffix) {
+			qualitySuffix = resolutionSuffix
+			if req.FileFormat != "" {
+				formatSuffix := "_" + utils.CleanFilenameForDownload(req.FileFormat)
+				if strings.HasSuffix(base, formatSuffix+resolutionSuffix) {
+					qualitySuffix = formatSuffix + resolutionSuffix
+				}
+			}
+		} else if req.FileFormat != "" {
+			formatSuffix := "_" + utils.CleanFilenameForDownload(req.FileFormat)
+			if strings.HasSuffix(base, formatSuffix) {
+				qualitySuffix = formatSuffix
+			}
+		}
+	}
 
-	// 确保文件扩展名
+	// 确保文件扩展名，并按实际作者目录动态计算可用长度。
 	filename = utils.EnsureExtension(filename, ".mp4")
-	videoPath := filepath.Join(savePath, filename)
+	requiredSuffix := ""
+	if qualitySuffix != "" {
+		requiredSuffix = qualitySuffix
+	}
+	if includeVideoID && strings.TrimSpace(filenameTemplate) == "" {
+		if videoIDSuffix := utils.VideoFilenameRequiredSuffix(filename, req.VideoID); videoIDSuffix != "" {
+			requiredSuffix = videoIDSuffix
+		}
+	}
+	videoPath := utils.BuildDownloadFilePath(savePath, filename, requiredSuffix)
 
 	if !req.ForceSave {
 		if req.VideoID != "" && h.downloadService != nil {
@@ -1328,7 +1350,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 				}
 			}
 		}
-		videoPath = utils.GenerateUniquePath(savePath, filename)
+		videoPath = utils.GenerateUniquePathWithSuffix(savePath, filename, requiredSuffix)
 	}
 
 	if req.VideoID != "" {
@@ -1500,7 +1522,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			utils.Info("✓ [视频下载] 解密完成")
 		}
 
-		finalPath, err := utils.MoveFileToAvailablePath(actualPath, videoPath)
+		finalPath, err := utils.MoveFileToAvailablePathWithSuffix(actualPath, videoPath, requiredSuffix)
 		if err != nil {
 			_ = os.Remove(actualPath)
 			utils.Error("❌ [视频下载] 重命名文件失败: %v", err)

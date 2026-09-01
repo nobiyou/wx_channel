@@ -25,6 +25,10 @@ cloud_enabled: true
 # Insight Edge 的 WebSocket 地址
 cloud_hub_url: "ws://127.0.0.1:18081/ws/client"
 
+# 是否自动打开并检查视频号页面
+# Cloud 版默认开启；标准版和 Radar 版默认关闭，可在此处覆盖
+auto_open_channels: true
+
 # 云端通信密钥（可选，用于加密通信）
 cloud_secret: ""
 

@@ -14,6 +14,7 @@ $originalConfig = $utf8NoBom.GetString($originalConfigBytes)
 $patterns = @{
     'cloud_enabled' = 'viper\.SetDefault\("cloud_enabled",\s*(true|false)\)'
     'radar_enabled' = 'viper\.SetDefault\("radar_enabled",\s*(true|false)\)'
+    'auto_open_channels' = 'viper\.SetDefault\("auto_open_channels",\s*(true|false)\)'
 }
 
 function Write-Utf8File {
@@ -64,7 +65,7 @@ function Set-ConfigDefault {
         [bool]$Enabled
     )
 
-    if ($Key -notin @('cloud_enabled', 'radar_enabled')) {
+    if ($Key -notin @('cloud_enabled', 'radar_enabled', 'auto_open_channels')) {
         throw "Unsupported config key: $Key"
     }
 
@@ -89,11 +90,14 @@ function Set-VariantDefaults {
         [Parameter(Mandatory = $true)]
         [bool]$CloudEnabled,
         [Parameter(Mandatory = $true)]
-        [bool]$RadarEnabled
+        [bool]$RadarEnabled,
+        [Parameter(Mandatory = $true)]
+        [bool]$AutoOpenChannels
     )
 
     Set-ConfigDefault -Key 'cloud_enabled' -Enabled $CloudEnabled
     Set-ConfigDefault -Key 'radar_enabled' -Enabled $RadarEnabled
+    Set-ConfigDefault -Key 'auto_open_channels' -Enabled $AutoOpenChannels
 }
 
 function Invoke-GoWinres {
@@ -187,6 +191,7 @@ $variants = @(
         ReleaseZip = "wx_channel_v$version.zip"
         CloudEnabled = $false
         RadarEnabled = $false
+        AutoOpenChannels = $false
         PackageExeName = 'wx_channel.exe'
     },
     [pscustomobject]@{
@@ -196,6 +201,7 @@ $variants = @(
         ReleaseZip = "wx_channel_cloud_v$version.zip"
         CloudEnabled = $true
         RadarEnabled = $false
+        AutoOpenChannels = $true
         PackageExeName = 'wx_channel_cloud.exe'
     },
     [pscustomobject]@{
@@ -205,6 +211,7 @@ $variants = @(
         ReleaseZip = "wx_channel_radar_v$version.zip"
         CloudEnabled = $false
         RadarEnabled = $true
+        AutoOpenChannels = $false
         PackageExeName = 'wx_channel_radar.exe'
     }
 )
@@ -235,9 +242,9 @@ try {
     }
 
     foreach ($variant in $variants) {
-        Write-Host ("==> Build {0} (cloud_enabled={1}, radar_enabled={2})" -f $variant.Label, $variant.CloudEnabled.ToString().ToLowerInvariant(), $variant.RadarEnabled.ToString().ToLowerInvariant()) -ForegroundColor Cyan
+        Write-Host ("==> Build {0} (cloud_enabled={1}, radar_enabled={2}, auto_open_channels={3})" -f $variant.Label, $variant.CloudEnabled.ToString().ToLowerInvariant(), $variant.RadarEnabled.ToString().ToLowerInvariant(), $variant.AutoOpenChannels.ToString().ToLowerInvariant()) -ForegroundColor Cyan
 
-        Set-VariantDefaults -CloudEnabled $variant.CloudEnabled -RadarEnabled $variant.RadarEnabled
+        Set-VariantDefaults -CloudEnabled $variant.CloudEnabled -RadarEnabled $variant.RadarEnabled -AutoOpenChannels $variant.AutoOpenChannels
         Invoke-GoBuild -OutputName $variant.RootExe
 
         $releaseExe = Join-Path $releaseDir $variant.ReleaseName

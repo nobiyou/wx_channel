@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"wx_channel/internal/config"
@@ -341,10 +342,14 @@ func calculateDownloadFilePath(item *database.QueueItem) string {
 	}
 	cleanTitle := utils.BuildVideoFilename(meta, includeVideoID, template)
 	cleanTitle = utils.EnsureExtension(cleanTitle, ".mp4")
+	requiredSuffix := ""
+	if includeVideoID && strings.TrimSpace(template) == "" {
+		requiredSuffix = utils.VideoFilenameRequiredSuffix(cleanTitle, item.VideoID)
+	}
 
 	// 使用正确的下载目录返回绝对路径
 	// 路径格式: {downloadsDir}/{author}/{title}.mp4
-	return filepath.Join(downloadsDir, authorFolder, cleanTitle)
+	return utils.BuildDownloadFilePath(filepath.Join(downloadsDir, authorFolder), cleanTitle, requiredSuffix)
 }
 
 func loadQueueSettings() *database.Settings {

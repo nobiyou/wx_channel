@@ -228,7 +228,7 @@ func (app *App) Run() {
 
 	// 初始化新的 API 路由器
 	app.RuntimeDiagnostics = api.NewRuntimeDiagnostics(app.Cfg)
-	app.Lifecycle = lifecycle.NewDefaultManager(app.WSHub)
+	app.Lifecycle = lifecycle.NewDefaultManagerWithAutoOpen(app.WSHub, app.Cfg.AutoOpenChannels)
 	app.RuntimeDiagnostics.SetLifecycleProvider(app.Lifecycle.Snapshot)
 	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
 	if app.OfficialAccountService != nil {
@@ -355,9 +355,11 @@ func (app *App) Run() {
 
 	wsPort := app.Port + 1
 	go app.startWebSocketServer(wsPort)
-	if app.Lifecycle != nil {
+	if app.Lifecycle != nil && app.Cfg.AutoOpenChannels {
 		go app.Lifecycle.Run(lifecycleCtx)
 		utils.Info("✓ 视频号页面生命周期管理已启动")
+	} else {
+		utils.Info("视频号页面生命周期管理未启用 (auto_open_channels: false)")
 	}
 
 	// 启动云端连接器（如果启用）

@@ -44,6 +44,7 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "", cfg.DownloadFilenameTemplate)
 	assert.Equal(t, 500*time.Millisecond, cfg.SaveDelay)
 	assert.False(t, cfg.RadarEnabled)
+	assert.True(t, cfg.AutoOpenChannels)
 	assert.Equal(t, []string{
 		"http://127.0.0.1:2025",
 		"http://localhost:2025",
@@ -65,6 +66,7 @@ func TestLoad_GeneratedConfigFileIncludesRadarEnabled(t *testing.T) {
 
 	assert.Contains(t, string(content), "download_filename_template: \"\"")
 	assert.Contains(t, string(content), "radar_enabled: false")
+	assert.Contains(t, string(content), "auto_open_channels: true")
 	assert.Contains(t, string(content), "cloud_hub_url: "+DefaultCloudHubURL)
 	assert.NotContains(t, string(content), "bind_token:")
 	assert.NotContains(t, string(content), "hub_sync:")
@@ -107,6 +109,22 @@ cloud_hub_url: "ws://hub.example.test/ws/client"
 	assert.Equal(t, "6.0.0", cfg.Version)
 	assert.Equal(t, "/tmp/downloads", cfg.DownloadsDir)
 	assert.Equal(t, "ws://hub.example.test/ws/client", cfg.CloudHubURL)
+}
+
+func TestLoad_ConfigFileCanDisableAutomaticChannelsOpen(t *testing.T) {
+	setupIsolatedTestEnv(t)
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+	content := []byte("auto_open_channels: false\n")
+	if err := os.WriteFile(configFile, content, 0644); err != nil {
+		t.Fatalf("无法创建自动打开配置文件: %v", err)
+	}
+
+	viper.SetConfigFile(configFile)
+	cfg := Load()
+
+	assert.False(t, cfg.AutoOpenChannels)
 }
 
 func TestSetPort(t *testing.T) {

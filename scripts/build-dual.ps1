@@ -4,7 +4,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $repoRoot 'internal\config\config.go'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $originalConfigBytes = [System.IO.File]::ReadAllBytes($configPath)
-$pattern = 'viper\.SetDefault\("cloud_enabled",\s*(true|false)\)'
+$patterns = @{
+    cloud_enabled = 'viper\.SetDefault\("cloud_enabled",\s*(true|false)\)'
+    auto_open_channels = 'viper\.SetDefault\("auto_open_channels",\s*(true|false)\)'
+}
 
 function Write-Utf8File {
     param(
@@ -50,9 +53,31 @@ function Set-CloudEnabledDefault {
     }
 
     $current = Read-Utf8File -Path $configPath
-    $match = [System.Text.RegularExpressions.Regex]::Match($current, $pattern)
+    $match = [System.Text.RegularExpressions.Regex]::Match($current, $patterns.cloud_enabled)
     if (-not $match.Success) {
         throw 'Could not locate cloud_enabled default in internal/config/config.go.'
+    }
+
+    $updated = $current.Remove($match.Index, $match.Length).Insert($match.Index, $replacement)
+    Write-Utf8File -Path $configPath -Content $updated
+}
+
+function Set-AutoOpenChannelsDefault {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$Enabled
+    )
+
+    $replacement = if ($Enabled) {
+        'viper.SetDefault("auto_open_channels", true)'
+    } else {
+        'viper.SetDefault("auto_open_channels", false)'
+    }
+
+    $current = Read-Utf8File -Path $configPath
+    $match = [System.Text.RegularExpressions.Regex]::Match($current, $patterns.auto_open_channels)
+    if (-not $match.Success) {
+        throw 'Could not locate auto_open_channels default in internal/config/config.go.'
     }
 
     $updated = $current.Remove($match.Index, $match.Length).Insert($match.Index, $replacement)
@@ -104,12 +129,14 @@ try {
         Pop-Location
     }
 
-    Write-Host '==> Build cloud variant (cloud_enabled=true)' -ForegroundColor Cyan
+    Write-Host '==> Build cloud variant (cloud_enabled=true, auto_open_channels=true)' -ForegroundColor Cyan
     Set-CloudEnabledDefault -Enabled $true
+    Set-AutoOpenChannelsDefault -Enabled $true
     Invoke-GoBuild -OutputName 'wx_channel_cloud.exe'
 
-    Write-Host '==> Build standard variant (cloud_enabled=false)' -ForegroundColor Cyan
+    Write-Host '==> Build standard variant (cloud_enabled=false, auto_open_channels=false)' -ForegroundColor Cyan
     Set-CloudEnabledDefault -Enabled $false
+    Set-AutoOpenChannelsDefault -Enabled $false
     Invoke-GoBuild -OutputName 'wx_channel.exe'
 }
 finally {

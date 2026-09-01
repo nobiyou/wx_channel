@@ -185,6 +185,63 @@ function __wx_channels_validate_original_video_size__(expectedSize, actualSize) 
 
 // ==================== 下载函数 ====================
 
+// 浏览器直连无法获知用户实际的下载目录，因此使用与后端相同的标题预算；
+// 后端会在已知作者目录后进一步按完整路径收紧预算。
+var __WX_CHANNELS_MAX_DOWNLOAD_FILENAME_BODY_UTF16__ = 180;
+
+function __wx_channels_clean_download_filename__(filename) {
+  var cleaned = String(filename == null ? '' : filename)
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&#34;/gi, '"')
+    .replace(/&[a-zA-Z0-9#]+;/g, '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, '_')
+    .trim()
+    .replace(/[ .]+$/g, '');
+
+  return cleaned || ('video_' + Date.now());
+}
+
+function __wx_channels_truncate_download_filename_utf16__(value, maxUnits) {
+  var text = String(value == null ? '' : value);
+  if (maxUnits <= 0) return '';
+  if (text.length <= maxUnits) return text;
+
+  var end = maxUnits;
+  var code = text.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return text.slice(0, end);
+}
+
+function __wx_channels_prepare_download_filename__(filename, requiredSuffix, extension) {
+  var cleaned = __wx_channels_clean_download_filename__(filename);
+  var suffix = String(requiredSuffix || '');
+  var ext = String(extension || '');
+  var lowerCleaned = cleaned.toLowerCase();
+  var lowerExt = ext.toLowerCase();
+
+  if (ext && lowerCleaned.slice(-lowerExt.length) === lowerExt) {
+    cleaned = cleaned.slice(0, cleaned.length - ext.length);
+  }
+
+  var base = cleaned;
+  if (suffix && base.slice(-suffix.length) !== suffix) suffix = '';
+
+  var title = suffix ? base.slice(0, base.length - suffix.length) : base;
+  title = __wx_channels_truncate_download_filename_utf16__(
+    title,
+    __WX_CHANNELS_MAX_DOWNLOAD_FILENAME_BODY_UTF16__
+  ).replace(/[ .]+$/g, '');
+
+  if (!title && !suffix) title = 'video';
+  return title + suffix;
+}
+
 /** 下载非加密视频 */
 async function __wx_channels_download2(profile, filename, expectedSize) {
   console.log("__wx_channels_download2");
@@ -553,7 +610,8 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
   var requestData = {
     videoUrl: profile.url,
     videoId: profile.id || '',
-    title: filename,
+    // 文件名是落盘投影，数据库和下载记录应保留原始标题。
+    title: profile.title || profile.id || filename,
     author: authorName,
     sourceUrl: location.href,
     userAgent: navigator.userAgent || '',
@@ -627,19 +685,25 @@ async function __wx_channels_handle_click_download__(spec) {
   var _profile = Object.assign({}, profile);
   var normalized = __wx_channels_normalize_video_download__(profile, spec);
   _profile.url = normalized.url;
+  var qualitySuffix = '';
 
   if (normalized.qualityInfo) {
-    filename = filename + "_" + normalized.qualityInfo;
+    qualitySuffix = "_" + __wx_channels_clean_download_filename__(normalized.qualityInfo);
+    filename = filename + qualitySuffix;
   }
 
   __wx_log({ msg: '下载模式<' + normalized.mode + '>' });
-  __wx_log({ msg: '下载文件名<' + filename + '>' });
   __wx_log({ msg: '视频链接<' + _profile.url + '>' });
 
   if (_profile.type === "picture") {
+    filename = __wx_channels_prepare_download_filename__(filename, '', '');
+    __wx_log({ msg: '下载文件名<' + filename + '>' });
     __wx_channels_download3(_profile, filename);
     return;
   }
+
+  filename = __wx_channels_prepare_download_filename__(filename, qualitySuffix, '.mp4');
+  __wx_log({ msg: '下载文件名<' + filename + '>' });
 
   if (!_profile.url) {
     alert("视频URL为空，无法下载");

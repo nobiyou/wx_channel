@@ -43,6 +43,52 @@ func TestGetClientForKeySkipsStaleClient(t *testing.T) {
 	}
 }
 
+func TestGetClientForKeySkipsProtocolFreshButApplicationStaleClient(t *testing.T) {
+	hub := NewHub()
+	client, cancel := newTestAPIClient("protocol-only")
+	defer cancel()
+	client.lastSeen = time.Now().Add(-2 * defaultLivenessTimeout)
+	client.lastPong = time.Now()
+	hub.clients[client] = true
+
+	if _, err := hub.GetClientForKey("key:channels:fetch_feed_comment_list"); err == nil {
+		t.Fatal("GetClientForKey() error = nil, want stale application client to be rejected")
+	}
+}
+
+func TestClientStatusSeparatesApplicationAndProtocolFreshness(t *testing.T) {
+	client, cancel := newTestAPIClient("status")
+	defer cancel()
+	client.lastSeen = time.Now().Add(-2 * defaultLivenessTimeout)
+	client.lastPong = time.Now()
+
+	status := client.statusAt(time.Now(), defaultLivenessTimeout)
+	if status.ApplicationFresh {
+		t.Fatal("ApplicationFresh = true, want false")
+	}
+	if !status.ProtocolFresh {
+		t.Fatal("ProtocolFresh = false, want true")
+	}
+	if status.Fresh {
+		t.Fatal("Fresh = true, want false")
+	}
+}
+
+func TestClientStatusRejectsFailedFunctionalProbe(t *testing.T) {
+	client, cancel := newTestAPIClient("probe-failed")
+	defer cancel()
+	client.apiProbeStatus = "failed"
+	client.apiProbeAt = time.Now()
+
+	status := client.statusAt(time.Now(), defaultLivenessTimeout)
+	if status.Fresh {
+		t.Fatal("Fresh = true, want false after failed functional probe")
+	}
+	if status.APIFunctionalFresh {
+		t.Fatal("APIFunctionalFresh = true, want false after failed functional probe")
+	}
+}
+
 func TestCallAPIRetriesOnDisconnectedClient(t *testing.T) {
 	hub := NewHub()
 	hub.SetSelector(NewRoundRobinSelector())

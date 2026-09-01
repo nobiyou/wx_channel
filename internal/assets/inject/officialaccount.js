@@ -3,6 +3,7 @@
 
   var config = window.__wx_channels_mp_config__ || {};
   var submitted = {};
+  var accountSyncPromises = {};
   var metricSubmitted = {};
   var articleCommentRequestStarted = false;
   var pageMetricData = {};
@@ -1143,22 +1144,19 @@
   }
 
   function loadMessageList() {
-    var account = credentials();
-    if (!account.biz) {
-      showNotice("未找到公众号信息，请保持文章页面打开后重试", true);
-      return Promise.reject(new Error("official account biz is missing"));
-    }
     showNotice("正在读取推送列表...", false);
-    var endpoint = "/api/mp/msg/list?biz=" + encodeURIComponent(account.biz);
-    return fetch(refreshURL(endpoint), {
-      method: "GET",
-      headers: { Accept: "application/json, text/plain, */*" },
-      credentials: "omit"
-    }).then(readJSONResponse).then(function (payload) {
-      var articles = articleItemsFromPayload(payload);
-      renderMessageList(articles, account);
-      showNotice("已读取 " + articles.length + " 篇推送", false);
-      return articles;
+    return waitForMessageListAccount(10000).then(function (account) {
+      var endpoint = "/api/mp/msg/list?biz=" + encodeURIComponent(account.biz);
+      return fetch(refreshURL(endpoint), {
+        method: "GET",
+        headers: { Accept: "application/json, text/plain, */*" },
+        credentials: "omit"
+      }).then(readJSONResponse).then(function (payload) {
+        var articles = articleItemsFromPayload(payload);
+        renderMessageList(articles, account);
+        showNotice("已读取 " + articles.length + " 篇推送", false);
+        return articles;
+      });
     }).catch(function (error) {
       showNotice("推送列表读取失败: " + error.message, true);
       throw error;
@@ -2228,22 +2226,28 @@
     var hasCredential = !!account.key;
     var hasMetadata = !!(account.nickname || account.avatar_url || account.author_id);
     if (!account.biz || (!hasCredential && !hasMetadata)) {
-      return false;
+      return Promise.resolve(false);
     }
     var endpoint = hasCredential ? "/api/mp/refresh" : "/api/mp/metadata";
     var dedupeKey = accountFingerprint(account, hasCredential);
     if (submitted[dedupeKey]) {
-      return true;
+      return accountSyncPromises[dedupeKey] || Promise.resolve(true);
     }
     submitted[dedupeKey] = true;
-    fetch(refreshURL(endpoint), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(account),
-      credentials: "omit"
-    }).then(function (response) {
-      if (!response.ok) {
-        throw new Error("HTTP " + response.status);
+    var request;
+    try {
+      request = fetch(refreshURL(endpoint), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(account),
+        credentials: "omit"
+      });
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    var syncPromise = Promise.resolve(request).then(function (response) {
+      if (!response || !response.ok) {
+        throw new Error("HTTP " + (response && response.status ? response.status : "unknown"));
       }
       setStatus(
         hasCredential && account.author_id
@@ -2253,11 +2257,40 @@
             : "公众号账户信息已同步",
         false
       );
+      return true;
     }).catch(function (error) {
       delete submitted[dedupeKey];
+      delete accountSyncPromises[dedupeKey];
       setStatus("采集失败: " + error.message, true);
+      throw error;
     });
-    return true;
+    accountSyncPromises[dedupeKey] = syncPromise;
+    // start() intentionally does not await background capture, so consume its
+    // rejection here while keeping the same Promise available to foreground actions.
+    syncPromise.catch(function () {});
+    return syncPromise;
+  }
+
+  function waitForMessageListAccount(timeoutMs) {
+    var deadline = Date.now() + timeoutMs;
+    function attempt() {
+      var account = credentials();
+      if (!account.biz) {
+        return Promise.reject(new Error("official account biz is missing"));
+      }
+      if (account.key) {
+        return submitAccount(account).then(function () {
+          return account;
+        });
+      }
+      if (Date.now() >= deadline || typeof window.setTimeout !== "function") {
+        return Promise.reject(new Error("公众号凭证尚未就绪，请保持文章页面打开后重试"));
+      }
+      return new Promise(function (resolve) {
+        window.setTimeout(resolve, 250);
+      }).then(attempt);
+    }
+    return attempt();
   }
 
   function start() {

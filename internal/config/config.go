@@ -73,6 +73,9 @@ type Config struct {
 	CloudSecret  string `mapstructure:"cloud_secret"`  // 云端通信密钥
 	MachineID    string `mapstructure:"machine_id"`    // 机器学习 ID (用于在云端唯一标识此实例)
 
+	// 页面生命周期配置
+	AutoOpenChannels bool `mapstructure:"auto_open_channels"` // 是否自动打开并检查视频号页面
+
 	// 第二阶段优化配置
 	LoadBalancerStrategy string `mapstructure:"load_balancer_strategy"` // 负载均衡策略: roundrobin, leastconn, weighted, random
 	CompressionEnabled   bool   `mapstructure:"compression_enabled"`    // 是否启用数据压缩
@@ -233,6 +236,7 @@ func setDefaults() {
 	viper.SetDefault("cloud_enabled", true) // 云端版默认启用，普通版由构建配置关闭
 	viper.SetDefault("cloud_hub_url", DefaultCloudHubURL)
 	viper.SetDefault("cloud_secret", "")
+	viper.SetDefault("auto_open_channels", true) // Cloud 版默认打开，标准版/Radar 版由构建配置关闭
 	viper.SetDefault("machine_id", GetMachineID())
 
 	// 第二阶段优化默认值
@@ -286,6 +290,9 @@ download_dir: downloads       # 下载目录
 cloud_hub_url: %s
 cloud_secret: ""
 
+# === 页面生命周期 ===
+auto_open_channels: %t # 是否自动打开并检查视频号页面
+
 # === 设备标识 ===
 # 自动生成，用于在云端唯一标识此设备，请勿手动修改
 machine_id: %s
@@ -298,7 +305,7 @@ download_filename_template: "" # 下载文件名模板，可用 {date} {datetime
 
 # === 功能开关（可选）===
 radar_enabled: false          # 是否启用对标雷达，修改后需重启程序
-`, DefaultCloudHubURL, deviceID)
+`, DefaultCloudHubURL, viper.GetBool("auto_open_channels"), deviceID)
 
 		if err := os.WriteFile(configFile, []byte(simpleConfig), 0644); err != nil {
 			fmt.Printf("Warning: Failed to create config file: %v\n", err)

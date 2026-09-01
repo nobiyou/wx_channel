@@ -66,28 +66,39 @@ type FeedCommentListBody struct {
 
 // ClientStateBody 前端客户端状态
 type ClientStateBody struct {
-	PagePath  string          `json:"pagePath"`
-	Href      string          `json:"href"`
-	APIReady  bool            `json:"apiReady"`
-	Methods   map[string]bool `json:"methods"`
-	Timestamp int64           `json:"timestamp"`
-	UserAgent string          `json:"userAgent,omitempty"`
-	Visible   bool            `json:"visible,omitempty"`
+	PagePath       string          `json:"pagePath"`
+	Href           string          `json:"href"`
+	APIReady       bool            `json:"apiReady"`
+	APIFunctional  bool            `json:"apiFunctional"`
+	APIProbeStatus string          `json:"apiProbeStatus,omitempty"`
+	APIProbeAt     int64           `json:"apiProbeAt,omitempty"`
+	APIProbeError  string          `json:"apiProbeError,omitempty"`
+	Methods        map[string]bool `json:"methods"`
+	Timestamp      int64           `json:"timestamp"`
+	UserAgent      string          `json:"userAgent,omitempty"`
+	Visible        bool            `json:"visible,omitempty"`
 }
 
 type ClientStatus struct {
-	RemoteAddr      string          `json:"remote_addr"`
-	PagePath        string          `json:"page_path"`
-	Href            string          `json:"href"`
-	APIReady        bool            `json:"api_ready"`
-	Fresh           bool            `json:"fresh"`
-	Methods         map[string]bool `json:"methods"`
-	ActiveRequests  int             `json:"active_requests"`
-	LastSeenAt      string          `json:"last_seen_at"`
-	LastPingAt      string          `json:"last_ping_at"`
-	LastPongAt      string          `json:"last_pong_at"`
-	SupportsSearch  bool            `json:"supports_search"`
-	SupportsFeed    bool            `json:"supports_feed"`
-	SupportsProfile bool            `json:"supports_profile"`
-	SupportsComment bool            `json:"supports_comment"`
+	RemoteAddr         string          `json:"remote_addr"`
+	PagePath           string          `json:"page_path"`
+	Href               string          `json:"href"`
+	APIReady           bool            `json:"api_ready"`
+	APIFunctional      bool            `json:"api_functional"`
+	APIProbeStatus     string          `json:"api_probe_status,omitempty"`
+	APIFunctionalFresh bool            `json:"api_functional_fresh"`
+	ApplicationFresh   bool            `json:"application_fresh"`
+	ProtocolFresh      bool            `json:"protocol_fresh"`
+	Fresh              bool            `json:"fresh"`
+	Methods            map[string]bool `json:"methods"`
+	ActiveRequests     int             `json:"active_requests"`
+	LastSeenAt         string          `json:"last_seen_at"`
+	LastPingAt         string          `json:"last_ping_at"`
+	LastPongAt         string          `json:"last_pong_at"`
+	LastAPIProbeAt     string          `json:"last_api_probe_at,omitempty"`
+	APIProbeError      string          `json:"api_probe_error,omitempty"`
+	SupportsSearch     bool            `json:"supports_search"`
+	SupportsFeed       bool            `json:"supports_feed"`
+	SupportsProfile    bool            `json:"supports_profile"`
+	SupportsComment    bool            `json:"supports_comment"`
 }

@@ -851,7 +851,8 @@ test('loads the push list into an article dialog', async () => {
   findElementByText(root.children[1], '推送列表').eventHandlers.click();
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(env.fetchCalls[0].url, 'http://127.0.0.1:2026/api/mp/msg/list?biz=biz-list&token=test-token');
+  assert.equal(env.fetchCalls[0].url, 'http://127.0.0.1:2026/api/mp/refresh?token=test-token');
+  assert.equal(env.fetchCalls[1].url, 'http://127.0.0.1:2026/api/mp/msg/list?biz=biz-list&token=test-token');
   const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
   assert.ok(overlay);
   const dialog = overlay.children[0];
@@ -868,6 +869,49 @@ test('loads the push list into an article dialog', async () => {
   assert.equal(rows[0].style.background, 'transparent');
   assert.ok(findElementByText(dialog, '第一篇'));
   assert.ok(findElementByText(dialog, '第二篇'));
+});
+
+test('waits for an in-flight account refresh before loading the push list', async () => {
+  const order = [];
+  let resolveRefresh;
+  const refreshPending = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-race', nick_name: '竞态公众号', key: 'key-race' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/refresh?token=test-token') >= 0) {
+        order.push('refresh');
+        return refreshPending;
+      }
+      if (url.indexOf('/api/mp/msg/list?biz=biz-race&token=test-token') >= 0) {
+        order.push('list');
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ code: 0, data: { articles: [] } });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  env.intervals[0].fn();
+  assert.deepEqual(order, ['refresh']);
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await Promise.resolve();
+  assert.deepEqual(order, ['refresh']);
+
+  resolveRefresh({ ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ['refresh', 'list']);
 });
 
 test('opens the local console from the article menu', () => {

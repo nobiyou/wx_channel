@@ -18,6 +18,14 @@ window.__wx_api_client = {
   heartbeatPending: false,
   lastHeartbeatTime: 0,
   missedHeartbeats: 0,
+  functionalProbeTimer: null,
+  functionalProbePending: false,
+  functionalProbeInterval: 60000,
+  functionalProbeTimeout: 8000,
+  apiFunctional: false,
+  apiProbeStatus: 'unknown',
+  apiProbeAt: 0,
+  apiProbeError: '',
   apiMethods: {},
 
   // 初始化
@@ -647,6 +655,10 @@ window.__wx_api_client = {
       pagePath: window.location.pathname,
       href: window.location.href,
       apiReady: !!(methods.finderGetCommentDetail || methods.finderGetCommentList || methods.finderUserPage || methods.finderSearch || methods.finderGetInteractionedFeedList),
+      apiFunctional: this.apiFunctional,
+      apiProbeStatus: this.apiProbeStatus,
+      apiProbeAt: this.apiProbeAt,
+      apiProbeError: this.apiProbeError,
       methods: methods,
       injectHealth: this.collectInjectHealth(),
       timestamp: Date.now(),
@@ -1040,6 +1052,142 @@ window.__wx_api_client = {
     }
   },
 
+  // 获取一个只读的功能探针。没有当前视频上下文时不主动制造业务请求，
+  // 由应用层心跳负责保护这类页面。
+  getFunctionalProbe: function () {
+    var api = window.WXU && window.WXU.API;
+    var store = window.__wx_channels_store__ || null;
+    var profile = store && store.profile ? store.profile : null;
+    if (!api || typeof api.finderGetCommentDetail !== 'function' || !profile) {
+      return null;
+    }
+
+    var objectID = profile.id || profile.objectId || profile.object_id || '';
+    var nonceID = profile.nonce_id || profile.nonceId || profile.objectNonceId || '';
+    if (!objectID || !nonceID) {
+      return null;
+    }
+
+    var self = this;
+    return {
+      name: 'finderGetCommentDetail',
+      invoke: function () {
+        return self.buildFeedProfilePayload({
+          objectId: objectID,
+          nonceId: nonceID
+        }).then(function (payload) {
+          return api.finderGetCommentDetail(payload);
+        });
+      }
+    };
+  },
+
+  promiseWithTimeout: function (value, timeout) {
+    var limit = Math.max(1, Number(timeout) || 1);
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(new Error('功能探针超时 (' + limit + 'ms)'));
+      }, limit);
+
+      Promise.resolve(value).then(function (result) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      }, function (err) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  },
+
+  updateFunctionalProbeState: function (status, error) {
+    this.apiProbeStatus = status || 'unknown';
+    this.apiFunctional = this.apiProbeStatus === 'ok';
+    this.apiProbeAt = Date.now();
+    this.apiProbeError = error ? String(error.message || error) : '';
+    this.sendClientState();
+  },
+
+  runFunctionalProbe: async function (reason) {
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN || this.functionalProbePending) {
+      return false;
+    }
+
+    // Do not compete with an actual user/API request. The next scheduled
+    // probe will run after the current request has completed.
+    if (this.requests && Object.keys(this.requests).length > 0) {
+      return false;
+    }
+
+    var probe = this.getFunctionalProbe();
+    var probeSocket = this.ws;
+    if (!probe) {
+      this.updateFunctionalProbeState('unavailable', '当前页面没有可安全探测的视频上下文');
+      console.log('[API客户端] 功能探针跳过:', reason || '未提供探针上下文');
+      return true;
+    }
+
+    this.functionalProbePending = true;
+    try {
+      var result = probe.invoke();
+      await this.promiseWithTimeout(result, this.functionalProbeTimeout);
+      if (this.connected && this.ws === probeSocket) {
+        this.updateFunctionalProbeState('ok', '');
+        console.log('[API客户端] ✅ 功能探针通过:', probe.name);
+      }
+      return true;
+    } catch (err) {
+      if (this.connected && this.ws === probeSocket) {
+        this.updateFunctionalProbeState('failed', err);
+        console.error('[API客户端] ❌ 功能探针失败:', err);
+      }
+      return false;
+    } finally {
+      this.functionalProbePending = false;
+    }
+  },
+
+  startFunctionalHealthMonitor: function () {
+    this.stopFunctionalHealthMonitor();
+    var self = this;
+    var schedule = function (delay) {
+      self.functionalProbeTimer = setTimeout(async function () {
+        self.functionalProbeTimer = null;
+        if (!self.connected || self.unloading) {
+          return;
+        }
+        await self.runFunctionalProbe('定时检查');
+        if (self.connected && !self.unloading) {
+          schedule(self.functionalProbeInterval);
+        }
+      }, Math.max(0, delay));
+    };
+
+    // 给 WeChat 自身的 WXE/WXU 初始化留出时间。
+    schedule(15000);
+    console.log('[API客户端] ✅ 功能健康检查已启动 (首次15秒，之后60秒)');
+  },
+
+  stopFunctionalHealthMonitor: function () {
+    if (this.functionalProbeTimer) {
+      clearTimeout(this.functionalProbeTimer);
+      this.functionalProbeTimer = null;
+    }
+    this.functionalProbePending = false;
+  },
+
   // 启动心跳
   startHeartbeat: function () {
     var self = this;
@@ -1057,6 +1205,7 @@ window.__wx_api_client = {
     this.missedHeartbeats = 0;
     this.heartbeatPending = false;
     this.lastHeartbeatTime = Date.now();
+    this.startFunctionalHealthMonitor();
 
     // 每 30 秒发送一次心跳
     this.heartbeatTimer = setInterval(function () {
@@ -1078,6 +1227,7 @@ window.__wx_api_client = {
       this.heartbeatAckTimer = null;
     }
     this.heartbeatPending = false;
+    this.stopFunctionalHealthMonitor();
   },
 
   // 发送心跳
@@ -1112,6 +1262,9 @@ window.__wx_api_client = {
 
       heartbeatSocket.send(JSON.stringify(heartbeat));
       this.heartbeatPending = true;
+      // This is the application-level liveness signal. Protocol Pong alone
+      // may still succeed when the WebView JavaScript page is suspended.
+      this.sendClientState();
       var self = this;
       this.heartbeatAckTimer = setTimeout(function () {
         self.heartbeatAckTimer = null;

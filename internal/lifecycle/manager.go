@@ -151,7 +151,14 @@ func NewManager(probe ProcessProbe, opener PageOpener, transport ChannelTranspor
 
 // NewDefaultManager creates the platform-backed manager used by App.
 func NewDefaultManager(transport ChannelTransport) *Manager {
+	return NewDefaultManagerWithAutoOpen(transport, true)
+}
+
+// NewDefaultManagerWithAutoOpen creates the platform-backed manager used by
+// App and applies the build/config-level automatic page-open switch.
+func NewDefaultManagerWithAutoOpen(transport ChannelTransport, autoOpen bool) *Manager {
 	cfg := DefaultConfig()
+	cfg.Enabled = cfg.Enabled && autoOpen
 	return NewManager(newProcessProbe(), newPageOpener(), transport, cfg, time.Now)
 }
 
@@ -246,6 +253,7 @@ func (m *Manager) Tick(ctx context.Context) error {
 
 	statuses := m.transport.ClientStatuses()
 	candidate, healthy := selectChannelStatus(statuses, now, m.cfg.StaleAfter)
+	applicationStalled := hasApplicationStall(statuses, now, m.cfg.StaleAfter)
 	if healthy {
 		m.mu.Lock()
 		m.unhealthySamples = 0
@@ -302,7 +310,7 @@ func (m *Manager) Tick(ctx context.Context) error {
 	m.mu.Unlock()
 
 	var actionErr error
-	if candidate {
+	if candidate && !applicationStalled {
 		actionErr = m.transport.SendCommandToMatchingClient(isChannelPage, commandReload, map[string]interface{}{
 			"reason":  "wx_channel unhealthy",
 			"attempt": attempt,
@@ -310,6 +318,9 @@ func (m *Manager) Tick(ctx context.Context) error {
 		m.mu.Lock()
 		m.lastAction = commandReload
 	} else {
+		// A protocol-fresh but application-stale page may no longer be
+		// executing JavaScript, so a page command cannot wake it. Use the
+		// existing Windows-side opener to activate the Channels entry.
 		actionErr = m.opener.Open(ctx)
 		m.mu.Lock()
 		m.lastAction = "open"
@@ -380,15 +391,30 @@ func selectChannelStatus(statuses []websocket.ClientStatus, now time.Time, stale
 			continue
 		}
 		candidate = true
-		if status.APIReady && statusFresh(status, now, staleAfter) {
+		if status.APIReady && status.Fresh && statusFresh(status, now, staleAfter) {
 			return true, true
 		}
 	}
 	return candidate, false
 }
 
+func hasApplicationStall(statuses []websocket.ClientStatus, now time.Time, staleAfter time.Duration) bool {
+	for _, status := range statuses {
+		if !isChannelPage(status) || !status.ProtocolFresh {
+			continue
+		}
+		if !statusFresh(status, now, staleAfter) {
+			return true
+		}
+	}
+	return false
+}
+
 func statusFresh(status websocket.ClientStatus, now time.Time, staleAfter time.Duration) bool {
-	for _, raw := range []string{status.LastPongAt, status.LastPingAt, status.LastSeenAt} {
+	// Protocol Pong proves only that the WebSocket transport can answer
+	// control frames. Lifecycle recovery needs application-level evidence from
+	// the injected page, so a fresh LastPongAt must not mask a stale page.
+	for _, raw := range []string{status.LastSeenAt} {
 		if raw == "" {
 			continue
 		}
