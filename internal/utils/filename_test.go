@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestGenerateVideoFilename_WithVideoIDByDefault(t *testing.T) {
@@ -203,6 +204,45 @@ func TestBuildDownloadFilePath_UsesDirectoryBudgetAndKeepsSuffix(t *testing.T) {
 	}
 }
 
+func TestBuildDownloadFilePath_EnforcesUTF8ComponentBudget(t *testing.T) {
+	dir := filepath.Join("/mnt/wx_channel/downloads", "赛博自由老爹")
+	suffix := "_video-001_1080x1920"
+	filename := strings.Repeat("这是一个非常长的视频标题", 30) + suffix + ".mp4"
+
+	path := BuildDownloadFilePath(dir, filename, suffix)
+	base := filepath.Base(path)
+
+	if len([]byte(base)) > MaxDownloadFilenameLengthBytes {
+		t.Fatalf("filename UTF-8 length = %d, want <= %d: %q", len([]byte(base)), MaxDownloadFilenameLengthBytes, base)
+	}
+	if !utf8.ValidString(base) {
+		t.Fatalf("filename is not valid UTF-8: %q", base)
+	}
+	if !strings.HasSuffix(base, suffix+".mp4") {
+		t.Fatalf("base = %q, want to keep suffix %q", base, suffix+".mp4")
+	}
+	if UTF16Length(path) > MaxDownloadPathLengthUTF16 {
+		t.Fatalf("path UTF-16 length = %d, want <= %d: %q", UTF16Length(path), MaxDownloadPathLengthUTF16, path)
+	}
+}
+
+func TestBuildDownloadFilePath_DoesNotSplitUTF8Rune(t *testing.T) {
+	dir := filepath.Join("/mnt/wx_channel/downloads", "作者")
+	suffix := "_video-emoji"
+	filename := strings.Repeat("长", 100) + "😀" + strings.Repeat("中", 100) + suffix + ".mp4"
+
+	base := filepath.Base(BuildDownloadFilePath(dir, filename, suffix))
+	if !utf8.ValidString(base) {
+		t.Fatalf("filename is not valid UTF-8: %q", base)
+	}
+	if len([]byte(base)) > MaxDownloadFilenameLengthBytes {
+		t.Fatalf("filename UTF-8 length = %d, want <= %d", len([]byte(base)), MaxDownloadFilenameLengthBytes)
+	}
+	if !strings.HasSuffix(base, suffix+".mp4") {
+		t.Fatalf("base = %q, want to keep suffix %q", base, suffix+".mp4")
+	}
+}
+
 func TestGenerateUniquePathWithSuffix_RechecksBudgetForSequence(t *testing.T) {
 	dir := t.TempDir()
 	suffix := "_video-001_1080p"
@@ -219,6 +259,9 @@ func TestGenerateUniquePathWithSuffix_RechecksBudgetForSequence(t *testing.T) {
 	}
 	if UTF16Length(next) > MaxDownloadPathLengthUTF16 {
 		t.Fatalf("unique path UTF-16 length = %d, want <= %d", UTF16Length(next), MaxDownloadPathLengthUTF16)
+	}
+	if len([]byte(base)) > MaxDownloadFilenameLengthBytes {
+		t.Fatalf("filename UTF-8 length = %d, want <= %d", len([]byte(base)), MaxDownloadFilenameLengthBytes)
 	}
 }
 

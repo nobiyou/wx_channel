@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
@@ -17,6 +18,9 @@ const (
 	// MaxDownloadFilenameBodyLengthUTF16 is the maximum title portion used when
 	// the target directory is short enough to allow it.
 	MaxDownloadFilenameBodyLengthUTF16 = 180
+	// MaxDownloadFilenameLengthBytes keeps each filename component below the
+	// common 255-byte NAME_MAX limit used by Linux filesystems and mounts.
+	MaxDownloadFilenameLengthBytes = 240
 )
 
 // VideoFilenameMeta 表示生成视频文件名所需的元数据。
@@ -122,6 +126,32 @@ func TruncateUTF16(value string, maxUnits int) string {
 		}
 		builder.WriteRune(r)
 		used += units
+	}
+	return builder.String()
+}
+
+// truncateUTF8 truncates a filename without splitting a UTF-8 sequence.
+func truncateUTF8(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len([]byte(value)) <= maxBytes && utf8.ValidString(value) {
+		return value
+	}
+
+	var builder strings.Builder
+	builder.Grow(maxBytes)
+	used := 0
+	for _, r := range value {
+		runeBytes := utf8.RuneLen(r)
+		if runeBytes < 0 {
+			runeBytes = 1
+		}
+		if used+runeBytes > maxBytes {
+			break
+		}
+		builder.WriteRune(r)
+		used += runeBytes
 	}
 	return builder.String()
 }
@@ -339,8 +369,15 @@ func FitFilenameToDirectory(dir, filename, requiredSuffix string) string {
 		titleBudget = 0
 	}
 
-	title = strings.TrimRight(TruncateUTF16(title, titleBudget), " .")
-	if title == "" && requiredSuffix == "" && titleBudget >= UTF16Length("video") {
+	availableBytes := MaxDownloadFilenameLengthBytes - len([]byte(requiredSuffix)) - len([]byte(ext))
+	if availableBytes < 0 {
+		availableBytes = 0
+	}
+
+	title = TruncateUTF16(title, titleBudget)
+	title = truncateUTF8(title, availableBytes)
+	title = strings.TrimRight(title, " .")
+	if title == "" && requiredSuffix == "" && titleBudget >= UTF16Length("video") && availableBytes >= len([]byte("video")) {
 		title = "video"
 	}
 
