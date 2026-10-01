@@ -113,6 +113,61 @@ func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
 	}
 }
 
+func TestDownloadVideoRequestKeyAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		req         DownloadVideoRequest
+		wantKey     string
+		wantDecrypt bool
+	}{
+		{
+			name:        "key alias",
+			req:         DownloadVideoRequest{Key: "123"},
+			wantKey:     "123",
+			wantDecrypt: true,
+		},
+		{
+			name:        "decrypt key alias",
+			req:         DownloadVideoRequest{DecryptKey: "456"},
+			wantKey:     "456",
+			wantDecrypt: true,
+		},
+		{
+			name:        "key takes precedence",
+			req:         DownloadVideoRequest{Key: "123", DecryptKey: "456"},
+			wantKey:     "123",
+			wantDecrypt: true,
+		},
+		{
+			name:        "blank key falls back",
+			req:         DownloadVideoRequest{Key: "  ", DecryptKey: "789"},
+			wantKey:     "789",
+			wantDecrypt: true,
+		},
+		{
+			name:        "no key",
+			req:         DownloadVideoRequest{},
+			wantKey:     "",
+			wantDecrypt: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.req.GetKey(); got != tt.wantKey {
+				t.Fatalf("GetKey() = %q, want %q", got, tt.wantKey)
+			}
+			if got := tt.req.NeedsDecryption(); got != tt.wantDecrypt {
+				t.Fatalf("NeedsDecryption() = %v, want %v", got, tt.wantDecrypt)
+			}
+		})
+	}
+}
+
 func TestDownloadVideoModeFromRequest(t *testing.T) {
 	t.Parallel()
 

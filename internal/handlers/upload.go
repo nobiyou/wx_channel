@@ -49,6 +49,7 @@ type DownloadVideoRequest struct {
 	UserAgent    string            `json:"userAgent"`
 	Headers      map[string]string `json:"headers"`
 	Key          string            `json:"key"`          // 解密key（可选）
+	DecryptKey   string            `json:"decryptKey"`   // 兼容数据库/浏览记录导出的解密key
 	ForceSave    bool              `json:"forceSave"`    // 是否强制保存（即使文件已存在）
 	Resolution   string            `json:"resolution"`   // 分辨率字符串（如 "1080x1920" 或 "1080p"）
 	Width        int               `json:"width"`        // 视频宽度（可选）
@@ -59,6 +60,19 @@ type DownloadVideoRequest struct {
 	CommentCount int64             `json:"commentCount"`
 	ForwardCount int64             `json:"forwardCount"`
 	FavCount     int64             `json:"favCount"`
+}
+
+// GetKey returns the canonical decrypt key while accepting both API aliases.
+func (r DownloadVideoRequest) GetKey() string {
+	if key := strings.TrimSpace(r.Key); key != "" {
+		return key
+	}
+	return strings.TrimSpace(r.DecryptKey)
+}
+
+// NeedsDecryption reports whether the request carries a decrypt key.
+func (r DownloadVideoRequest) NeedsDecryption() bool {
+	return r.GetKey() != ""
 }
 
 type downloadVideoMode string
@@ -1364,8 +1378,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
-	// 判断是否需要解密
-	needDecrypt := req.Key != ""
+	// 判断是否需要解密。key 和 decryptKey 是同一合同的两个兼容别名。
+	needDecrypt := req.NeedsDecryption()
 
 	// 临时文件路径
 	tmpHint := req.VideoID
@@ -1507,7 +1521,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 
 		if needDecrypt {
 			utils.Info("🔐 [视频下载] 开始解密...")
-			if err := utils.DecryptFileInPlace(actualPath, req.Key, "", 0); err != nil {
+			if err := utils.DecryptFileInPlace(actualPath, req.GetKey(), "", 0); err != nil {
 				utils.Error("❌ [视频下载] 解密失败: %v", err)
 				_ = os.Remove(actualPath)
 				if h.wsHub != nil {
@@ -1722,7 +1736,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 			utils.Info("🔐 [视频下载] 开始解密下载...")
 
 			// 解析 key 为 uint64
-			seed, err := utils.ParseKey(req.Key)
+			seed, err := utils.ParseKey(req.GetKey())
 			if err != nil {
 				return fmt.Errorf("解析密钥失败: %v", err)
 			}

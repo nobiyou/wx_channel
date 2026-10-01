@@ -417,7 +417,9 @@ function __export_batch_video_list__() {
       sourceType: sourceType, // [新增] 数据来源类型
       cgiId: cgiId,           // [新增] 接口ID
       url: v.url || (media && (media.url + (media.urlToken || ''))),
-      key: v.key || (media && (media.decodeKey || media.decryptKey)) || '',
+      key: __wx_channels_select_decrypt_key__(v.key, v.decryptKey, media && media.decodeKey, media && media.decryptKey),
+      decryptKey: __wx_channels_select_decrypt_key__(v.decryptKey, v.key, media && media.decryptKey, media && media.decodeKey),
+      fileFormat: v.fileFormat || (media && media.fileFormat) || (spec[0] && spec[0].fileFormat) || '',
       coverUrl: v.coverUrl || v.thumbUrl || (media && media.thumbUrl),
       duration: v.duration || (media && (media.videoPlayLen * 1000 || media.durationMs)),
       size: v.size || (media && media.fileSize),
@@ -557,7 +559,7 @@ function __render_batch_video_list__() {
         type: video.type,
         canDownload: video.canDownload,
         hasUrl: !!video.url,
-        hasKey: video.key !== undefined
+        hasKey: __wx_channels_select_decrypt_key__(video.key, video.decryptKey) !== ''
       });
     }
 
@@ -797,8 +799,8 @@ async function __batch_download_selected__() {
       continue;
     }
 
-    // 如果已经格式化过（有 url 和 key 字段），直接使用
-    if (video.url && video.key !== undefined) {
+    // 如果已经格式化过（有 url 和任一 key 别名），直接使用
+    if (video.url && (video.key !== undefined || video.decryptKey !== undefined)) {
       formattedVideos.push(video);
     } else if (video.objectDesc) {
       // 否则使用 format_feed 格式化
@@ -867,7 +869,7 @@ async function __batch_download_selected__() {
         },
         userAgent: navigator.userAgent || '',
         sourceUrl: location.href,
-        key: video.key || '',
+        key: __wx_channels_select_decrypt_key__(video.key, video.decryptKey),
         resolution: normalizedDownload.resolution || '',
         width: normalizedDownload.width || 0,
         height: normalizedDownload.height || 0,

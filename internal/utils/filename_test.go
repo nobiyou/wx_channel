@@ -206,7 +206,9 @@ func TestBuildDownloadFilePath_UsesDirectoryBudgetAndKeepsSuffix(t *testing.T) {
 func TestGenerateUniquePathWithSuffix_RechecksBudgetForSequence(t *testing.T) {
 	dir := t.TempDir()
 	suffix := "_video-001_1080p"
-	filename := strings.Repeat("标题", 120) + suffix + ".mp4"
+	// Keep the UTF-16 budget pressure while staying below Linux NAME_MAX;
+	// the production code targets Windows paths but the test runs everywhere.
+	filename := strings.Repeat("long-title-", 30) + suffix + ".mp4"
 	first := FitFilenameToDirectory(dir, filename, suffix)
 	if err := os.WriteFile(filepath.Join(dir, first), []byte("existing"), 0644); err != nil {
 		t.Fatalf("prepare existing file: %v", err)

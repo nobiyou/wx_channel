@@ -25,15 +25,15 @@ func (r *QueueRepository) Add(item *QueueItem) error {
 
 	query := `
 		INSERT INTO download_queue (
-			id, video_id, title, author, cover_url, video_url, decrypt_key, duration, resolution, total_size, downloaded_size,
+			id, video_id, title, author, cover_url, video_url, decrypt_key, duration, resolution, file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.Exec(query,
 		item.ID, item.VideoID, item.Title, item.Author, item.CoverURL, item.VideoURL, item.DecryptKey,
-		item.Duration, item.Resolution, item.TotalSize, item.DownloadedSize, item.Status, item.Priority,
+		item.Duration, item.Resolution, item.FileFormat, item.TotalSize, item.DownloadedSize, item.Status, item.Priority,
 		item.AddedTime, item.StartTime, item.Speed, item.ChunkSize,
 		item.ChunksTotal, item.ChunksCompleted, item.RetryCount,
 		item.ErrorMessage, item.CreatedAt, item.UpdatedAt,
@@ -48,7 +48,7 @@ func (r *QueueRepository) Add(item *QueueItem) error {
 func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	query := `
 		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, total_size, downloaded_size,
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
@@ -60,9 +60,10 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	var decryptKey sql.NullString
 	var coverURL sql.NullString
 	var resolution sql.NullString
+	var fileFormat sql.NullString
 	err := r.db.QueryRow(query, id).Scan(
 		&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
-		&item.Duration, &resolution, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+		&item.Duration, &resolution, &fileFormat, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 		&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 		&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 		&errorMessage, &item.CreatedAt, &item.UpdatedAt,
@@ -78,6 +79,7 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 	}
 	item.CoverURL = coverURL.String
 	item.Resolution = resolution.String
+	item.FileFormat = fileFormat.String
 	item.ErrorMessage = errorMessage.String
 	item.DecryptKey = decryptKey.String
 	return item, nil
@@ -87,7 +89,7 @@ func (r *QueueRepository) GetByID(id string) (*QueueItem, error) {
 func (r *QueueRepository) GetByVideoID(videoID string) (*QueueItem, error) {
 	query := `
 		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, total_size, downloaded_size,
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
@@ -99,9 +101,10 @@ func (r *QueueRepository) GetByVideoID(videoID string) (*QueueItem, error) {
 	var decryptKey sql.NullString
 	var coverURL sql.NullString
 	var resolution sql.NullString
+	var fileFormat sql.NullString
 	err := r.db.QueryRow(query, videoID).Scan(
 		&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
-		&item.Duration, &resolution, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+		&item.Duration, &resolution, &fileFormat, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 		&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 		&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 		&errorMessage, &item.CreatedAt, &item.UpdatedAt,
@@ -117,6 +120,7 @@ func (r *QueueRepository) GetByVideoID(videoID string) (*QueueItem, error) {
 	}
 	item.CoverURL = coverURL.String
 	item.Resolution = resolution.String
+	item.FileFormat = fileFormat.String
 	item.ErrorMessage = errorMessage.String
 	item.DecryptKey = decryptKey.String
 	return item, nil
@@ -128,14 +132,14 @@ func (r *QueueRepository) Update(item *QueueItem) error {
 
 	query := `
 		UPDATE download_queue SET
-			video_id = ?, title = ?, author = ?, cover_url = ?, video_url = ?, decrypt_key = ?, duration = ?, total_size = ?,
+			video_id = ?, title = ?, author = ?, cover_url = ?, video_url = ?, decrypt_key = ?, duration = ?, resolution = ?, file_format = ?, total_size = ?,
 			downloaded_size = ?, status = ?, priority = ?, added_time = ?,
 			start_time = ?, speed = ?, chunk_size = ?, chunks_total = ?,
 			chunks_completed = ?, retry_count = ?, error_message = ?, updated_at = ?
 		WHERE id = ?
 	`
 	result, err := r.db.Exec(query,
-		item.VideoID, item.Title, item.Author, item.CoverURL, item.VideoURL, item.DecryptKey, item.Duration, item.TotalSize,
+		item.VideoID, item.Title, item.Author, item.CoverURL, item.VideoURL, item.DecryptKey, item.Duration, item.Resolution, item.FileFormat, item.TotalSize,
 		item.DownloadedSize, item.Status, item.Priority, item.AddedTime,
 		item.StartTime, item.Speed, item.ChunkSize, item.ChunksTotal,
 		item.ChunksCompleted, item.RetryCount, item.ErrorMessage,
@@ -198,8 +202,8 @@ func (r *QueueRepository) Clear() error {
 // List 获取按优先级和添加时间排序的所有队列项目
 func (r *QueueRepository) List() ([]QueueItem, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, total_size, downloaded_size,
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key,
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
@@ -220,9 +224,11 @@ func (r *QueueRepository) List() ([]QueueItem, error) {
 		var errorMessage sql.NullString
 		var decryptKey sql.NullString
 		var coverURL sql.NullString
+		var resolution sql.NullString
+		var fileFormat sql.NullString
 		err := rows.Scan(
 			&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
-			&item.Duration, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+			&item.Duration, &resolution, &fileFormat, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 			&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 			&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 			&errorMessage, &item.CreatedAt, &item.UpdatedAt,
@@ -234,6 +240,8 @@ func (r *QueueRepository) List() ([]QueueItem, error) {
 			item.StartTime = startTime.Time
 		}
 		item.CoverURL = coverURL.String
+		item.Resolution = resolution.String
+		item.FileFormat = fileFormat.String
 		item.ErrorMessage = errorMessage.String
 		item.DecryptKey = decryptKey.String
 		items = append(items, item)
@@ -249,8 +257,8 @@ func (r *QueueRepository) List() ([]QueueItem, error) {
 // ListByStatus 获取指定状态的队列项目
 func (r *QueueRepository) ListByStatus(status string) ([]QueueItem, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, total_size, downloaded_size,
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key,
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
@@ -272,9 +280,11 @@ func (r *QueueRepository) ListByStatus(status string) ([]QueueItem, error) {
 		var errorMessage sql.NullString
 		var decryptKey sql.NullString
 		var coverURL sql.NullString
+		var resolution sql.NullString
+		var fileFormat sql.NullString
 		err := rows.Scan(
 			&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
-			&item.Duration, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+			&item.Duration, &resolution, &fileFormat, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 			&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 			&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 			&errorMessage, &item.CreatedAt, &item.UpdatedAt,
@@ -286,6 +296,8 @@ func (r *QueueRepository) ListByStatus(status string) ([]QueueItem, error) {
 			item.StartTime = startTime.Time
 		}
 		item.CoverURL = coverURL.String
+		item.Resolution = resolution.String
+		item.FileFormat = fileFormat.String
 		item.ErrorMessage = errorMessage.String
 		item.DecryptKey = decryptKey.String
 		items = append(items, item)
@@ -410,8 +422,8 @@ func (r *QueueRepository) GetQueueStats() (total, pending, downloading, paused, 
 // GetNextPending 获取下一个待处理的队列项目
 func (r *QueueRepository) GetNextPending() (*QueueItem, error) {
 	query := `
-		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key, 
-			COALESCE(duration, 0) as duration, total_size, downloaded_size,
+		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, video_url, decrypt_key,
+			COALESCE(duration, 0) as duration, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, total_size, downloaded_size,
 			status, priority, added_time, start_time, speed, chunk_size,
 			chunks_total, chunks_completed, retry_count, error_message,
 			created_at, updated_at
@@ -425,9 +437,11 @@ func (r *QueueRepository) GetNextPending() (*QueueItem, error) {
 	var errorMessage sql.NullString
 	var decryptKey sql.NullString
 	var coverURL sql.NullString
+	var resolution sql.NullString
+	var fileFormat sql.NullString
 	err := r.db.QueryRow(query, QueueStatusPending).Scan(
 		&item.ID, &item.VideoID, &item.Title, &item.Author, &coverURL, &item.VideoURL, &decryptKey,
-		&item.Duration, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
+		&item.Duration, &resolution, &fileFormat, &item.TotalSize, &item.DownloadedSize, &item.Status, &item.Priority,
 		&item.AddedTime, &startTime, &item.Speed, &item.ChunkSize,
 		&item.ChunksTotal, &item.ChunksCompleted, &item.RetryCount,
 		&errorMessage, &item.CreatedAt, &item.UpdatedAt,
@@ -442,6 +456,8 @@ func (r *QueueRepository) GetNextPending() (*QueueItem, error) {
 		item.StartTime = startTime.Time
 	}
 	item.CoverURL = coverURL.String
+	item.Resolution = resolution.String
+	item.FileFormat = fileFormat.String
 	item.ErrorMessage = errorMessage.String
 	item.DecryptKey = decryptKey.String
 	return item, nil

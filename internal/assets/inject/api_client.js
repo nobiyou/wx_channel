@@ -687,7 +687,7 @@ window.__wx_api_client = {
       store: !!store,
       profile: !!profile,
       hasUrl: !!(profile && (profile.url || profile.originalUrl || (profile.media && profile.media.url))),
-      hasKey: !!(profile && profile.key),
+      hasKey: !!(profile && (profile.key || profile.decryptKey)),
       title: (profile && profile.title) || '',
       id: (profile && profile.id) || '',
       pagePath: window.location.pathname,

@@ -128,6 +128,238 @@ func TestBrowseHistoryRepository(t *testing.T) {
 	}
 }
 
+func TestBrowseHistoryRepositoryPreservesFileFormat(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewBrowseHistoryRepository()
+	browseTime := time.Now()
+	records := []*BrowseRecord{
+		{
+			ID:         "browse-format-1",
+			Title:      "Format One",
+			Author:     "Author One",
+			AuthorID:   "author-1",
+			Duration:   60,
+			Size:       1024,
+			Resolution: "720p",
+			FileFormat: "xWT111",
+			CoverURL:   "https://example.com/cover-1.jpg",
+			VideoURL:   "https://example.com/video-1.mp4",
+			BrowseTime: browseTime.Add(-time.Minute),
+		},
+		{
+			ID:         "browse-format-2",
+			Title:      "Format Two",
+			Author:     "Author Two",
+			AuthorID:   "author-2",
+			Duration:   120,
+			Size:       2048,
+			Resolution: "1080p",
+			FileFormat: "xWT128",
+			CoverURL:   "https://example.com/cover-2.jpg",
+			VideoURL:   "https://example.com/video-2.mp4",
+			BrowseTime: browseTime,
+		},
+	}
+
+	for _, record := range records {
+		if err := repo.Create(record); err != nil {
+			t.Fatalf("create %s: %v", record.ID, err)
+		}
+	}
+
+	assertRecordFormat := func(context string, record *BrowseRecord, want string) {
+		t.Helper()
+		if record == nil {
+			t.Fatalf("%s: got nil record", context)
+		}
+		if record.FileFormat != want {
+			t.Errorf("%s: file format = %q, want %q", context, record.FileFormat, want)
+		}
+	}
+
+	got, err := repo.GetByID(records[0].ID)
+	if err != nil {
+		t.Fatalf("get by id: %v", err)
+	}
+	assertRecordFormat("get by id", got, "xWT111")
+
+	got, err = repo.GetByID(records[1].ID)
+	if err != nil {
+		t.Fatalf("get second by id: %v", err)
+	}
+	assertRecordFormat("get second by id", got, "xWT128")
+
+	records[0].Title = "Format One Updated"
+	records[0].FileFormat = "xWT111-updated"
+	if err := repo.Update(records[0]); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err = repo.GetByID(records[0].ID)
+	if err != nil {
+		t.Fatalf("get updated by id: %v", err)
+	}
+	assertRecordFormat("get updated by id", got, "xWT111-updated")
+
+	list, err := repo.List(&PaginationParams{Page: 1, PageSize: 10, SortDesc: true})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("list returned %d records, want 2", len(list.Items))
+	}
+	listFormats := map[string]string{}
+	for _, record := range list.Items {
+		listFormats[record.ID] = record.FileFormat
+	}
+	if listFormats[records[0].ID] != "xWT111-updated" || listFormats[records[1].ID] != "xWT128" {
+		t.Fatalf("list formats = %#v", listFormats)
+	}
+
+	search, err := repo.Search("Updated", &PaginationParams{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if search.Total != 1 || len(search.Items) != 1 {
+		t.Fatalf("search returned total=%d items=%d, want one", search.Total, len(search.Items))
+	}
+	assertRecordFormat("search", &search.Items[0], "xWT111-updated")
+
+	byIDs, err := repo.GetByIDs([]string{records[0].ID, records[1].ID})
+	if err != nil {
+		t.Fatalf("get by ids: %v", err)
+	}
+	byIDFormats := map[string]string{}
+	for _, record := range byIDs {
+		byIDFormats[record.ID] = record.FileFormat
+	}
+	if byIDFormats[records[0].ID] != "xWT111-updated" || byIDFormats[records[1].ID] != "xWT128" {
+		t.Fatalf("get by ids formats = %#v", byIDFormats)
+	}
+
+	since, err := repo.GetRecordsSince(browseTime.Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatalf("get records since: %v", err)
+	}
+	if len(since) != 2 {
+		t.Fatalf("get records since returned %d records, want 2", len(since))
+	}
+	sinceFormats := map[string]string{}
+	for _, record := range since {
+		sinceFormats[record.ID] = record.FileFormat
+	}
+	if sinceFormats[records[0].ID] != "xWT111-updated" || sinceFormats[records[1].ID] != "xWT128" {
+		t.Fatalf("get records since formats = %#v", sinceFormats)
+	}
+
+	recent, err := repo.GetRecent(10)
+	if err != nil {
+		t.Fatalf("get recent: %v", err)
+	}
+	if len(recent) != 2 {
+		t.Fatalf("get recent returned %d records, want 2", len(recent))
+	}
+	assertRecordFormat("get recent", &recent[0], "xWT128")
+
+	all, err := repo.GetAll()
+	if err != nil {
+		t.Fatalf("get all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("get all returned %d records, want 2", len(all))
+	}
+	allFormats := map[string]string{}
+	for _, record := range all {
+		allFormats[record.ID] = record.FileFormat
+	}
+	if allFormats[records[0].ID] != "xWT111-updated" || allFormats[records[1].ID] != "xWT128" {
+		t.Fatalf("get all formats = %#v", allFormats)
+	}
+}
+
+func TestQueueRepositoryPreservesResolutionAndFileFormat(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewQueueRepository()
+	item := &QueueItem{
+		ID:         "queue-format-1",
+		VideoID:    "video-format-1",
+		Title:      "Queue Format",
+		Author:     "Queue Author",
+		VideoURL:   "https://example.com/video.mp4",
+		Duration:   90,
+		Resolution: "720p",
+		FileFormat: "xWT111",
+		TotalSize:  4096,
+		Status:     QueueStatusPending,
+		Priority:   2,
+		AddedTime:  time.Now(),
+		ChunkSize:  1024,
+	}
+	if err := repo.Add(item); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	assertItemFormat := func(context string, got *QueueItem, wantResolution, wantFormat string) {
+		t.Helper()
+		if got == nil {
+			t.Fatalf("%s: got nil item", context)
+		}
+		if got.Resolution != wantResolution || got.FileFormat != wantFormat {
+			t.Errorf("%s: resolution=%q file format=%q, want resolution=%q file format=%q", context, got.Resolution, got.FileFormat, wantResolution, wantFormat)
+		}
+	}
+
+	got, err := repo.GetByID(item.ID)
+	if err != nil {
+		t.Fatalf("get by id: %v", err)
+	}
+	assertItemFormat("get by id", got, "720p", "xWT111")
+
+	got, err = repo.GetByVideoID(item.VideoID)
+	if err != nil {
+		t.Fatalf("get by video id: %v", err)
+	}
+	assertItemFormat("get by video id", got, "720p", "xWT111")
+
+	item.Resolution = "1080p"
+	item.FileFormat = "xWT128"
+	if err := repo.Update(item); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err = repo.GetByID(item.ID)
+	if err != nil {
+		t.Fatalf("get updated by id: %v", err)
+	}
+	assertItemFormat("get updated by id", got, "1080p", "xWT128")
+
+	list, err := repo.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("list returned %d items, want 1", len(list))
+	}
+	assertItemFormat("list", &list[0], "1080p", "xWT128")
+
+	byStatus, err := repo.ListByStatus(QueueStatusPending)
+	if err != nil {
+		t.Fatalf("list by status: %v", err)
+	}
+	if len(byStatus) != 1 {
+		t.Fatalf("list by status returned %d items, want 1", len(byStatus))
+	}
+	assertItemFormat("list by status", &byStatus[0], "1080p", "xWT128")
+
+	next, err := repo.GetNextPending()
+	if err != nil {
+		t.Fatalf("get next pending: %v", err)
+	}
+	assertItemFormat("get next pending", next, "1080p", "xWT128")
+}
+
 func TestDownloadRecordRepository(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()

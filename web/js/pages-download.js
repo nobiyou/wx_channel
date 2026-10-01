@@ -640,6 +640,7 @@ async function retryDownload(id) {
             videoId: record.videoId || record.id,
             videoUrl: record.videoUrl || '',
             decryptKey: record.decryptKey || '',
+            fileFormat: record.fileFormat || '',
             coverUrl: record.coverUrl || '',
             duration: record.duration || 0,
             resolution: record.resolution || parseResolutionFromUrl(record.videoUrl) || '',

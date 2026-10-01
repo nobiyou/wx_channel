@@ -37,6 +37,7 @@ type VideoInfo struct {
 	DecryptKey string `json:"decryptKey"`
 	Duration   int64  `json:"duration"`
 	Resolution string `json:"resolution"`
+	FileFormat string `json:"fileFormat"`
 	Size       int64  `json:"size"`
 	CreateTime string `json:"createTime,omitempty"`
 }
@@ -80,6 +81,7 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 			DecryptKey:      video.DecryptKey,
 			Duration:        video.Duration,
 			Resolution:      video.Resolution,
+			FileFormat:      video.FileFormat,
 			TotalSize:       video.Size,
 			DownloadedSize:  0,
 			Status:          database.QueueStatusPending,

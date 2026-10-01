@@ -602,13 +602,16 @@ function __wx_channels_normalize_batch_video_download__(profile) {
 }
 
 async function __wx_channels_download_via_backend__(profile, filename, normalized) {
+  normalized = normalized || {};
   var authorName = profile.nickname || (profile.contact && profile.contact.nickname) || '未知作者';
-  var hasKey = !!(profile.key && profile.key.length > 0);
+  var decryptKey = __wx_channels_select_decrypt_key__(profile.key, profile.decryptKey);
+  var hasKey = decryptKey !== '';
+  var downloadURL = normalized.url || profile.url || '';
   var expectedSize = normalized.mode === 'original'
     ? __wx_channels_get_expected_video_size__(profile)
     : 0;
   var requestData = {
-    videoUrl: profile.url,
+    videoUrl: downloadURL,
     videoId: profile.id || '',
     // 文件名是落盘投影，数据库和下载记录应保留原始标题。
     title: profile.title || profile.id || filename,
@@ -619,7 +622,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
       'Referer': location.href,
       'Origin': location.origin || 'https://channels.weixin.qq.com'
     },
-    key: profile.key || '',
+    key: decryptKey,
     forceSave: false,
     resolution: normalized.resolution,
     width: normalized.width,
@@ -685,6 +688,8 @@ async function __wx_channels_handle_click_download__(spec) {
   var _profile = Object.assign({}, profile);
   var normalized = __wx_channels_normalize_video_download__(profile, spec);
   _profile.url = normalized.url;
+  _profile.key = __wx_channels_select_decrypt_key__(_profile.key, _profile.decryptKey);
+  _profile.decryptKey = _profile.key;
   var qualitySuffix = '';
 
   if (normalized.qualityInfo) {

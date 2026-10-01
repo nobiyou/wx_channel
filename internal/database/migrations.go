@@ -518,6 +518,13 @@ ALTER TABLE mp_articles ADD COLUMN malicious_content_type INTEGER NOT NULL DEFAU
 ALTER TABLE mp_articles ADD COLUMN video_id TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		Version:     21,
+		Description: "Add file_format column to download_queue table for video format identification",
+		Up: `
+ALTER TABLE download_queue ADD COLUMN file_format TEXT DEFAULT '';
+`,
+	},
 }
 
 // runMigrations 执行所有待处理的迁移

@@ -69,6 +69,7 @@ type QueueItem struct {
 	DecryptKey      string    `json:"decryptKey"` // 加密视频的解密密钥
 	Duration        int64     `json:"duration"`   // 视频时长（秒）
 	Resolution      string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
+	FileFormat      string    `json:"fileFormat"` // 视频格式标识（例如 "xWT128", "xWT111"）
 	TotalSize       int64     `json:"totalSize"`
 	DownloadedSize  int64     `json:"downloadedSize"`
 	Status          string    `json:"status"` // pending, downloading, paused, completed, failed

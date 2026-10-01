@@ -100,10 +100,15 @@ func (t *BatchTask) GetURL() string {
 
 // GetKey 获取解密密钥，兼容两种格式
 func (t *BatchTask) GetKey() string {
-	if t.Key != "" {
-		return t.Key
+	if key := strings.TrimSpace(t.Key); key != "" {
+		return key
 	}
-	return t.DecryptKey
+	return strings.TrimSpace(t.DecryptKey)
+}
+
+// NeedsDecryption reports whether this task carries either supported decryption input.
+func (t *BatchTask) NeedsDecryption() bool {
+	return t.GetKey() != "" || (t.DecryptorPrefix != "" && t.PrefixLen > 0)
 }
 
 // Handle implements router.Interceptor
@@ -785,10 +790,11 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 	}
 
 	// 解密逻辑（如果需要）
-	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
+	decryptKey := task.GetKey()
+	needDecrypt := task.NeedsDecryption()
 	if needDecrypt {
 		utils.Info("🔐 [批量下载] 开始解密视频...")
-		if err := utils.DecryptFileInPlace(actualPath, task.GetKey(), task.DecryptorPrefix, task.PrefixLen); err != nil {
+		if err := utils.DecryptFileInPlace(actualPath, decryptKey, task.DecryptorPrefix, task.PrefixLen); err != nil {
 			h.cleanupTaskArtifacts(task.GopeedTaskID, actualPath, true)
 			task.GopeedTaskID = ""
 			return "", fmt.Errorf("解密失败: %v", err)

@@ -572,7 +572,12 @@ WXE.onUserLiveReplayLoaded(function (feeds) {
       originalUrl: media ? (media.url || '') : '',
       urlToken: media ? (media.urlToken || '') : '',
       size: media ? (media.fileSize || 0) : 0,
-      key: media ? (media.decodeKey || '') : '',
+      key: media
+        ? __wx_channels_select_decrypt_key__(media.decodeKey, media.decryptKey, item.decodeKey, item.decryptKey)
+        : __wx_channels_select_decrypt_key__(item.decodeKey, item.decryptKey),
+      decryptKey: media
+        ? __wx_channels_select_decrypt_key__(media.decryptKey, media.decodeKey, item.decryptKey, item.decodeKey)
+        : __wx_channels_select_decrypt_key__(item.decryptKey, item.decodeKey),
       duration: duration,
       spec: media ? media.spec : [],
       nickname: item.contact ? item.contact.nickname : '',

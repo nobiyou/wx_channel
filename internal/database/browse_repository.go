@@ -25,14 +25,14 @@ func (r *BrowseHistoryRepository) Create(record *BrowseRecord) error {
 
 	query := `
 		INSERT INTO browse_history (
-			id, title, author, author_id, duration, size, resolution, cover_url, video_url,
+			id, title, author, author_id, duration, size, resolution, file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, fav_count, forward_count, page_url,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.Exec(query,
 		record.ID, record.Title, record.Author, record.AuthorID,
-		record.Duration, record.Size, record.Resolution, record.CoverURL, record.VideoURL,
+		record.Duration, record.Size, record.Resolution, record.FileFormat, record.CoverURL, record.VideoURL,
 		record.DecryptKey, record.BrowseTime, record.LikeCount, record.CommentCount,
 		record.FavCount, record.ForwardCount, record.PageURL, record.CreatedAt, record.UpdatedAt,
 	)
@@ -45,7 +45,7 @@ func (r *BrowseHistoryRepository) Create(record *BrowseRecord) error {
 // GetByID 根据 ID 获取浏览记录
 func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 	query := `
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -54,7 +54,7 @@ func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 	record := &BrowseRecord{}
 	err := r.db.QueryRow(query, id).Scan(
 		&record.ID, &record.Title, &record.Author, &record.AuthorID,
-		&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+		&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 		&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 		&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 	)
@@ -73,14 +73,14 @@ func (r *BrowseHistoryRepository) Update(record *BrowseRecord) error {
 
 	query := `
 		UPDATE browse_history SET
-			title = ?, author = ?, author_id = ?, duration = ?, size = ?, resolution = ?,
+			title = ?, author = ?, author_id = ?, duration = ?, size = ?, resolution = ?, file_format = ?,
 			cover_url = ?, video_url = ?, decrypt_key = ?, browse_time = ?, like_count = ?,
 			comment_count = ?, fav_count = ?, forward_count = ?, page_url = ?, updated_at = ?
 		WHERE id = ?
 	`
 	result, err := r.db.Exec(query,
 		record.Title, record.Author, record.AuthorID, record.Duration,
-		record.Size, record.Resolution, record.CoverURL, record.VideoURL, record.DecryptKey, record.BrowseTime,
+		record.Size, record.Resolution, record.FileFormat, record.CoverURL, record.VideoURL, record.DecryptKey, record.BrowseTime,
 		record.LikeCount, record.CommentCount, record.FavCount, record.ForwardCount,
 		record.PageURL, record.UpdatedAt, record.ID,
 	)
@@ -178,7 +178,7 @@ func (r *BrowseHistoryRepository) List(params *PaginationParams) (*PagedResult[B
 	offset := (params.Page - 1) * params.PageSize
 
 	query := fmt.Sprintf(`
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -198,7 +198,7 @@ func (r *BrowseHistoryRepository) List(params *PaginationParams) (*PagedResult[B
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)
@@ -243,7 +243,7 @@ func (r *BrowseHistoryRepository) Search(query string, params *PaginationParams)
 	// Build query
 	offset := (params.Page - 1) * params.PageSize
 	sqlQuery := `
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -264,7 +264,7 @@ func (r *BrowseHistoryRepository) Search(query string, params *PaginationParams)
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)
@@ -298,7 +298,7 @@ func (r *BrowseHistoryRepository) GetRecent(limit int) ([]BrowseRecord, error) {
 	}
 
 	query := `
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -318,7 +318,7 @@ func (r *BrowseHistoryRepository) GetRecent(limit int) ([]BrowseRecord, error) {
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)
@@ -347,7 +347,7 @@ func (r *BrowseHistoryRepository) DeleteBefore(date time.Time) (int64, error) {
 // GetAll 获取所有浏览记录（用于导出）
 func (r *BrowseHistoryRepository) GetAll() ([]BrowseRecord, error) {
 	query := `
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -366,7 +366,7 @@ func (r *BrowseHistoryRepository) GetAll() ([]BrowseRecord, error) {
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)
@@ -397,7 +397,7 @@ func (r *BrowseHistoryRepository) GetByIDs(ids []string) ([]BrowseRecord, error)
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -417,7 +417,7 @@ func (r *BrowseHistoryRepository) GetByIDs(ids []string) ([]BrowseRecord, error)
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)
@@ -444,7 +444,7 @@ func (r *BrowseHistoryRepository) GetRecordsSince(since time.Time, limit int) ([
 	}
 
 	query := `
-		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
+		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, COALESCE(file_format, '') as file_format, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
 			created_at, updated_at
@@ -465,7 +465,7 @@ func (r *BrowseHistoryRepository) GetRecordsSince(since time.Time, limit int) ([
 		var record BrowseRecord
 		err := rows.Scan(
 			&record.ID, &record.Title, &record.Author, &record.AuthorID,
-			&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
+			&record.Duration, &record.Size, &record.Resolution, &record.FileFormat, &record.CoverURL, &record.VideoURL,
 			&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 			&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
 		)

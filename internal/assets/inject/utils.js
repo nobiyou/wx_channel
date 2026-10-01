@@ -21,6 +21,27 @@ var __wx_channels_live_store__ = {
   profile: null,
 };
 
+// Feed responses use both string and numeric representations for decrypt keys.
+// Normalize once at the browser boundary so every API request sends the Go
+// handlers the canonical decimal string expected by the decryption contract.
+function __wx_channels_normalize_decrypt_key__(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && Number.isInteger(value) ? String(value) : '';
+  }
+  if (typeof value === 'bigint') return String(value);
+  return '';
+}
+
+function __wx_channels_select_decrypt_key__() {
+  for (var i = 0; i < arguments.length; i++) {
+    var key = __wx_channels_normalize_decrypt_key__(arguments[i]);
+    if (key !== '') return key;
+  }
+  return '';
+}
+
 function __wx_channels_video_decrypt(t, e, p) {
   for (var r = new Uint8Array(t), n = 0; n < t.byteLength && e + n < p.decryptor_array.length; n++)
     r[n] ^= p.decryptor_array[n];
@@ -199,7 +220,8 @@ var WXU = (() => {
         url: media.url + media.urlToken,
         originalUrl: media.url,
         urlToken: media.urlToken || "",
-        key: media.decodeKey,
+        key: __wx_channels_select_decrypt_key__(media.decodeKey, media.decryptKey, feed.decodeKey, feed.decryptKey),
+        decryptKey: __wx_channels_select_decrypt_key__(media.decryptKey, media.decodeKey, feed.decryptKey, feed.decodeKey),
         cover_url: media.coverUrl,
         coverUrl: media.thumbUrl,
         thumbUrl: media.thumbUrl,

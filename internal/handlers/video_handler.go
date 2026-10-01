@@ -83,6 +83,66 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	return true
 }
 
+// extractDecryptKey accepts both the legacy key field and the field names used
+// by newer shared-feed responses. Keep the value as a decimal string because
+// the WASM/ISAAC seed is paired with the exact signed URL from the same feed.
+func extractDecryptKey(data map[string]interface{}) string {
+	if data == nil {
+		return ""
+	}
+	for _, field := range []string{"key", "decodeKey", "decryptKey", "decode_key", "decrypt_key"} {
+		if value, ok := data[field]; ok {
+			if key := normalizeDecryptKey(value); key != "" {
+				return key
+			}
+		}
+	}
+	if media, ok := data["media"].(map[string]interface{}); ok {
+		for _, field := range []string{"decodeKey", "decryptKey", "decode_key", "decrypt_key", "key"} {
+			if value, ok := media[field]; ok {
+				if key := normalizeDecryptKey(value); key != "" {
+					return key
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeDecryptKey(value interface{}) string {
+	switch key := value.(type) {
+	case string:
+		return strings.TrimSpace(key)
+	case json.Number:
+		return key.String()
+	case float64:
+		return strconv.FormatUint(uint64(key), 10)
+	case float32:
+		return strconv.FormatUint(uint64(key), 10)
+	case int:
+		return strconv.Itoa(key)
+	case int64:
+		return strconv.FormatInt(key, 10)
+	case uint64:
+		return strconv.FormatUint(key, 10)
+	default:
+		return ""
+	}
+}
+
+// mergeDecryptKey preserves the URL/key pairing invariant for refreshed feed
+// records. A key from an older signed URL must never be reused with a new URL.
+func mergeDecryptKey(existingURL, existingKey, nextURL, nextKey string) string {
+	nextKey = strings.TrimSpace(nextKey)
+	if nextKey != "" {
+		return nextKey
+	}
+	if strings.TrimSpace(existingURL) == strings.TrimSpace(nextURL) {
+		return existingKey
+	}
+	return ""
+}
+
 // processVideoData 处理视频数据并显示
 func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	// 打印提醒
@@ -142,20 +202,13 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	if fw, ok := data["forwardCount"].(float64); ok {
 		forwardCount = int64(fw)
 	}
-	// 提取解密密钥（用于加密视频下载）
-	// decodeKey 可能是字符串或数字类型
-	decryptKey := ""
-	if k, ok := data["key"].(string); ok {
-		decryptKey = k
-	} else if k, ok := data["key"].(float64); ok {
-		// 数字类型的key，转换为字符串
-		decryptKey = fmt.Sprintf("%.0f", k)
-	}
+	// 提取解密密钥（用于加密视频下载）。不同页面版本使用不同字段名。
+	decryptKey := extractDecryptKey(data)
 
 	// 提取分辨率信息：优先从media直接获取宽x高格式
 	resolution := ""
 	fileFormat := "" // 视频格式标识（如 xWT128, xWT111）
-	
+
 	// 前端发送的media是单个对象，不是数组
 	if mediaItem, ok := data["media"].(map[string]interface{}); ok {
 		// 从media直接获取width和height
@@ -170,7 +223,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 			resolution = fmt.Sprintf("%dx%d", width, height)
 			utils.LogInfo("[分辨率] 从media获取: %s", resolution)
 		}
-		
+
 		// 从spec中提取fileFormat和分辨率
 		if spec, ok := mediaItem["spec"].([]interface{}); ok && len(spec) > 0 {
 			// 遍历spec数组，找到最高质量的格式（通常是第一个或最后一个）
@@ -181,7 +234,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 						fileFormat = format
 						utils.LogInfo("[视频格式] 从spec获取: %s", fileFormat)
 					}
-					
+
 					// 如果还没有分辨率，从spec中提取
 					if resolution == "" {
 						if w, ok := specItem["width"].(float64); ok {
@@ -191,7 +244,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 							}
 						}
 					}
-					
+
 					// 如果已经找到fileFormat，优先使用第一个（通常是最高质量）
 					if fileFormat != "" {
 						break
@@ -200,7 +253,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 			}
 		}
 	}
-	
+
 	if resolution == "" {
 		utils.LogInfo("[分辨率] 未能获取分辨率信息")
 	}
@@ -345,15 +398,9 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 	}
 
 	if existing != nil {
-		// 更新现有记录
+		// 更新现有记录，但不要把旧签名 URL 的 key 搬到新 URL 上。
 		record.CreatedAt = existing.CreatedAt
-		// 如果现有记录没有解密密钥但新数据有，则更新
-		if existing.DecryptKey == "" && decryptKey != "" {
-			record.DecryptKey = decryptKey
-		} else if existing.DecryptKey != "" {
-			// 保留现有的解密密钥
-			record.DecryptKey = existing.DecryptKey
-		}
+		record.DecryptKey = mergeDecryptKey(existing.VideoURL, existing.DecryptKey, record.VideoURL, record.DecryptKey)
 		err = repo.Update(record)
 		if err != nil {
 			utils.Warn("更新浏览记录失败: %v", err)
