@@ -199,7 +199,7 @@ go build -ldflags="-s -w" -o wx_channel.exe
 1. 运行 `go-winres make` 生成 Windows 资源
 2. 读取 `internal/version/version.go` 作为发版目录名，例如 `release/v5.6.6/`
 3. 临时修改 `internal/config/config.go` 中的 `viper.SetDefault("cloud_enabled", ...)` 与 `viper.SetDefault("radar_enabled", ...)`
-4. 使用 `go build -mod=vendor -ldflags="-w -s -extldflags '-static'"` 依次打包 Hub 版、普通版、雷达版
+4. 使用 `go build -mod=vendor -tags nosqlite -ldflags="-w -s -extldflags '-static'"` 依次打包 Hub 版、普通版、雷达版；`nosqlite` 让 Gopeed 的 BT storage 使用 BoltDB，避免与本项目的 `go-sqlite3` 重复链接
 5. 为每个版本生成独立目录和 ZIP 压缩包
 6. 结束后自动恢复 `config.go` 原始内容
 
@@ -226,6 +226,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-variants.ps1
 ```powershell
 .\scripts\build-dual.ps1
 ```
+
+### 构建前置：SunnyNet 嵌入资源
+
+`pkg/sunnynet/Resource/Resource.go` 通过 `go:embed` 需要两个官方 SunnyNet NFAPI DLL：
+
+- `pkg/sunnynet/Resource/nfapi/dll/win32/nfapi.dll`（PE32/i386）
+- `pkg/sunnynet/Resource/nfapi/dll/x64/nfapi.dll`（PE32+/x86-64）
+
+资源来自官方仓库 `qtgolang/SunnyNet` 的 `v1.5.1`（提交 `ccbc7fbf22da4af9796b1d0a6755b0a078e5903b`），对应路径为 `src/Resource/nfapi/dll/...`。纳入仓库前应核对文件大小和 SHA-256：
+
+```text
+win32/nfapi.dll  251904 bytes  b6ad927ce7a5281f1b71be347b6ee4b920a8ef90f104c6a5cc56082fba0c3528
+x64/nfapi.dll    292864 bytes  1d6f3487d3aa707b978e1a81f8e98250d334120b856b89780408eb98dbbd0910
+```
+
+两个架构都必须保留；`Release.go` 会按 Windows 目标架构写出 `NF_DLLName + "32.DLL"` 或 `NF_DLLName + "64.DLL"`。
 
 ### 发布版本打包
 

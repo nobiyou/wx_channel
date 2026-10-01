@@ -137,8 +137,8 @@ function Invoke-GoBuild {
         if (Test-Path $OutputName) {
             Remove-Item $OutputName -Force
         }
-        go build -mod=vendor "-ldflags=$ldflags" -o $OutputName
-        Assert-LastExitCode -CommandName ("go build -o " + $OutputName)
+        go build -mod=vendor -tags nosqlite "-ldflags=$ldflags" -o $OutputName
+        Assert-LastExitCode -CommandName ("go build -tags nosqlite -o " + $OutputName)
     }
     finally {
         Pop-Location

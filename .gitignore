@@ -35,6 +35,10 @@ logs/
 *.so
 *.dylib
 
+# SunnyNet embeds these official runtime DLLs as source resources.
+!pkg/sunnynet/Resource/nfapi/dll/win32/nfapi.dll
+!pkg/sunnynet/Resource/nfapi/dll/x64/nfapi.dll
+
 # 测试二进制文件
 *.test
 
