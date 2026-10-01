@@ -37,6 +37,7 @@ type DownloadRecord struct {
 	Duration     int64     `json:"duration"`
 	FileSize     int64     `json:"fileSize"`
 	FilePath     string    `json:"filePath"`
+	RelativePath string    `json:"relativePath,omitempty"`
 	Format       string    `json:"format"`
 	Resolution   string    `json:"resolution"`
 	Status       string    `json:"status"` // pending, in_progress, completed, failed

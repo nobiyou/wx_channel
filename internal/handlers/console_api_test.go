@@ -54,6 +54,24 @@ func TestIsPathWithinBase(t *testing.T) {
 	}
 }
 
+func TestAnnotateDownloadRecordPath(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "作者", "参考视频.mp4")
+	handler := &ConsoleAPIHandler{cfg: &config.Config{DownloadsDir: root}}
+
+	record := &database.DownloadRecord{FilePath: inside}
+	handler.annotateDownloadRecordPath(record)
+	if record.RelativePath != "作者/参考视频.mp4" {
+		t.Fatalf("relativePath = %q, want %q", record.RelativePath, "作者/参考视频.mp4")
+	}
+
+	escaped := &database.DownloadRecord{FilePath: filepath.Join(filepath.Dir(root), "outside.mp4")}
+	handler.annotateDownloadRecordPath(escaped)
+	if escaped.RelativePath != "" {
+		t.Fatalf("outside relativePath = %q, want empty", escaped.RelativePath)
+	}
+}
+
 func TestHandleQueueFail_InvalidJSONReturnsBadRequest(t *testing.T) {
 	handler := &ConsoleAPIHandler{}
 	req := httptest.NewRequest(http.MethodPut, "/api/queue/test-id/fail", strings.NewReader("{"))

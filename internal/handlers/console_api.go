@@ -398,6 +398,9 @@ func (h *ConsoleAPIHandler) HandleDownloadsList(w http.ResponseWriter, r *http.R
 		h.sendError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
+	for index := range result.Items {
+		h.annotateDownloadRecordPath(&result.Items[index])
+	}
 
 	h.sendSuccess(w, r, result)
 }
@@ -417,8 +420,31 @@ func (h *ConsoleAPIHandler) HandleDownloadsGet(w http.ResponseWriter, r *http.Re
 		h.sendError(w, r, http.StatusNotFound, "record not found")
 		return
 	}
+	h.annotateDownloadRecordPath(record)
 
 	h.sendSuccess(w, r, record)
+}
+
+// annotateDownloadRecordPath keeps the existing absolute filePath for the
+// console while exposing a portable path for clients that share the download
+// directory through a mount (for example Insight Docker).
+func (h *ConsoleAPIHandler) annotateDownloadRecordPath(record *database.DownloadRecord) {
+	if record == nil || strings.TrimSpace(record.FilePath) == "" {
+		return
+	}
+	cfg := h.getConfig()
+	if cfg == nil {
+		return
+	}
+	root, err := cfg.GetResolvedDownloadsDir()
+	if err != nil || strings.TrimSpace(root) == "" {
+		return
+	}
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(record.FilePath))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return
+	}
+	record.RelativePath = filepath.ToSlash(relative)
 }
 
 // HandleDownloadsDelete 处理 DELETE /api/downloads/:id - 删除单条记录
