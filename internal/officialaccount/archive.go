@@ -18,6 +18,8 @@ var ErrArticleIdentity = errors.New("article identity not found")
 const (
 	ArchiveResourceKindHTML  = "html"
 	ArchiveResourceKindImage = "image"
+	ArchiveResourceKindVideo = "video"
+	ArchiveResourceKindAudio = "audio"
 
 	ArchiveResourceRoleArticleBody = "article_body"
 	ArchiveResourceRoleAttachment  = "attachment"
@@ -26,6 +28,8 @@ const (
 
 	archiveBodySortOrder      = 0
 	archiveImageSortOrderBase = 100
+	archiveVideoSortOrderBase = 200
+	archiveAudioSortOrderBase = 300
 )
 
 // ArchivePlan is an in-memory article archive plan. It deliberately has no
@@ -84,7 +88,7 @@ type ArchiveContent struct {
 	MaliciousContentType   int    `json:"malicious_content_type,omitempty"`
 }
 
-// ArchiveResource describes either the inline HTML body or one remote image.
+// ArchiveResource describes the inline HTML body or one remote article asset.
 // InlineBody is populated only for resources that can be represented without
 // a network request.
 type ArchiveResource struct {
@@ -93,6 +97,7 @@ type ArchiveResource struct {
 	Role       string `json:"role"`
 	Name       string `json:"name"`
 	MIMEType   string `json:"mime_type,omitempty"`
+	MediaID    string `json:"media_id,omitempty"`
 	SourceURL  string `json:"source_url,omitempty"`
 	InlineBody string `json:"inline_body,omitempty"`
 	SortOrder  int    `json:"sort_order"`
@@ -188,6 +193,35 @@ func BuildArticleArchivePlan(biz string, article ArticleItem, pageHTML string) (
 			Name:      digest,
 			SourceURL: imageURL,
 			SortOrder: archiveImageSortOrderBase + index,
+		})
+	}
+
+	videoIndex := 0
+	audioIndex := 0
+	for _, media := range archiveMediaItems(article, contentHTML) {
+		sourceURL := archiveMediaSourceURL(media)
+		if sourceURL == "" {
+			continue
+		}
+		kind := archiveMediaKind(media)
+		kindIndex := videoIndex
+		if kind == ArchiveResourceKindAudio {
+			kindIndex = audioIndex
+			audioIndex++
+		} else {
+			videoIndex++
+		}
+		mediaID := archiveMediaID(media, sourceURL)
+		resourceKey := kind + ":" + archiveStableDigest(mediaID+"\x00"+sourceURL)
+		resources = append(resources, ArchiveResource{
+			Key:       resourceKey,
+			Kind:      kind,
+			Role:      ArchiveResourceRoleAttachment,
+			Name:      fmt.Sprintf("%s_%02d", kind, kindIndex+1),
+			MIMEType:  archiveMediaMIMEType(kind, sourceURL),
+			MediaID:   mediaID,
+			SourceURL: sourceURL,
+			SortOrder: archiveMediaSortOrder(kind, kindIndex),
 		})
 	}
 
@@ -318,6 +352,15 @@ func SanitizeArchiveMetadataURL(raw string) string {
 	return sanitizeArchiveMetadataURL(raw)
 }
 
+// SanitizeArchiveResourceURL applies the stricter media URL boundary to
+// signed video/audio URLs while preserving useful image format parameters.
+func SanitizeArchiveResourceURL(resource ArchiveResource) string {
+	if resource.Kind == ArchiveResourceKindVideo || resource.Kind == ArchiveResourceKindAudio {
+		return SanitizeCatalogMediaURL(resource.SourceURL)
+	}
+	return SanitizeArchiveMetadataURL(resource.SourceURL)
+}
+
 // SanitizeCatalogMediaURL removes the complete query string from short-lived
 // media URLs. Unlike article URLs, media URLs commonly carry opaque playback
 // signatures whose names are not stable enough for an allowlist.
@@ -346,7 +389,7 @@ func SanitizeArchivePlanForResponse(plan ArchivePlan) ArchivePlan {
 		resources := make([]ArchiveResource, len(plan.Resources))
 		copy(resources, plan.Resources)
 		for i := range resources {
-			resources[i].SourceURL = sanitizeArchiveMetadataURL(resources[i].SourceURL)
+			resources[i].SourceURL = SanitizeArchiveResourceURL(resources[i])
 			if resources[i].InlineBody != "" {
 				resources[i].InlineBody = sanitizeArchiveHTMLURLs(resources[i].InlineBody)
 			}
@@ -381,15 +424,38 @@ func sanitizeArchiveHTMLURLs(content string) string {
 
 func sanitizeArchiveHTMLNode(node *html.Node) {
 	if node.Type == html.ElementNode {
+		mediaElement := strings.EqualFold(node.Data, "video") ||
+			strings.EqualFold(node.Data, "audio") ||
+			strings.EqualFold(node.Data, "source") ||
+			strings.EqualFold(node.Data, "iframe") ||
+			strings.EqualFold(node.Data, "mp-common-mpaudio")
 		for i := range node.Attr {
-			switch strings.ToLower(node.Attr[i].Key) {
+			key := strings.ToLower(node.Attr[i].Key)
+			switch key {
 			case "src", "data-src", "href", "poster", "data-original", "data-url":
-				node.Attr[i].Val = sanitizeArchiveMetadataURL(node.Attr[i].Val)
+				if mediaElement && isArchiveMediaURLAttribute(key) {
+					node.Attr[i].Val = SanitizeCatalogMediaURL(node.Attr[i].Val)
+				} else {
+					node.Attr[i].Val = sanitizeArchiveMetadataURL(node.Attr[i].Val)
+				}
+			case "data-video-url", "data-play-url", "data-media-url", "data-audio-url":
+				if mediaElement {
+					node.Attr[i].Val = SanitizeCatalogMediaURL(node.Attr[i].Val)
+				}
 			}
 		}
 	}
 	for child := node.FirstChild; child != nil; child = child.NextSibling {
 		sanitizeArchiveHTMLNode(child)
+	}
+}
+
+func isArchiveMediaURLAttribute(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "src", "data-src", "href", "data-url", "data-video-url", "data-play-url", "data-media-url", "data-audio-url":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -434,6 +500,220 @@ func archiveImageURLs(contentHTML string) []string {
 	}
 	visit(document)
 	return urls
+}
+
+func archiveMediaItems(article ArticleItem, contentHTML string) []ArticleMedia {
+	items := make([]ArticleMedia, 0, len(article.Media)+3)
+	byIdentity := make(map[string]int)
+	appendMedia := func(candidate ArticleMedia) {
+		candidate.Type = strings.ToLower(strings.TrimSpace(candidate.Type))
+		candidate.VideoID = strings.TrimSpace(candidate.VideoID)
+		candidate.PlayURL = normalizeArchiveURL(candidate.PlayURL)
+		candidate.CoverURL = normalizeArchiveURL(candidate.CoverURL)
+		if candidate.Type == "" {
+			if candidate.AudioFileID > 0 && candidate.VideoID == "" && candidate.PlayURL == "" {
+				candidate.Type = ArchiveResourceKindAudio
+			} else {
+				candidate.Type = ArchiveResourceKindVideo
+			}
+		}
+		if candidate.Type != ArchiveResourceKindVideo && candidate.Type != ArchiveResourceKindAudio {
+			return
+		}
+		if candidate.Type == ArchiveResourceKindAudio {
+			candidate.VideoID = ""
+			if candidate.AudioFileID <= 0 && candidate.PlayURL == "" {
+				return
+			}
+		} else if candidate.VideoID == "" && candidate.PlayURL == "" {
+			return
+		}
+		identity := candidate.Type + "|"
+		if candidate.Type == ArchiveResourceKindAudio && candidate.AudioFileID > 0 {
+			identity += strconv.Itoa(candidate.AudioFileID)
+		} else if candidate.VideoID != "" {
+			identity += candidate.VideoID
+		} else {
+			identity += candidate.PlayURL
+		}
+		if existing, ok := byIdentity[identity]; ok {
+			items[existing] = mergeArchiveMedia(items[existing], candidate)
+			return
+		}
+		byIdentity[identity] = len(items)
+		items = append(items, candidate)
+	}
+
+	for _, media := range article.Media {
+		appendMedia(media)
+	}
+	if article.VideoID != "" || article.PlayURL != "" {
+		appendMedia(ArticleMedia{
+			Type:     ArchiveResourceKindVideo,
+			VideoID:  article.VideoID,
+			PlayURL:  article.PlayURL,
+			Duration: article.Duration,
+		})
+	}
+	if article.AudioFileID > 0 {
+		appendMedia(ArticleMedia{
+			Type:        ArchiveResourceKindAudio,
+			AudioFileID: article.AudioFileID,
+		})
+	}
+	for _, media := range archiveHTMLMediaItems(contentHTML) {
+		appendMedia(media)
+	}
+	return items
+}
+
+func mergeArchiveMedia(existing, candidate ArticleMedia) ArticleMedia {
+	if existing.VideoID == "" {
+		existing.VideoID = candidate.VideoID
+	}
+	if existing.AudioFileID <= 0 {
+		existing.AudioFileID = candidate.AudioFileID
+	}
+	if existing.PlayURL == "" {
+		existing.PlayURL = candidate.PlayURL
+	}
+	if existing.CoverURL == "" {
+		existing.CoverURL = candidate.CoverURL
+	}
+	if existing.Duration <= 0 {
+		existing.Duration = candidate.Duration
+	}
+	return existing
+}
+
+func archiveHTMLMediaItems(contentHTML string) []ArticleMedia {
+	document, err := html.Parse(strings.NewReader(contentHTML))
+	if err != nil {
+		return nil
+	}
+	items := make([]ArticleMedia, 0)
+	var visit func(*html.Node)
+	visit = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			tag := strings.ToLower(node.Data)
+			switch tag {
+			case "video", "audio":
+				candidate := ArticleMedia{Type: tag}
+				candidate.VideoID = firstArchiveAttribute(node, "data-vid", "vid", "data-mpvid", "mpvid", "data-video-id", "video-id")
+				candidate.AudioFileID = archiveIntAttribute(node, "voice_encode_fileid", "data-audio-fileid", "audio_fileid", "audioFileID")
+				candidate.PlayURL = firstArchiveAttribute(node, "data-play-url", "data-video-url", "data-media-url", "data-src", "src")
+				candidate.CoverURL = firstArchiveAttribute(node, "poster", "data-cover", "cover")
+				items = append(items, candidate)
+			case "source":
+				kind := ArchiveResourceKindVideo
+				if node.Parent != nil && strings.EqualFold(node.Parent.Data, "audio") {
+					kind = ArchiveResourceKindAudio
+				}
+				items = append(items, ArticleMedia{
+					Type:    kind,
+					PlayURL: firstArchiveAttribute(node, "src", "data-src", "data-play-url", "data-video-url", "data-media-url", "data-audio-url"),
+				})
+			case "iframe":
+				className := strings.Fields(strings.ToLower(firstArchiveAttribute(node, "class")))
+				isVideoIframe := false
+				for _, class := range className {
+					if class == "video_iframe" {
+						isVideoIframe = true
+						break
+					}
+				}
+				if !isVideoIframe {
+					isVideoIframe = firstArchiveAttribute(node, "data-vid", "vid", "data-mpvid", "mpvid", "data-video-id", "video-id", "data-play-url", "data-video-url", "data-media-url") != ""
+				}
+				if isVideoIframe {
+					items = append(items, ArticleMedia{
+						Type:     ArchiveResourceKindVideo,
+						VideoID:  firstArchiveAttribute(node, "data-vid", "vid", "data-mpvid", "mpvid", "data-video-id", "video-id"),
+						PlayURL:  firstArchiveAttribute(node, "data-play-url", "data-video-url", "data-media-url", "src"),
+						CoverURL: firstArchiveAttribute(node, "poster", "data-cover", "cover"),
+					})
+				}
+			case "mp-common-mpaudio":
+				items = append(items, ArticleMedia{
+					Type:        ArchiveResourceKindAudio,
+					AudioFileID: archiveIntAttribute(node, "voice_encode_fileid", "data-audio-fileid", "audio_fileid", "audioFileID"),
+					PlayURL:     firstArchiveAttribute(node, "data-play-url", "data-audio-url", "data-url", "src"),
+				})
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(document)
+	return items
+}
+
+func firstArchiveAttribute(node *html.Node, keys ...string) string {
+	for _, key := range keys {
+		if value := archiveAttribute(node, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func archiveIntAttribute(node *html.Node, keys ...string) int {
+	value := firstArchiveAttribute(node, keys...)
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return parsed
+}
+
+func archiveMediaKind(media ArticleMedia) string {
+	if strings.EqualFold(strings.TrimSpace(media.Type), ArchiveResourceKindAudio) ||
+		(media.AudioFileID > 0 && media.VideoID == "" && media.PlayURL == "") {
+		return ArchiveResourceKindAudio
+	}
+	return ArchiveResourceKindVideo
+}
+
+func archiveMediaSourceURL(media ArticleMedia) string {
+	kind := archiveMediaKind(media)
+	if sourceURL := normalizeArchiveURL(media.PlayURL); sourceURL != "" {
+		return sourceURL
+	}
+	if kind == ArchiveResourceKindAudio && media.AudioFileID > 0 {
+		return fmt.Sprintf("https://res.wx.qq.com/voice/getvoice?mediaid=%d", media.AudioFileID)
+	}
+	return ""
+}
+
+func archiveMediaID(media ArticleMedia, sourceURL string) string {
+	if archiveMediaKind(media) == ArchiveResourceKindAudio && media.AudioFileID > 0 {
+		return strconv.Itoa(media.AudioFileID)
+	}
+	if media.VideoID != "" {
+		return media.VideoID
+	}
+	return archiveStableDigest(sourceURL)
+}
+
+func archiveMediaMIMEType(kind, sourceURL string) string {
+	if kind == ArchiveResourceKindAudio {
+		return "audio/mpeg"
+	}
+	if strings.HasSuffix(strings.ToLower(strings.Split(sourceURL, "?")[0]), ".webm") {
+		return "video/webm"
+	}
+	return "video/mp4"
+}
+
+func archiveMediaSortOrder(kind string, index int) int {
+	if kind == ArchiveResourceKindAudio {
+		return archiveAudioSortOrderBase + index
+	}
+	return archiveVideoSortOrderBase + index
 }
 
 func archiveAttribute(node *html.Node, key string) string {

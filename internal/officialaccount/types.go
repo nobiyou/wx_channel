@@ -105,6 +105,18 @@ type MessageItem struct {
 	CommonMsgInfo CommonMsgInfo  `json:"comm_msg_info"`
 }
 
+// ArticleMedia carries one embedded article media item from the page. It is
+// request-side metadata used by the archive downloader; catalog persistence
+// keeps only the sanitized article-level fields and downloaded asset rows.
+type ArticleMedia struct {
+	Type        string `json:"type,omitempty"`
+	VideoID     string `json:"video_id,omitempty"`
+	AudioFileID int    `json:"audio_fileid,omitempty"`
+	PlayURL     string `json:"play_url,omitempty"`
+	CoverURL    string `json:"cover_url,omitempty"`
+	Duration    int    `json:"duration,omitempty"`
+}
+
 type ArticleItem struct {
 	Title                  string `json:"title"`
 	Digest                 string `json:"digest"`
@@ -127,6 +139,7 @@ type ArticleItem struct {
 	Duration               int    `json:"duration,omitempty"`
 	AudioFileID            int    `json:"audio_fileid,omitempty"`
 	PlayURL                string `json:"play_url,omitempty"`
+	Media                  []ArticleMedia `json:"media,omitempty"`
 	MaliciousTitleReasonID int    `json:"malicious_title_reason_id,omitempty"`
 	MaliciousContentType   int    `json:"malicious_content_type,omitempty"`
 	DelFlag                int    `json:"del_flag,omitempty"`

@@ -123,6 +123,37 @@ func TestSanitizeArchivePlanForResponseRedactsMediaSignature(t *testing.T) {
 	}
 }
 
+func TestSanitizeArchivePlanForResponseRedactsEmbeddedMediaSignatures(t *testing.T) {
+	plan, err := BuildArticleArchivePlan("biz-media-list", ArticleItem{
+		Title:      "多媒体文章",
+		ContentURL: "https://mp.weixin.qq.com/s/media-list?mid=8&idx=1",
+		Media: []ArticleMedia{
+			{Type: ArchiveResourceKindVideo, VideoID: "video-1", PlayURL: "https://vd.example.test/video.mp4?sig=video-secret&expires=123"},
+			{Type: ArchiveResourceKindAudio, AudioFileID: 23, PlayURL: "https://audio.example.test/audio.mp3?sig=audio-secret"},
+		},
+	}, `<div id="js_content"><iframe class="video_iframe" data-play-url="https://vd.example.test/video.mp4?sig=video-secret" data-mpvid="video-1"></iframe><mp-common-mpaudio voice_encode_fileid="23" data-audio-url="https://audio.example.test/audio.mp3?sig=audio-secret"></mp-common-mpaudio></div>`)
+	if err != nil {
+		t.Fatalf("build archive plan: %v", err)
+	}
+	responsePlan := SanitizeArchivePlanForResponse(plan)
+	if len(responsePlan.Resources) != 3 {
+		t.Fatalf("resource count = %d, want body, video, and audio", len(responsePlan.Resources))
+	}
+	responseText, err := json.Marshal(responsePlan)
+	if err != nil {
+		t.Fatalf("marshal response plan: %v", err)
+	}
+	for _, secret := range []string{"video-secret", "audio-secret"} {
+		if strings.Contains(string(responseText), secret) {
+			t.Fatalf("response plan leaked %q: %s", secret, responseText)
+		}
+	}
+	if !strings.Contains(responsePlan.Resources[0].InlineBody, `data-play-url="https://vd.example.test/video.mp4"`) ||
+		!strings.Contains(responsePlan.Resources[0].InlineBody, `data-audio-url="https://audio.example.test/audio.mp3"`) {
+		t.Fatalf("response body did not retain sanitized media attributes: %s", responsePlan.Resources[0].InlineBody)
+	}
+}
+
 func TestSanitizeArchiveMetadataURLRemovesShortLivedCredentials(t *testing.T) {
 	raw := "https://mmbiz.qpic.cn/image.png?wx_fmt=png&key=secret-key&appmsg_token=secret-token&uin=secret-uin&pass_ticket=secret-ticket"
 	sanitized := SanitizeArchiveMetadataURL(raw)

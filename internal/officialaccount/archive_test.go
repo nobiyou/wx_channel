@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildArticleArchivePlanBuildsHTMLImagesAndRelations(t *testing.T) {
@@ -67,8 +68,8 @@ func TestBuildArticleArchivePlanBuildsHTMLImagesAndRelations(t *testing.T) {
 		t.Fatalf("article media metadata was not retained in archive plan: %+v", plan.Content)
 	}
 
-	if len(plan.Resources) != 3 {
-		t.Fatalf("resource count = %d, want 3", len(plan.Resources))
+	if len(plan.Resources) != 5 {
+		t.Fatalf("resource count = %d, want body, two images, video, and audio", len(plan.Resources))
 	}
 	body := plan.Resources[0]
 	if body.Key != "body:html" || body.Kind != ArchiveResourceKindHTML || body.Role != ArchiveResourceRoleArticleBody {
@@ -100,6 +101,14 @@ func TestBuildArticleArchivePlanBuildsHTMLImagesAndRelations(t *testing.T) {
 			t.Fatalf("unexpected image resource %d identity/order: %+v", i, resource)
 		}
 	}
+	video := plan.Resources[3]
+	if video.Kind != ArchiveResourceKindVideo || video.SourceURL != article.PlayURL || video.MediaID == "" || video.SortOrder != archiveVideoSortOrderBase {
+		t.Fatalf("unexpected video resource: %+v", video)
+	}
+	audio := plan.Resources[4]
+	if audio.Kind != ArchiveResourceKindAudio || audio.MediaID != "23" || audio.SourceURL != "https://res.wx.qq.com/voice/getvoice?mediaid=23" || audio.SortOrder != archiveAudioSortOrderBase {
+		t.Fatalf("unexpected audio resource: %+v", audio)
+	}
 
 	if len(plan.Relations) != len(plan.Resources) {
 		t.Fatalf("relation count = %d, want %d", len(plan.Relations), len(plan.Resources))
@@ -111,6 +120,24 @@ func TestBuildArticleArchivePlanBuildsHTMLImagesAndRelations(t *testing.T) {
 		if relation.SortOrder != plan.Resources[i].SortOrder {
 			t.Fatalf("relation %d sort order = %d, want %d", i, relation.SortOrder, plan.Resources[i].SortOrder)
 		}
+	}
+}
+
+func TestBuildArticleArchivePlanIgnoresGenericIframes(t *testing.T) {
+	pageHTML := `<div id="js_content"><iframe src="https://example.test/embed/ad"></iframe><iframe class="video_iframe" data-play-url="https://vd.example.test/video.mp4"></iframe></div>`
+
+	plan, err := BuildArticleArchivePlan("biz-iframe", ArticleItem{
+		Title:      "嵌入内容",
+		ContentURL: "https://mp.weixin.qq.com/s/iframe-article",
+	}, pageHTML)
+	if err != nil {
+		t.Fatalf("BuildArticleArchivePlan() error = %v", err)
+	}
+	if len(plan.Resources) != 2 {
+		t.Fatalf("resource count = %d, want body plus one video", len(plan.Resources))
+	}
+	if plan.Resources[1].Kind != ArchiveResourceKindVideo || plan.Resources[1].SourceURL != "https://vd.example.test/video.mp4" {
+		t.Fatalf("unexpected video resource: %+v", plan.Resources[1])
 	}
 }
 
@@ -149,6 +176,27 @@ func TestEnsureArticleArchiveRecordRetainsMediaMetadata(t *testing.T) {
 	if record.Duration != 42 || record.AudioFileID != 23 || record.PlayURL != "https://vd.example.test/video.mp4" ||
 		record.Subtype != 7 || record.CopyrightStat != 1 || record.Mid != "mid-archive-media" || record.Idx != 2 {
 		t.Fatalf("archive record lost media metadata: %+v", record)
+	}
+}
+
+func TestArticleRecordFromItemSanitizesEmbeddedMediaMetadata(t *testing.T) {
+	record, ok := ArticleRecordFromItem("biz-media-metadata", ArticleItem{
+		Title:      "媒体元数据",
+		ContentURL: "https://mp.weixin.qq.com/s/media-metadata",
+		Media: []ArticleMedia{
+			{Type: ArchiveResourceKindVideo, VideoID: "video-1", PlayURL: "https://vd.example.test/video.mp4?sig=video-secret&token=token-secret", CoverURL: "https://mmbiz.qpic.cn/cover.jpg?wx_fmt=jpeg&sig=cover-secret"},
+		},
+	}, time.Unix(1720000000, 0))
+	if !ok {
+		t.Fatal("ArticleRecordFromItem() did not create a record")
+	}
+	for _, secret := range []string{"video-secret", "token-secret", "cover-secret"} {
+		if strings.Contains(record.RawMetadata, secret) {
+			t.Fatalf("raw metadata leaked %q: %s", secret, record.RawMetadata)
+		}
+	}
+	if !strings.Contains(record.RawMetadata, "video.mp4") || !strings.Contains(record.RawMetadata, "video-1") {
+		t.Fatalf("raw metadata lost stable media fields: %s", record.RawMetadata)
 	}
 }
 

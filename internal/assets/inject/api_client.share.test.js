@@ -113,6 +113,11 @@ function assert(condition, message) {
 }
 
 async function main() {
+  const strictEnv = loadAPIClientModule();
+  assertEqual(strictEnv.api.isSharedFeedURL('https://weixin.qq.com/sph/A1b2C3d4/'), true, 'share URL validation should accept a trailing slash');
+  assertEqual(strictEnv.api.isSharedFeedURL('https://evil.example/weixin.qq.com/sph/A1b2C3d4'), false, 'share URL validation should reject lookalike hosts');
+  assertEqual(strictEnv.api.isSharedFeedURL('https://weixin.qq.com/sph/A1b2C3d4/extra'), false, 'share URL validation should reject extra path segments');
+
   const shareEnv = loadAPIClientModule();
   const sharePayload = await shareEnv.api.buildFeedProfilePayload({
     url: 'https://weixin.qq.com/sph/A1b2C3d4',

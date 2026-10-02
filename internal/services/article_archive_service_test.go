@@ -112,6 +112,57 @@ func TestArticleArchiveDownloadPersistsLocalizedHTMLAndManifest(t *testing.T) {
 	}
 }
 
+func TestArticleArchiveDownloadPersistsVideoAndAudioAssets(t *testing.T) {
+	videoURL := "https://vd.example.test/video.mp4?sig=video-secret"
+	audioURL := "https://audio.example.test/audio.mp3?sig=audio-secret"
+	plan, err := officialaccount.BuildArticleArchivePlan("biz-media", officialaccount.ArticleItem{
+		Title:      "多媒体归档",
+		ContentURL: "https://mp.weixin.qq.com/s/article-media",
+		Media: []officialaccount.ArticleMedia{
+			{Type: officialaccount.ArchiveResourceKindVideo, VideoID: "video-1", PlayURL: videoURL},
+			{Type: officialaccount.ArchiveResourceKindAudio, AudioFileID: 23, PlayURL: audioURL},
+		},
+	}, `<div id="js_content"><p>正文</p><iframe class="video_iframe" data-mpvid="video-1"></iframe><mp-common-mpaudio voice_encode_fileid="23"></mp-common-mpaudio></div>`)
+	if err != nil {
+		t.Fatalf("build archive plan: %v", err)
+	}
+
+	downloader := &fakeArchiveDownloader{failed: map[string]error{}}
+	root := t.TempDir()
+	service := NewArticleArchiveDownloadService(downloader)
+	result, err := service.Download(context.Background(), root, plan, nil, false)
+	if err != nil {
+		t.Fatalf("download archive: %v", err)
+	}
+	if result.Downloaded != 2 || result.Failed != 0 || len(result.Files) != 2 {
+		t.Fatalf("unexpected media download result: %+v", result)
+	}
+
+	htmlData, err := os.ReadFile(result.HTMLPath)
+	if err != nil {
+		t.Fatalf("read localized media HTML: %v", err)
+	}
+	htmlText := string(htmlData)
+	if !strings.Contains(htmlText, `<video src="assets/video_01.mp4" controls="controls"></video>`) ||
+		!strings.Contains(htmlText, `<audio src="assets/audio_01.mp3" controls="controls"></audio>`) {
+		t.Fatalf("media nodes were not localized: %s", htmlText)
+	}
+	if strings.Contains(htmlText, "video-secret") || strings.Contains(htmlText, "audio-secret") {
+		t.Fatalf("localized HTML leaked media signatures: %s", htmlText)
+	}
+
+	manifestData, err := os.ReadFile(result.ManifestPath)
+	if err != nil {
+		t.Fatalf("read media manifest: %v", err)
+	}
+	manifestText := string(manifestData)
+	for _, secret := range []string{"video-secret", "audio-secret"} {
+		if strings.Contains(manifestText, secret) {
+			t.Fatalf("media manifest leaked %q: %s", secret, manifestText)
+		}
+	}
+}
+
 func TestArticleArchiveDownloadKeepsFailedImagesRemoteAndSkipsExisting(t *testing.T) {
 	plan, err := officialaccount.BuildArticleArchivePlan("biz-2", officialaccount.ArticleItem{
 		Title:      "部分成功",

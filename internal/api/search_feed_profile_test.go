@@ -21,7 +21,9 @@ func TestIsSharedFeedURL(t *testing.T) {
 		want bool
 	}{
 		{name: "weixin sph short link", raw: "https://weixin.qq.com/sph/A1b2C3d4", want: true},
+		{name: "weixin sph optional trailing slash", raw: "https://weixin.qq.com/sph/A1b2C3d4/", want: true},
 		{name: "channels preview share link", raw: "https://channels.weixin.qq.com/finder-preview/pages/sph?id=A1b2C3d4", want: true},
+		{name: "channels preview optional trailing slash", raw: "https://channels.weixin.qq.com/finder-preview/pages/sph/?id=A1b2C3d4", want: true},
 		{name: "escaped share link", raw: "https%3A%2F%2Fchannels.weixin.qq.com%2Ffinder-preview%2Fpages%2Fsph%3Fid%3DA1b2C3d4", want: true},
 		{name: "normal feed url", raw: "https://channels.weixin.qq.com/web/pages/feed?feed_id=finder_123&oid=Zm9v&nid=YmFy", want: false},
 		{name: "empty", raw: "", want: false},
@@ -35,6 +37,13 @@ func TestIsSharedFeedURL(t *testing.T) {
 				t.Fatalf("isSharedFeedURL(%q) = %t, want %t", test.raw, got, test.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeFeedProfileURLPreservesLiteralPlus(t *testing.T) {
+	raw := "https://channels.weixin.qq.com/finder-preview/pages/sph?id=A1b2C3d4&sig=a+b"
+	if got := normalizeFeedProfileURL(raw); got != raw {
+		t.Fatalf("normalizeFeedProfileURL(%q) = %q, want literal plus preserved", raw, got)
 	}
 }
 

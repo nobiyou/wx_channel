@@ -149,6 +149,58 @@ func TestShareResolveErrorCodeMapsHubTimeout(t *testing.T) {
 	}
 }
 
+func TestBuildPageMediaURLMergesWeChatTokenVariants(t *testing.T) {
+	tests := []struct {
+		name  string
+		media map[string]interface{}
+		want  string
+	}{
+		{
+			name: "existing query and ampersand token",
+			media: map[string]interface{}{
+				"url":      "https://video.example.test/file?encfilekey=abc",
+				"urlToken": "&token=def",
+			},
+			want: "https://video.example.test/file?encfilekey=abc&token=def",
+		},
+		{
+			name: "snake case token",
+			media: map[string]interface{}{
+				"url":       "https://video.example.test/file",
+				"url_token": "?token=def",
+			},
+			want: "https://video.example.test/file?token=def",
+		},
+		{
+			name: "complete token URL",
+			media: map[string]interface{}{
+				"url":      "https://video.example.test/base",
+				"urlToken": "https://cdn.example.test/file.mp4?token=def",
+			},
+			want: "https://cdn.example.test/file.mp4?token=def",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := buildPageMediaURL(test.media); got != test.want {
+				t.Fatalf("buildPageMediaURL(%v) = %q, want %q", test.media, got, test.want)
+			}
+		})
+	}
+}
+
+func TestBuildResolvedSharedFeedItemSkipsMediaWithoutDownloadURL(t *testing.T) {
+	raw := []byte(`{"errCode":0,"data":{"object":{"id":"feed-1","nickname":"author","objectDesc":{"description":"title","media":[{"thumbUrl":"https://cdn.example.test/cover.jpg"},{"url":"https://video.example.test/feed-1.mp4?encfilekey=key&token=tok"}]}}}}`)
+	item, err := buildResolvedSharedFeedItemFromPage("https://weixin.qq.com/sph/feed-1", raw)
+	if err != nil {
+		t.Fatalf("buildResolvedSharedFeedItemFromPage() error = %v", err)
+	}
+	if item.URL != "https://video.example.test/feed-1.mp4?encfilekey=key&token=tok" {
+		t.Fatalf("resolved media URL = %q", item.URL)
+	}
+}
+
 func TestIsSharedFeedURLRejectsLookalikes(t *testing.T) {
 	for _, rawURL := range []string{
 		"https://evil.example/weixin.qq.com/sph/A",

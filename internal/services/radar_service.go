@@ -262,13 +262,24 @@ func (s *RadarService) processTarget(target database.RadarTarget) {
 				if t, ok := descMap["description"].(string); ok {
 					title = t
 				}
-				// 遍历媒体列表，取第一条视频媒体
+				// 遍历媒体列表，优先取真正带下载地址的视频媒体。
 				if mediaList, ok := descMap["media"].([]interface{}); ok && len(mediaList) > 0 {
-					if m, ok := mediaList[0].(map[string]interface{}); ok {
+					for _, mediaItem := range mediaList {
+						m, ok := mediaItem.(map[string]interface{})
+						if !ok {
+							continue
+						}
 						rawURL, _ := m["url"].(string)
 						urlToken, _ := m["urlToken"].(string)
-						if rawURL != "" {
-							videoURL = rawURL + urlToken
+						if urlToken == "" {
+							urlToken, _ = m["url_token"].(string)
+						}
+						candidateURL := utils.JoinURLToken(rawURL, urlToken)
+						if videoURL == "" && candidateURL != "" {
+							videoURL = candidateURL
+						}
+						if videoURL == "" {
+							continue
 						}
 						coverURL, _ = m["thumbUrl"].(string)
 						decodeKey, _ = m["decodeKey"].(string)
@@ -281,6 +292,7 @@ func (s *RadarService) processTarget(target database.RadarTarget) {
 						if r, ok := m["videoResolution"].(string); ok {
 							resolution = r
 						}
+						break
 					}
 				}
 			}

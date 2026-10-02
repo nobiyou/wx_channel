@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 
 	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/utils"
@@ -149,8 +150,8 @@ func (s *ArticleArchiveDownloadService) acquireArticleLock(key string) func() {
 }
 
 // Download persists an article archive under root. It intentionally does not
-// touch video records or the video queue; only image resources are delegated
-// to Gopeed.
+// touch video records or the video queue; article media remains an asset of
+// the article archive and is delegated to the existing Gopeed downloader.
 func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root string, plan officialaccount.ArchivePlan, headers map[string]string, force bool) (*ArticleArchiveDownloadResult, error) {
 	if s == nil || s.downloader == nil {
 		return nil, errors.New("article archive downloader is unavailable")
@@ -212,6 +213,7 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 	result.RelativeManifestPath = archiveRelativePath(root, manifestPath)
 
 	localBySource := make(map[string]string)
+	localByMediaID := make(map[string]string)
 	manifestFiles := make([]articleArchiveManifestFile, 0, len(plan.Resources))
 	for _, resource := range plan.Resources {
 		if resource.Key == body.Key {
@@ -221,9 +223,9 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 			ResourceKey: resource.Key,
 			Kind:        resource.Kind,
 			Role:        resource.Role,
-			SourceURL:   officialaccount.SanitizeArchiveMetadataURL(resource.SourceURL),
+			SourceURL:   officialaccount.SanitizeArchiveResourceURL(resource),
 		}
-		if resource.Kind != officialaccount.ArchiveResourceKindImage {
+		if !isArchiveDownloadableKind(resource.Kind) {
 			fileResult.Status = "failed"
 			fileResult.Error = "unsupported archive resource kind"
 			result.Failed++
@@ -233,14 +235,14 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 		}
 		if strings.TrimSpace(resource.SourceURL) == "" {
 			fileResult.Status = "failed"
-			fileResult.Error = "image source URL is empty"
+			fileResult.Error = "archive resource source URL is empty"
 			result.Failed++
 			result.Files = append(result.Files, fileResult)
 			manifestFiles = append(manifestFiles, manifestFileFromResult(fileResult))
 			continue
 		}
 
-		fileName := archiveImageFileName(resource)
+		fileName := archiveResourceFileName(resource)
 		targetPath := filepath.Join(assetsDir, fileName)
 		fileResult.Path = targetPath
 		fileResult.RelativePath = archiveRelativePath(archiveDir, targetPath)
@@ -257,6 +259,7 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 			fileResult.Status = "skipped"
 			result.Skipped++
 			localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = filepath.ToSlash(fileResult.RelativePath)
+			setArchiveMediaLocalPath(localByMediaID, resource, filepath.ToSlash(fileResult.RelativePath))
 			result.Files = append(result.Files, fileResult)
 			manifestFiles = append(manifestFiles, manifestFileFromResult(fileResult))
 			continue
@@ -273,7 +276,7 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 			}
 		}
 
-		if err := s.downloadImage(ctx, archiveDir, targetPath, resource.SourceURL, headers); err != nil {
+		if err := s.downloadResource(ctx, archiveDir, targetPath, resource.SourceURL, headers); err != nil {
 			if ctx.Err() != nil {
 				return result, ctx.Err()
 			}
@@ -281,7 +284,9 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 			fileResult.Error = err.Error()
 			// Keep the exported HTML usable without persisting a short-lived
 			// credential in the fallback URL.
-			localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = officialaccount.SanitizeArchiveMetadataURL(resource.SourceURL)
+			fallbackURL := officialaccount.SanitizeArchiveResourceURL(resource)
+			localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = fallbackURL
+			setArchiveMediaLocalPath(localByMediaID, resource, fallbackURL)
 			result.Failed++
 		} else {
 			fileResult.SHA256, fileResult.Size, err = archiveFileMetadata(targetPath)
@@ -289,19 +294,22 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 				_ = removeArchiveFile(targetPath)
 				fileResult.Status = "failed"
 				fileResult.Error = fmt.Errorf("verify downloaded archive file: %w", err).Error()
-				localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = officialaccount.SanitizeArchiveMetadataURL(resource.SourceURL)
+				fallbackURL := officialaccount.SanitizeArchiveResourceURL(resource)
+				localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = fallbackURL
+				setArchiveMediaLocalPath(localByMediaID, resource, fallbackURL)
 				result.Failed++
 			} else {
 				fileResult.Status = "downloaded"
 				result.Downloaded++
 				localBySource[normalizeArchiveAssetURL(resource.SourceURL)] = filepath.ToSlash(fileResult.RelativePath)
+				setArchiveMediaLocalPath(localByMediaID, resource, filepath.ToSlash(fileResult.RelativePath))
 			}
 		}
 		result.Files = append(result.Files, fileResult)
 		manifestFiles = append(manifestFiles, manifestFileFromResult(fileResult))
 	}
 
-	localizedHTML, err := rewriteArchiveHTML(body.InlineBody, localBySource)
+	localizedHTML, err := rewriteArchiveHTML(body.InlineBody, localBySource, localByMediaID)
 	if err != nil {
 		return result, fmt.Errorf("rewrite article HTML: %w", err)
 	}
@@ -320,10 +328,15 @@ func (s *ArticleArchiveDownloadService) Download(ctx context.Context, root strin
 		// The body is already persisted as index.html; avoid duplicating the full
 		// article in the portable manifest.
 		manifestResources[i].InlineBody = ""
-		manifestResources[i].SourceURL = officialaccount.SanitizeArchiveMetadataURL(manifestResources[i].SourceURL)
+		manifestResources[i].SourceURL = officialaccount.SanitizeArchiveResourceURL(manifestResources[i])
 	}
+	manifestContent := plan.Content
+	manifestContent.URL = officialaccount.SanitizeArchiveMetadataURL(manifestContent.URL)
+	manifestContent.SourceURL = officialaccount.SanitizeArchiveMetadataURL(manifestContent.SourceURL)
+	manifestContent.CoverURL = officialaccount.SanitizeArchiveMetadataURL(manifestContent.CoverURL)
+	manifestContent.PlayURL = officialaccount.SanitizeCatalogMediaURL(manifestContent.PlayURL)
 	manifest := articleArchiveManifest{
-		Content:   plan.Content,
+		Content:   manifestContent,
 		Resources: manifestResources,
 		Relations: append([]officialaccount.ArchiveRelation(nil), plan.Relations...),
 		Files:     manifestFiles,
@@ -353,14 +366,14 @@ func articleArchiveBodyResource(plan officialaccount.ArchivePlan) (officialaccou
 	return officialaccount.ArchiveResource{}, errors.New("article archive HTML resource is missing")
 }
 
-func (s *ArticleArchiveDownloadService) downloadImage(ctx context.Context, archiveDir, targetPath, sourceURL string, headers map[string]string) error {
+func (s *ArticleArchiveDownloadService) downloadResource(ctx context.Context, archiveDir, targetPath, sourceURL string, headers map[string]string) error {
 	tempPath := targetPath + ".part"
 	_ = removeArchiveFile(tempPath)
 	actualPath, err := s.downloader.DownloadSync(ctx, sourceURL, tempPath, s.archiveConnections(), cloneArchiveHeaders(headers), nil)
 	if err != nil {
 		cleanupArchiveDownloadPath(archiveDir, actualPath)
 		cleanupArchiveDownloadPath(archiveDir, tempPath)
-		return fmt.Errorf("download image %s: %w", officialaccount.SanitizeArchiveMetadataURL(sourceURL), err)
+		return fmt.Errorf("download archive resource %s: %w", officialaccount.SanitizeArchiveMetadataURL(sourceURL), err)
 	}
 	if actualPath == "" {
 		actualPath = tempPath
@@ -372,16 +385,16 @@ func (s *ArticleArchiveDownloadService) downloadImage(ctx context.Context, archi
 		if err := replaceArchiveFile(actualPath, tempPath); err != nil {
 			cleanupArchiveDownloadPath(archiveDir, actualPath)
 			cleanupArchiveDownloadPath(archiveDir, tempPath)
-			return fmt.Errorf("stage downloaded image: %w", err)
+			return fmt.Errorf("stage downloaded archive resource: %w", err)
 		}
 	}
 	if !isNonEmptyArchiveFile(tempPath) {
 		cleanupArchiveDownloadPath(archiveDir, tempPath)
-		return errors.New("downloaded image is empty")
+		return errors.New("downloaded archive resource is empty")
 	}
 	if err := replaceArchiveFile(tempPath, targetPath); err != nil {
 		cleanupArchiveDownloadPath(archiveDir, tempPath)
-		return fmt.Errorf("finalize downloaded image: %w", err)
+		return fmt.Errorf("finalize downloaded archive resource: %w", err)
 	}
 	return nil
 }
@@ -403,6 +416,66 @@ func archiveImageFileName(resource officialaccount.ArchiveResource) string {
 		return base + ext
 	}
 	return base + ".jpg"
+}
+
+func archiveResourceFileName(resource officialaccount.ArchiveResource) string {
+	switch resource.Kind {
+	case officialaccount.ArchiveResourceKindImage:
+		return archiveImageFileName(resource)
+	case officialaccount.ArchiveResourceKindVideo:
+		base := archivePathSegment(resource.Name, "video")
+		if ext := archiveMediaExtension(resource.SourceURL, true); ext != "" {
+			return base + ext
+		}
+		return base + ".mp4"
+	case officialaccount.ArchiveResourceKindAudio:
+		base := archivePathSegment(resource.Name, "audio")
+		if ext := archiveMediaExtension(resource.SourceURL, false); ext != "" {
+			return base + ext
+		}
+		return base + ".mp3"
+	default:
+		return archivePathSegment(resource.Name, "asset")
+	}
+}
+
+func archiveMediaExtension(rawURL string, video bool) string {
+	parsed, err := url.Parse(normalizeArchiveAssetURL(rawURL))
+	if err != nil {
+		return ""
+	}
+	ext := strings.ToLower(filepath.Ext(parsed.Path))
+	if video {
+		switch ext {
+		case ".mp4", ".webm", ".mov", ".m4v":
+			return ext
+		}
+		return ""
+	}
+	switch ext {
+	case ".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga":
+		return ext
+	default:
+		return ""
+	}
+}
+
+func isArchiveDownloadableKind(kind string) bool {
+	switch kind {
+	case officialaccount.ArchiveResourceKindImage,
+		officialaccount.ArchiveResourceKindVideo,
+		officialaccount.ArchiveResourceKindAudio:
+		return true
+	default:
+		return false
+	}
+}
+
+func setArchiveMediaLocalPath(paths map[string]string, resource officialaccount.ArchiveResource, localPath string) {
+	if resource.MediaID == "" || localPath == "" {
+		return
+	}
+	paths[resource.Kind+"\x00"+resource.MediaID] = localPath
 }
 
 func archiveImageExtension(rawURL string) string {
@@ -443,21 +516,37 @@ func normalizeArchiveAssetURL(raw string) string {
 	return normalized
 }
 
-func rewriteArchiveHTML(content string, localBySource map[string]string) (string, error) {
+func rewriteArchiveHTML(content string, localBySource, localByMediaID map[string]string) (string, error) {
 	document, err := html.Parse(strings.NewReader(content))
 	if err != nil {
 		return "", err
 	}
 	var visit func(*html.Node)
 	visit = func(node *html.Node) {
-		if node.Type == html.ElementNode && strings.EqualFold(node.Data, "img") {
-			source := archiveNodeAttribute(node, "src")
-			if source == "" {
-				source = archiveNodeAttribute(node, "data-src")
+		if node.Type == html.ElementNode {
+			tag := strings.ToLower(node.Data)
+			source := archiveHTMLMediaSource(node)
+			localPath, ok := localBySource[normalizeArchiveAssetURL(source)]
+			if !ok {
+				mediaID := archiveHTMLMediaID(node)
+				if mediaID != "" {
+					localPath, ok = localByMediaID[archiveHTMLMediaKind(node)+"\x00"+mediaID]
+				}
 			}
-			if localPath, ok := localBySource[normalizeArchiveAssetURL(source)]; ok {
-				setArchiveNodeAttribute(node, "src", localPath)
-				removeArchiveNodeAttribute(node, "data-src")
+			if ok {
+				switch tag {
+				case "img":
+					setArchiveNodeAttribute(node, "src", localPath)
+					removeArchiveNodeAttribute(node, "data-src")
+				case "iframe", "mp-common-mpaudio":
+					replaceArchiveMediaNode(node, archiveHTMLMediaKind(node), localPath)
+				case "video", "audio":
+					setArchiveNodeAttribute(node, "src", localPath)
+					setArchiveNodeAttribute(node, "controls", "controls")
+					removeArchiveNodeAttribute(node, "data-src")
+				case "source":
+					setArchiveNodeAttribute(node, "src", localPath)
+				}
 			}
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
@@ -477,6 +566,68 @@ func rewriteArchiveHTML(content string, localBySource map[string]string) (string
 		}
 	}
 	return strings.TrimSpace(output.String()), nil
+}
+
+func archiveHTMLMediaSource(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	if strings.EqualFold(node.Data, "iframe") {
+		return firstArchiveNodeAttribute(node, "data-play-url", "data-video-url", "data-media-url", "src")
+	}
+	return firstArchiveNodeAttribute(node, "src", "data-src", "data-play-url", "data-video-url", "data-media-url", "data-audio-url")
+}
+
+func archiveHTMLMediaID(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	if strings.EqualFold(node.Data, "audio") || strings.EqualFold(node.Data, "mp-common-mpaudio") {
+		return firstArchiveNodeAttribute(node, "voice_encode_fileid", "data-audio-fileid", "audio_fileid", "audioFileID")
+	}
+	return firstArchiveNodeAttribute(node, "data-vid", "vid", "data-mpvid", "mpvid", "data-video-id", "video-id", "data-media-id", "mediaid")
+}
+
+func archiveHTMLMediaKind(node *html.Node) string {
+	if node != nil && (strings.EqualFold(node.Data, "audio") || strings.EqualFold(node.Data, "mp-common-mpaudio")) {
+		return officialaccount.ArchiveResourceKindAudio
+	}
+	return officialaccount.ArchiveResourceKindVideo
+}
+
+func firstArchiveNodeAttribute(node *html.Node, keys ...string) string {
+	for _, key := range keys {
+		if value := archiveNodeAttribute(node, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func replaceArchiveMediaNode(node *html.Node, tag, source string) {
+	poster := firstArchiveNodeAttribute(node, "poster", "data-cover", "cover")
+	node.Data = tag
+	if tag == officialaccount.ArchiveResourceKindAudio {
+		node.DataAtom = atom.Audio
+	} else {
+		node.DataAtom = atom.Video
+	}
+	node.Attr = []html.Attribute{
+		{Key: "src", Val: source},
+		{Key: "controls", Val: "controls"},
+	}
+	if poster != "" && tag == officialaccount.ArchiveResourceKindVideo {
+		node.Attr = append(node.Attr, html.Attribute{Key: "poster", Val: poster})
+	}
+	for child := node.FirstChild; child != nil; {
+		next := child.NextSibling
+		child.Parent = nil
+		child.PrevSibling = nil
+		child.NextSibling = nil
+		child = next
+	}
+	node.FirstChild = nil
+	node.LastChild = nil
 }
 
 func findArchiveHTMLNode(node *html.Node, name string) *html.Node {
@@ -679,7 +830,7 @@ func articleArchiveAssets(plan officialaccount.ArchivePlan, body officialaccount
 			ResourceKey: resource.Key,
 			Kind:        resource.Kind,
 			Role:        resource.Role,
-			SourceURL:   officialaccount.SanitizeArchiveMetadataURL(resource.SourceURL),
+			SourceURL:   officialaccount.SanitizeArchiveResourceURL(resource),
 			LocalPath:   localPath,
 			SHA256:      file.SHA256,
 			Size:        file.Size,

@@ -568,7 +568,7 @@ WXE.onUserLiveReplayLoaded(function (feeds) {
       title: window.__wx_channels_profile_collector.cleanHtmlTags(item.objectDesc.description || ''),
       coverUrl: media ? (media.thumbUrl || media.coverUrl || '') : '',
       thumbUrl: media ? (media.thumbUrl || '') : '',
-      url: media ? (media.url + (media.urlToken || '')) : '',
+      url: media ? __wx_channels_join_video_url_parts__(media.url, media.urlToken || media.url_token || media.urltoken) : '',
       originalUrl: media ? (media.url || '') : '',
       urlToken: media ? (media.urlToken || '') : '',
       size: media ? (media.fileSize || 0) : 0,

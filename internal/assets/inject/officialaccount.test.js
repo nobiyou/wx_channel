@@ -782,6 +782,12 @@ test('downloads the visible article through the archive API', async () => {
             duration_ms: 125000,
             url: 'https://vd.example.test/video.mp4?token=short-lived'
           }]
+        }, {
+          video_id: 'video-archive-2',
+          mp_video_trans_info: [{
+            duration_ms: 45000,
+            url: 'https://vd.example.test/video-2.mp4?sig=short-lived-2'
+          }]
         }]
       }
     },
@@ -814,6 +820,24 @@ test('downloads the visible article through the archive API', async () => {
   assert.equal(request.article.duration, 125);
   assert.equal(request.article.audio_fileid, 17);
   assert.equal(request.article.play_url, 'https://vd.example.test/video.mp4?token=short-lived');
+  assert.deepEqual(request.article.media, [
+    {
+      type: 'video',
+      video_id: 'video-archive',
+      play_url: 'https://vd.example.test/video.mp4?token=short-lived',
+      duration: 125,
+    },
+    {
+      type: 'video',
+      video_id: 'video-archive-2',
+      play_url: 'https://vd.example.test/video-2.mp4?sig=short-lived-2',
+      duration: 45,
+    },
+    {
+      type: 'audio',
+      audio_fileid: 17,
+    },
+  ]);
   assert.equal(request.article.content_url, 'https://mp.weixin.qq.com/s/article-id?__biz=biz-archive&mid=9&idx=1');
   assert.match(request.html, /id="js_content"/);
   assert.match(request.html, /正文内容/);

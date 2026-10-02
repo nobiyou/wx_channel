@@ -60,8 +60,11 @@ window.__wx_api_client = {
 
     try {
       var u = new URL(decoded, window.location.origin);
-      return (u.hostname === 'weixin.qq.com' && u.pathname.indexOf('/sph/') >= 0) ||
-        (u.hostname === 'channels.weixin.qq.com' && u.pathname.indexOf('/finder-preview/pages/sph') >= 0);
+      var host = String(u.hostname || '').toLowerCase();
+      var path = u.pathname || '';
+      var sharedToken = /^[a-zA-Z0-9_-]+$/;
+      return (host === 'weixin.qq.com' && !u.search && !u.hash && /^\/sph\/[a-zA-Z0-9_-]+\/?$/.test(path)) ||
+        (host === 'channels.weixin.qq.com' && !u.hash && path.replace(/\/+$/, '') === '/finder-preview/pages/sph' && sharedToken.test(u.searchParams.get('id') || ''));
     } catch (err) {
       return decoded.indexOf('weixin.qq.com/sph/') >= 0 ||
         decoded.indexOf('channels.weixin.qq.com/finder-preview/pages/sph') >= 0;

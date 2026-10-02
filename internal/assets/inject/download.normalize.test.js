@@ -61,9 +61,25 @@ function assertEqual(actual, expected, message) {
   }
 }
 
-function main() {
+async function main() {
   const sandbox = loadDownloadModule();
   const normalize = sandbox.__wx_channels_normalize_video_download__;
+
+  assertEqual(
+    sandbox.__wx_channels_join_video_url_parts__('https://video.example.test/file', '&token=tok'),
+    'https://video.example.test/file?token=tok',
+    'URL token joining should add a question mark when the base has no query',
+  );
+  assertEqual(
+    sandbox.__wx_channels_join_video_url_parts__('https://video.example.test/file?encfilekey=abc', '%26token%3Dtok%2Bplus'),
+    'https://video.example.test/file?encfilekey=abc&token=tok%2Bplus',
+    'URL token joining should decode query structure without changing escaped signature bytes',
+  );
+  assertEqual(
+    sandbox.__wx_channels_join_video_url_parts__('https://video.example.test/file', 'https://cdn.example.test/file.mp4?token=tok'),
+    'https://cdn.example.test/file.mp4?token=tok',
+    'URL token joining should accept a complete replacement URL',
+  );
 
   const profile = {
     url: 'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&extg=10f0000&svrbypass=AAuL%2FQsF&svrnonce=1778655942',
@@ -81,8 +97,8 @@ function main() {
 
   assertEqual(
     sandbox.__wx_channels_has_true_original__(profile),
-    false,
-    'a source fileSize hint must not be treated as an original URL',
+    true,
+    'a signed base URL should be treated as an original-video candidate',
   );
 
   const availableProfile = Object.assign({}, profile, {
@@ -99,16 +115,23 @@ function main() {
   );
   assertEqual(
     sandbox.__wx_channels_primary_download_label__(availableProfile),
-    '最高可用画质 (xWT111)',
-    'primary label should disclose that the fallback is a rendition',
+    '原始视频',
+    'primary label should expose the original-video candidate',
   );
-  const batchFallback = sandbox.__wx_channels_normalize_batch_video_download__(availableProfile);
-  assertEqual(batchFallback.mode, 'specific', 'batch mode should fall back to a specific rendition');
+
+  const noOriginalProfile = Object.assign({}, availableProfile, {
+    url: '',
+    originalUrl: '',
+    urlToken: '',
+    media: Object.assign({}, availableProfile.media, { url: '', urlToken: '' }),
+  });
+  const batchFallback = sandbox.__wx_channels_normalize_batch_video_download__(noOriginalProfile);
+  assertEqual(batchFallback.mode, 'specific', 'batch mode should fall back when no URL is available');
   assertEqual(batchFallback.fileFormat, 'xWT111', 'batch fallback should use the highest available rendition');
   assertEqual(
     batchFallback.url,
-    profile.url + '&X-snsvideoflag=xWT111',
-    'batch fallback should append the selected rendition without losing signed parameters',
+    '',
+    'batch fallback without a source URL should not invent a download URL',
   );
 
   const trueOriginalProfile = Object.assign({}, profile, {
@@ -140,8 +163,8 @@ function main() {
   const original = normalize(profile, null);
   assertEqual(
     original.url,
-    profile.url,
-    'original mode should preserve the complete signed URL',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
+    'original mode should keep only the original-resource signature parameters',
   );
   assertEqual(original.mode, 'original', 'original mode should be preserved');
   assertEqual(original.useDirectDownload, true, 'original mode should use the page session first');
@@ -164,8 +187,8 @@ function main() {
   }, null);
   assertEqual(
     markedOriginal.url,
-    profile.url,
-    'original mode should remove the legacy marker before page-session download',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
+    'original mode should remove rendition parameters and the legacy marker',
   );
 
   const specific = normalize(profile, {
@@ -203,8 +226,8 @@ function main() {
   const recovered = normalize(compactPrimary, null);
   assertEqual(
     recovered.url,
-    profile.url,
-    'original mode should recover the more complete signed URL when profile.url is compact',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
+    'original mode should normalize a recovered signed URL to the original resource',
   );
 
   const recoveredSpecific = normalize(compactPrimary, {
@@ -217,6 +240,24 @@ function main() {
     specific.url,
     'specific mode should append the format to the recovered signed URL',
   );
+
+  let backendRequest = null;
+  sandbox.fetch = async function (url, options) {
+    backendRequest = JSON.parse(options.body);
+    return {
+      ok: true,
+      async json() { return { success: true }; },
+    };
+  };
+  await sandbox.__wx_channels_download_via_backend__(profile, 'video', specific);
+  assertEqual(
+    backendRequest.videoUrl,
+    specific.url,
+    'backend fallback should receive the normalized URL rather than profile.url',
+  );
 }
 
-main();
+main().catch(function (error) {
+  console.error(error);
+  process.exitCode = 1;
+});

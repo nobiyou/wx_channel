@@ -1431,6 +1431,7 @@
         "audioFileID"
       ]);
       var media = {
+        type: tagName === "audio" || tagName === "mp-common-mpaudio" ? "audio" : "video",
         video_id: videoID,
         duration: articleDOMDurationSeconds(element),
         audio_fileid: audioFileID,
@@ -1442,6 +1443,226 @@
       }
     }
     return result;
+  }
+
+  function articleMediaCandidate(value, forcedType) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    var declaredType = firstValue(
+      forcedType,
+      objectValue(value, "type"),
+      objectValue(value, "media_type"),
+      objectValue(value, "mediaType")
+    ).toLowerCase();
+    var videoID = firstValue(
+      objectValue(value, "video_id"),
+      objectValue(value, "videoId"),
+      objectValue(value, "vid"),
+      objectValue(value, "mpvid"),
+      objectValue(value, "media_id"),
+      objectValue(value, "mediaId")
+    );
+    var audioFileID = firstPositiveArticleValue(
+      objectValue(value, "audio_fileid"),
+      objectValue(value, "audioFileID"),
+      objectValue(value, "audioFileId"),
+      objectValue(value, "voice_encode_fileid"),
+      objectValue(value, "voiceEncodeFileID")
+    );
+    var playURL = firstValue(
+      objectValue(value, "play_url"),
+      objectValue(value, "playUrl"),
+      objectValue(value, "video_url"),
+      objectValue(value, "videoUrl"),
+      objectValue(value, "media_url"),
+      objectValue(value, "mediaUrl"),
+      objectValue(value, "url")
+    );
+    var type = declaredType.indexOf("audio") >= 0 || declaredType.indexOf("voice") >= 0
+      ? "audio"
+      : (declaredType ? "video" : (audioFileID > 0 && !videoID && !playURL ? "audio" : "video"));
+    if (type === "audio") {
+      videoID = "";
+      if (audioFileID <= 0 && !playURL) {
+        return null;
+      }
+    } else if (!videoID && !playURL) {
+      return null;
+    }
+
+    var candidate = { type: type };
+    if (videoID) {
+      candidate.video_id = videoID;
+    }
+    if (audioFileID > 0) {
+      candidate.audio_fileid = audioFileID;
+    }
+    if (playURL) {
+      candidate.play_url = playURL;
+    }
+    var duration = firstPositiveArticleValue(
+      objectValue(value, "duration"),
+      objectValue(value, "duration_seconds"),
+      objectValue(value, "durationSeconds"),
+      objectValue(value, "video_duration"),
+      objectValue(value, "videoDuration"),
+      objectValue(value, "video_play_len"),
+      objectValue(value, "videoPlayLen")
+    );
+    if (!duration) {
+      var durationMs = firstPositiveArticleValue(
+        objectValue(value, "duration_ms"),
+        objectValue(value, "durationMs"),
+        objectValue(value, "video_duration_ms"),
+        objectValue(value, "videoDurationMs")
+      );
+      if (durationMs > 0) {
+        duration = Math.round(durationMs / 1000);
+      }
+    }
+    if (duration > 0) {
+      candidate.duration = duration;
+    }
+    var coverURL = firstValue(
+      objectValue(value, "cover_url"),
+      objectValue(value, "coverUrl"),
+      objectValue(value, "poster"),
+      objectValue(value, "thumbUrl")
+    );
+    if (coverURL) {
+      candidate.cover_url = coverURL;
+    }
+    return candidate;
+  }
+
+  function mergeArticleMediaCandidate(existing, candidate) {
+    if (!existing || !candidate) {
+      return existing;
+    }
+    ["video_id", "audio_fileid", "play_url", "cover_url", "duration"].forEach(function (key) {
+      if ((existing[key] === undefined || existing[key] === null || String(existing[key]).trim() === "") &&
+        candidate[key] !== undefined && candidate[key] !== null && String(candidate[key]).trim() !== "") {
+        existing[key] = candidate[key];
+      }
+    });
+    return existing;
+  }
+
+  function appendArticleMediaCandidate(list, candidate) {
+    if (!candidate) {
+      return;
+    }
+    for (var i = 0; i < list.length; i += 1) {
+      var existing = list[i];
+      if (existing.type !== candidate.type) {
+        continue;
+      }
+      var sameID = existing.type === "audio"
+        ? existing.audio_fileid && candidate.audio_fileid && String(existing.audio_fileid) === String(candidate.audio_fileid)
+        : existing.video_id && candidate.video_id && String(existing.video_id) === String(candidate.video_id);
+      var sameURL = existing.play_url && candidate.play_url && existing.play_url === candidate.play_url;
+      if (sameID || sameURL) {
+        mergeArticleMediaCandidate(existing, candidate);
+        return;
+      }
+    }
+    list.push(candidate);
+  }
+
+  function appendArticleMediaValue(list, value, forcedType) {
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i += 1) {
+        appendArticleMediaValue(list, value[i], forcedType);
+      }
+      return;
+    }
+    appendArticleMediaCandidate(list, articleMediaCandidate(value, forcedType));
+  }
+
+  function appendArticleVideoPage(list, page) {
+    if (!page || typeof page !== "object" || Array.isArray(page)) {
+      return;
+    }
+    var candidate = articleMediaCandidate(page, "video");
+    var transfers = firstArrayValue(
+      objectValue(page, "mp_video_trans_info"),
+      objectValue(page, "mpVideoTransInfo")
+    );
+    if (candidate && transfers.length) {
+      for (var i = 0; i < transfers.length; i += 1) {
+        mergeArticleMediaCandidate(candidate, articleMediaCandidate(transfers[i], "video"));
+      }
+    }
+    if (candidate) {
+      appendArticleMediaCandidate(list, candidate);
+    } else {
+      appendArticleMediaValue(list, transfers, "video");
+    }
+  }
+
+  function collectArticleMedia(cgiDataNew, cgiData, videoPages, domMediaObjects) {
+    var list = [];
+    var pageSources = [
+      videoPages,
+      pageVideoPageInfos,
+      objectValue(cgiDataNew, "video_page_infos"),
+      objectValue(cgiData, "video_page_infos"),
+      objectValue(cgiDataNew, "videoPageInfos"),
+      objectValue(cgiData, "videoPageInfos"),
+      window.videoPageInfos,
+      window.video_page_infos
+    ];
+    for (var i = 0; i < pageSources.length; i += 1) {
+      var pages = pageSources[i];
+      if (!Array.isArray(pages)) {
+        continue;
+      }
+      for (var j = 0; j < pages.length; j += 1) {
+        appendArticleVideoPage(list, pages[j]);
+      }
+    }
+
+    var pageInfoSources = [
+      objectValue(cgiDataNew, "video_page_info"),
+      objectValue(cgiData, "video_page_info"),
+      objectValue(cgiDataNew, "videoPageInfo"),
+      objectValue(cgiData, "videoPageInfo"),
+      pageVideoPageInfoObjects,
+      window.video_page_info,
+      window.videoPageInfo
+    ];
+    for (var pageIndex = 0; pageIndex < pageInfoSources.length; pageIndex += 1) {
+      var pageInfo = pageInfoSources[pageIndex];
+      if (Array.isArray(pageInfo)) {
+        for (var pageItemIndex = 0; pageItemIndex < pageInfo.length; pageItemIndex += 1) {
+          appendArticleVideoPage(list, pageInfo[pageItemIndex]);
+        }
+      } else {
+        appendArticleVideoPage(list, pageInfo);
+      }
+    }
+
+    appendArticleMediaValue(list, pageVideoTransferObjects, "video");
+    appendArticleMediaValue(list, pageMediaObjects);
+    appendArticleMediaValue(list, domMediaObjects);
+    appendArticleMediaValue(list, objectValue(cgiDataNew, "media"));
+    appendArticleMediaValue(list, objectValue(cgiData, "media"));
+    appendArticleMediaValue(list, objectValue(cgiDataNew, "videos"), "video");
+    appendArticleMediaValue(list, objectValue(cgiData, "videos"), "video");
+
+    var explicitAudioFileID = firstPositiveArticleValue(
+      objectValue(cgiDataNew, "audio_fileid"),
+      objectValue(cgiData, "audio_fileid")
+    );
+    if (explicitAudioFileID > 0) {
+      appendArticleMediaCandidate(list, articleMediaCandidate({
+        type: "audio",
+        audio_fileid: explicitAudioFileID,
+        play_url: firstValue(objectValue(cgiDataNew, "audio_url"), objectValue(cgiData, "audio_url"))
+      }, "audio"));
+    }
+    return list;
   }
 
   function articleMediaMetadata(cgiDataNew, cgiData) {
@@ -1495,6 +1716,7 @@
       newVideoPageInfo,
       firstMediaObject(objectValue(newVideoPageInfo, "video_info"), objectValue(newVideoPageInfo, "videoInfo"))
     ].concat(pageMediaObjects, domMediaObjects);
+    var mediaItems = collectArticleMedia(cgiDataNew, cgiData, videoPages, domMediaObjects);
     var rawDuration = firstMediaValue(mediaObjects, [
       "duration",
       "duration_seconds",
@@ -1577,7 +1799,8 @@
         objectValue(cgiDataNew, "malicious_content_type"),
         objectValue(cgiData, "malicious_content_type"),
         firstMediaValue(mediaObjects, ["malicious_content_type", "maliciousContentType"])
-      )
+      ),
+      media: mediaItems
     };
   }
 
@@ -1657,6 +1880,7 @@
       duration: media.duration,
       audio_fileid: media.audio_fileid,
       play_url: media.play_url,
+      media: media.media,
       item_show_type: media.item_show_type,
       malicious_title_reason_id: media.malicious_title_reason_id,
       malicious_content_type: media.malicious_content_type

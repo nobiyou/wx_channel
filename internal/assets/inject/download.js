@@ -393,10 +393,48 @@ function __wx_channels_get_true_original_url__(profile) {
   return '';
 }
 
+function __wx_channels_build_original_video_url__(rawUrl) {
+  var source = String(rawUrl || '').trim();
+  if (!source) return '';
+
+  var baseOrigin = window.location && window.location.origin ? window.location.origin : 'http://localhost';
+  var parsed = null;
+  try {
+    parsed = new URL(source, baseOrigin);
+  } catch (err) {
+    try {
+      parsed = new URL(decodeURIComponent(source), baseOrigin);
+    } catch (decodeErr) {
+      __wx_log({ msg: '⚠️ 原始视频链接归一化失败<' + (decodeErr && decodeErr.message ? decodeErr.message : decodeErr) + '>' });
+      return source;
+    }
+  }
+
+  var filekey = String(parsed.searchParams.get('encfilekey') || '').trim();
+  var token = String(parsed.searchParams.get('token') || '').trim();
+  if (!filekey || !token) {
+    parsed.searchParams.delete('X-snsvideoflag');
+    return parsed.toString();
+  }
+
+  var cleaned = new URL(parsed.origin + parsed.pathname);
+  cleaned.searchParams.set('encfilekey', filekey);
+  cleaned.searchParams.set('token', token);
+  return cleaned.toString();
+}
+
+function __wx_channels_get_original_video_url__(profile) {
+  if (!profile) return '';
+
+  var candidate = __wx_channels_get_true_original_url__(profile) || __wx_channels_select_video_url__(profile);
+  if (!/^https?:\/\//i.test(String(candidate || '').trim())) return '';
+  return __wx_channels_build_original_video_url__(candidate);
+}
+
 function __wx_channels_has_true_original__(profile) {
-  // A size hint alone describes the source asset; it does not prove that the
-  // CDN returned a downloadable original URL.
-  return !!__wx_channels_get_true_original_url__(profile);
+  // The page's signed base URL is the original-resource entry point. A size
+  // hint alone is insufficient, but a usable URL is enough to request it.
+  return !!__wx_channels_get_original_video_url__(profile);
 }
 
 function __wx_channels_get_best_available_spec__(profile) {
@@ -475,10 +513,27 @@ function __wx_channels_join_video_url_parts__(baseUrl, urlToken) {
   if (!base) return token;
   if (!token) return base;
   if (/^https?:\/\//i.test(token)) return token;
-  if (token.charAt(0) === '?' || token.charAt(0) === '&') {
-    return base + (/[?&]$/.test(base) ? token.substring(1) : token);
+  if (/%(?:26|3d|3f)/i.test(token)) {
+    // Decode only query structure markers. Decoding the complete fragment
+    // would turn escaped signature bytes such as %2F into different text.
+    token = token
+      .replace(/%26/gi, '&')
+      .replace(/%3d/gi, '=')
+      .replace(/%3f/gi, '?');
   }
-  return base + (/[?&]$/.test(base) ? '' : '&') + token;
+  if (/^https?:\/\//i.test(token)) return token;
+
+  var fragment = '';
+  var fragmentIndex = base.indexOf('#');
+  if (fragmentIndex >= 0) {
+    fragment = base.substring(fragmentIndex);
+    base = base.substring(0, fragmentIndex);
+  }
+  var query = token.replace(/^[?&]+/, '');
+  if (!query) return base + fragment;
+  var separator = base.indexOf('?') >= 0 ? '&' : '?';
+  if (/[?&]$/.test(base)) separator = '';
+  return base + separator + query + fragment;
 }
 
 function __wx_channels_video_url_score__(rawUrl) {
@@ -521,14 +576,14 @@ function __wx_channels_select_video_url__(profile) {
   }
 
   addCandidate(profile.url);
-  addCandidate(__wx_channels_join_video_url_parts__(profile.originalUrl, profile.urlToken));
-  addCandidate(profile.originalUrl);
+  addCandidate(__wx_channels_join_video_url_parts__(profile.originalUrl || profile.original_url, profile.urlToken || profile.url_token || profile.urltoken));
+  addCandidate(profile.originalUrl || profile.original_url);
 
   var media = profile.media || {};
   addCandidate(media.url);
-  addCandidate(__wx_channels_join_video_url_parts__(media.url, media.urlToken));
-  addCandidate(media.fullUrl || media.fullURL);
-  addCandidate(profile.fullUrl || profile.fullURL);
+  addCandidate(__wx_channels_join_video_url_parts__(media.url, media.urlToken || media.url_token || media.urltoken));
+  addCandidate(media.fullUrl || media.fullURL || media.full_url);
+  addCandidate(profile.fullUrl || profile.fullURL || profile.full_url);
 
   var selected = '';
   var selectedScore = 0;
@@ -560,12 +615,11 @@ function __wx_channels_normalize_video_download__(profile, spec) {
   }
 
   var originalCandidate = __wx_channels_remove_legacy_original_marker__(
-    __wx_channels_get_true_original_url__(profile) || __wx_channels_select_video_url__(profile)
+    __wx_channels_select_video_url__(profile)
   );
-  // Preserve the complete signed CDN URL; the server remains the compatibility owner.
-  normalized.url = originalCandidate;
+  normalized.url = __wx_channels_get_original_video_url__(profile);
 
-  var explicitSpec = spec && spec.fileFormat ? spec : null;
+  var explicitSpec = spec && spec.fileFormat && String(spec.fileFormat).toLowerCase() !== 'original' ? spec : null;
   if (explicitSpec) {
     normalized.mode = 'specific';
     normalized.fileFormat = explicitSpec.fileFormat || '';
@@ -608,7 +662,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
     ? __wx_channels_get_expected_video_size__(profile)
     : 0;
   var requestData = {
-    videoUrl: profile.url,
+    videoUrl: normalized.url,
     videoId: profile.id || '',
     // 文件名是落盘投影，数据库和下载记录应保留原始标题。
     title: profile.title || profile.id || filename,

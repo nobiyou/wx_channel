@@ -416,7 +416,7 @@ function __export_batch_video_list__() {
       title: v.title || (v.objectDesc && v.objectDesc.description) || '无标题',
       sourceType: sourceType, // [新增] 数据来源类型
       cgiId: cgiId,           // [新增] 接口ID
-      url: v.url || (media && (media.url + (media.urlToken || ''))),
+      url: v.url || (media && __wx_channels_join_video_url_parts__(media.url, media.urlToken || media.url_token || media.urltoken)),
       key: v.key || (media && (media.decodeKey || media.decryptKey)) || '',
       coverUrl: v.coverUrl || v.thumbUrl || (media && media.thumbUrl),
       duration: v.duration || (media && (media.videoPlayLen * 1000 || media.durationMs)),
