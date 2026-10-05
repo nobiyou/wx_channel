@@ -315,7 +315,7 @@ func (s *Service) runSync(ctx context.Context, run SyncRun) {
 			s.finishSync(repository, &run, SyncStatusCancelled, err)
 			return
 		}
-		data, err := s.fetchMsgList(ctx, run.Biz, offset)
+		data, err := s.fetchMsgList(ctx, MessageListRequest{Biz: run.Biz, Offset: offset})
 		if err != nil {
 			if ctx.Err() != nil {
 				s.finishSync(repository, &run, SyncStatusCancelled, ctx.Err())

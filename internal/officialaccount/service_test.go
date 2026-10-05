@@ -11,12 +11,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFetchMsgListFlattensNestedArticles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mp/profile_ext" || r.URL.Query().Get("action") != "getmsg" {
 			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+		if !strings.Contains(r.Header.Get("User-Agent"), "WindowsWechat") {
+			t.Fatalf("message list request should use the Windows WeChat user agent: %q", r.Header.Get("User-Agent"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(sampleMessageListResponse())
@@ -26,7 +30,7 @@ func TestFetchMsgListFlattensNestedArticles(t *testing.T) {
 	service := NewMemoryService()
 	service.SetUpstreamBaseURL(server.URL)
 	service.SetHTTPClient(server.Client())
-	if err := service.Upsert(Account{Biz: "biz-1", Key: "key-1", Uin: "uin-1", PassTicket: "ticket-1"}); err != nil {
+	if err := service.Upsert(Account{Biz: "biz-1", Key: "key-1", Uin: "uin-1", PassTicket: "ticket-1", Cookie: "slave_user=test-cookie", CookieExpiration: time.Now().Add(time.Hour).Unix()}); err != nil {
 		t.Fatalf("upsert account: %v", err)
 	}
 
@@ -54,6 +58,310 @@ func TestFetchMsgListFlattensNestedArticles(t *testing.T) {
 	}
 }
 
+func TestFetchMsgListRefreshesCookieBeforeRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("action") {
+		case "show":
+			if r.URL.Path != "/mp/author" {
+				t.Fatalf("unexpected cookie refresh path: %s", r.URL.String())
+			}
+			http.SetCookie(w, &http.Cookie{Name: "slave_user", Value: "refreshed-cookie"})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		case "getmsg":
+			if r.URL.Path != "/mp/profile_ext" {
+				t.Fatalf("unexpected message list path: %s", r.URL.String())
+			}
+			if !strings.Contains(r.Header.Get("Cookie"), "slave_user=refreshed-cookie") {
+				t.Fatalf("refreshed cookie was not sent: %q", r.Header.Get("Cookie"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(sampleMessageListResponse())
+			return
+		default:
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:        "biz-cookie",
+		AuthorID:   "author-cookie",
+		Key:        "key-cookie",
+		Uin:        "uin-cookie",
+		PassTicket: "ticket-cookie",
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	data, err := service.FetchMsgList("biz-cookie", 0)
+	if err != nil {
+		t.Fatalf("fetch message list: %v", err)
+	}
+	if len(data.Articles) != 2 {
+		t.Fatalf("expected refreshed message list, got %+v", data)
+	}
+}
+
+func TestFetchMsgListKeepsGetMsgEmptyWithoutAuthorFallback(t *testing.T) {
+	authorRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("action") {
+		case "getmsg":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ret":0,"general_msg_list":"","can_msg_continue":0,"next_offset":0}`))
+		case "get_articles":
+			authorRequests++
+		default:
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:              "biz-fallback",
+		AuthorID:         "author-fallback",
+		Key:              "key-fallback",
+		Uin:              "uin-fallback",
+		PassTicket:       "ticket-fallback",
+		AppmsgToken:      "token-fallback",
+		Cookie:           "session=fallback",
+		CookieExpiration: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	data, err := service.FetchMsgList("biz-fallback", 0)
+	if err != nil {
+		t.Fatalf("fetch message list: %v", err)
+	}
+	if len(data.Articles) != 0 || len(data.List) != 0 {
+		t.Fatalf("expected empty push list, got %+v", data)
+	}
+	if authorRequests != 0 {
+		t.Fatalf("empty getmsg response must not call the author article endpoint: %d", authorRequests)
+	}
+	if !strings.Contains(data.EmptyReason, "empty") {
+		t.Fatalf("expected empty push-list diagnostic, got %q", data.EmptyReason)
+	}
+}
+
+func TestFetchMsgListUsesHomePageListWhenGeneralMsgListIsEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("action") != "getmsg" {
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":0,"general_msg_list":"","home_page_list":[{"comm_msg_info":{"datetime":1700000200},"app_msg_ext_info":{"title":"首页文章","content_url":"https://mp.weixin.qq.com/s/home-page"}},{"title":"首页直链文章","url":"https://mp.weixin.qq.com/s/home-page-direct","publish_time":1700000300}],"can_msg_continue":0}`))
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:              "biz-home-page",
+		Key:              "key-home-page",
+		Uin:              "uin-home-page",
+		PassTicket:       "ticket-home-page",
+		Cookie:           "session=home-page",
+		CookieExpiration: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	data, err := service.FetchMsgList("biz-home-page", 0)
+	if err != nil {
+		t.Fatalf("fetch message list: %v", err)
+	}
+	if len(data.Articles) != 2 || data.Articles[0].Title != "首页文章" || data.Articles[1].ContentURL != "https://mp.weixin.qq.com/s/home-page-direct" {
+		t.Fatalf("expected home page article, got %+v", data.Articles)
+	}
+	if data.EmptyReason != "" {
+		t.Fatalf("non-empty home page response should not be marked empty: %q", data.EmptyReason)
+	}
+}
+
+func TestFetchMsgListDoesNotCallAuthorWhenGetMsgIsEmpty(t *testing.T) {
+	authorRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("action") {
+		case "getmsg":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ret":0,"general_msg_list":"","home_page_list":[],"can_msg_continue":0}`))
+		case "get_articles":
+			authorRequests++
+		default:
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:              "biz-fallback-error",
+		AuthorID:         "author-fallback-error",
+		Key:              "key-fallback-error",
+		Cookie:           "session=fallback-error",
+		CookieExpiration: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	data, err := service.FetchMsgList("biz-fallback-error", 0)
+	if err != nil {
+		t.Fatalf("fetch message list: %v", err)
+	}
+	if len(data.Articles) != 0 {
+		t.Fatalf("expected no articles, got %+v", data.Articles)
+	}
+	if authorRequests != 0 {
+		t.Fatalf("empty getmsg response must not call the author article endpoint: %d", authorRequests)
+	}
+	if data.EmptyReason != "getmsg returned an empty message list" {
+		t.Fatalf("unexpected empty push-list diagnostic: %q", data.EmptyReason)
+	}
+}
+
+func TestHandleMsgListUsesInlineCredentialsForRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mp/profile_ext" || r.URL.Query().Get("action") != "getmsg" {
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+		if r.URL.Query().Get("key") != "fresh-key" || r.URL.Query().Get("uin") != "fresh-uin" || r.URL.Query().Get("pass_ticket") != "fresh-ticket" {
+			t.Fatalf("inline credentials were not used: %s", r.URL.String())
+		}
+		if r.URL.Query().Get("wxtoken") != "" {
+			t.Fatalf("message list context was not used: %s", r.URL.String())
+		}
+		for _, name := range []string{"is_ok", "scene", "devicetype", "version", "lang", "a8scene", "acctmode"} {
+			if r.URL.Query().Has(name) {
+				t.Fatalf("message list target must not carry referer-only parameter %q: %s", name, r.URL.String())
+			}
+		}
+		if r.URL.Query().Get("appmsg_token") != "" {
+			t.Fatalf("message list request should not use appmsg_token: %s", r.URL.String())
+		}
+		referer, err := url.Parse(r.Header.Get("Referer"))
+		if err != nil {
+			t.Fatalf("parse referer: %v", err)
+		}
+		if referer.Query().Get("action") != "home" || referer.Query().Get("devicetype") != "UnifiedPCWindows" || referer.Query().Get("key") != "fresh-key" {
+			t.Fatalf("unexpected message list referer: %s", referer.String())
+		}
+		if r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+			t.Fatalf("missing XMLHttpRequest header")
+		}
+		if r.Header.Get("Cookie") != "" {
+			t.Fatalf("stale cached cookie must not be sent with inline page credentials: %q", r.Header.Get("Cookie"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(sampleMessageListResponse())
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:              "biz-1",
+		Key:              "old-key",
+		Uin:              "old-uin",
+		PassTicket:       "old-ticket",
+		AppmsgToken:      "old-appmsg-token",
+		Cookie:           "slave_user=old-cookie",
+		CookieExpiration: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	body, err := json.Marshal(MessageListRequest{
+		Biz:        "biz-1",
+		Uin:        "fresh-uin",
+		Key:        "fresh-key",
+		PassTicket: "fresh-ticket",
+		Offset:     10,
+	})
+	if err != nil {
+		t.Fatalf("marshal message list request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/mp/msg/list", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	service.HandleMsgList(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Code int                 `json:"code"`
+		Data MessageListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode message list response: %v", err)
+	}
+	if payload.Code != 0 || len(payload.Data.Articles) != 2 {
+		t.Fatalf("unexpected message list response: %+v", payload)
+	}
+	stored, ok := service.accountSnapshot("biz-1")
+	if !ok || stored.Key != "old-key" || stored.Uin != "old-uin" {
+		t.Fatalf("inline credentials unexpectedly replaced stored account: %+v", stored)
+	}
+}
+
+func TestHandleMsgListUsesInlineBrowserCookie(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("action") != "getmsg" {
+			t.Fatalf("unexpected upstream request: %s", r.URL.String())
+		}
+		if r.Header.Get("Cookie") != "slave_user=fresh-browser-cookie" {
+			t.Fatalf("inline browser cookie was not used: %q", r.Header.Get("Cookie"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(sampleMessageListResponse())
+	}))
+	defer server.Close()
+
+	service := NewMemoryService()
+	service.SetUpstreamBaseURL(server.URL)
+	service.SetHTTPClient(server.Client())
+	if err := service.Upsert(Account{
+		Biz:              "biz-browser-cookie",
+		Key:              "old-key",
+		Uin:              "old-uin",
+		PassTicket:       "old-ticket",
+		Cookie:           "slave_user=old-cookie",
+		CookieExpiration: time.Now().Add(time.Hour).Unix(),
+	}); err != nil {
+		t.Fatalf("upsert account: %v", err)
+	}
+
+	body, err := json.Marshal(MessageListRequest{
+		Biz:        "biz-browser-cookie",
+		Uin:        "fresh-uin",
+		Key:        "fresh-key",
+		PassTicket: "fresh-ticket",
+		Cookie:     "slave_user=fresh-browser-cookie",
+	})
+	if err != nil {
+		t.Fatalf("marshal message list request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/mp/msg/list", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	service.HandleMsgList(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestFetchMsgListRejectsMalformedNestedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -64,7 +372,7 @@ func TestFetchMsgListRejectsMalformedNestedJSON(t *testing.T) {
 	service := NewMemoryService()
 	service.SetUpstreamBaseURL(server.URL)
 	service.SetHTTPClient(server.Client())
-	if err := service.Upsert(Account{Biz: "biz-1", Key: "key-1"}); err != nil {
+	if err := service.Upsert(Account{Biz: "biz-1", Key: "key-1", Cookie: "slave_user=test-cookie", CookieExpiration: time.Now().Add(time.Hour).Unix()}); err != nil {
 		t.Fatalf("upsert account: %v", err)
 	}
 	if _, err := service.FetchMsgList("biz-1", 0); err == nil || !strings.Contains(err.Error(), "general_msg_list") {

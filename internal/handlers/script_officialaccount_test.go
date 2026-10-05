@@ -20,6 +20,9 @@ func TestScriptHandlerInjectsOfficialAccountPageOnly(t *testing.T) {
 			Header: http.Header{
 				"Content-Type":            []string{"text/html; charset=utf-8"},
 				"Content-Security-Policy": []string{"script-src 'nonce-test-nonce'"},
+				"Content-Encoding":        []string{"gzip"},
+				"Content-Length":          []string{"7"},
+				"Cache-Control":           []string{"public, max-age=3600"},
 			},
 			Body: io.NopCloser(strings.NewReader("<html><head></head><body>article</body></html>")),
 		},
@@ -40,6 +43,13 @@ func TestScriptHandlerInjectsOfficialAccountPageOnly(t *testing.T) {
 	}
 	if strings.Index(bodyText, "window.__official_account_test__=true") < strings.Index(bodyText, "</head>") {
 		t.Fatalf("official-account script should be injected after the document head: %s", body)
+	}
+	if page.Response.Header.Get("Content-Encoding") != "" || page.Response.Header.Get("Content-Length") != "" {
+		t.Fatalf("modified official-account response kept stale body headers: %v", page.Response.Header)
+	}
+	if page.Response.Header.Get("Cache-Control") != "no-cache, no-store, must-revalidate" ||
+		page.Response.Header.Get("Pragma") != "no-cache" || page.Response.Header.Get("Expires") != "0" {
+		t.Fatalf("modified official-account response was not marked uncacheable: %v", page.Response.Header)
 	}
 
 	nonOfficial := &SunnyNet.HttpConn{

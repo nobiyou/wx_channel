@@ -681,7 +681,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 
 	downloadURL, mode := NormalizeDownloadURL(task.GetURL(), task.FileFormat)
 	if downloadURL != task.GetURL() {
-		utils.Info("🩹 [批量下载] 已移除旧版 original 标记并保留签名参数")
+		utils.Info("🩹 [批量下载] 已规范化视频下载地址")
 	}
 	connections = ResolveDownloadConnections(mode, connections)
 	if mode == downloadVideoModeOriginal {

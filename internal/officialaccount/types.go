@@ -1,6 +1,9 @@
 package officialaccount
 
-import "encoding/xml"
+import (
+	"encoding/json"
+	"encoding/xml"
+)
 
 // Account stores the short-lived credentials captured from a public-account
 // article page. The token-bearing fields are never returned by the list API.
@@ -81,14 +84,29 @@ type AccountSummary struct {
 }
 
 type MessageListResponse struct {
-	Ret            int           `json:"ret"`
-	ErrMsg         string        `json:"errmsg"`
-	GeneralMsgList string        `json:"general_msg_list"`
-	CanMsgContinue int           `json:"can_msg_continue"`
-	MsgCount       int           `json:"msg_count"`
-	NextOffset     int           `json:"next_offset"`
-	List           []MessageItem `json:"list,omitempty"`
-	Articles       []ArticleItem `json:"articles,omitempty"`
+	Ret            int             `json:"ret"`
+	ErrMsg         string          `json:"errmsg"`
+	GeneralMsgList string          `json:"general_msg_list"`
+	HomePageList   json.RawMessage `json:"home_page_list,omitempty"`
+	EmptyReason    string          `json:"empty_reason,omitempty"`
+	CanMsgContinue int             `json:"can_msg_continue"`
+	MsgCount       int             `json:"msg_count"`
+	NextOffset     int             `json:"next_offset"`
+	List           []MessageItem   `json:"list,omitempty"`
+	Articles       []ArticleItem   `json:"articles,omitempty"`
+}
+
+// MessageListRequest carries the current page credentials for one push-list
+// request. They intentionally override the cached account only for this
+// request; the refresh endpoint remains the persistence owner.
+type MessageListRequest struct {
+	Biz         string `json:"biz"`
+	Uin         string `json:"uin,omitempty"`
+	Key         string `json:"key,omitempty"`
+	PassTicket  string `json:"pass_ticket,omitempty"`
+	AppmsgToken string `json:"appmsg_token,omitempty"`
+	Cookie      string `json:"cookie,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
 }
 
 type CommonMsgInfo struct {
@@ -118,32 +136,32 @@ type ArticleMedia struct {
 }
 
 type ArticleItem struct {
-	Title                  string `json:"title"`
-	Digest                 string `json:"digest"`
-	Content                string `json:"content"`
-	FileID                 int    `json:"fileid"`
-	VideoID                string `json:"video_id,omitempty"`
-	ContentURL             string `json:"content_url"`
-	SourceURL              string `json:"source_url"`
-	Cover                  string `json:"cover"`
-	Author                 string `json:"author"`
-	Subtype                int    `json:"subtype,omitempty"`
-	Mid                    string `json:"mid,omitempty"`
-	Idx                    int    `json:"idx,omitempty"`
-	IsMulti                int    `json:"is_multi,omitempty"`
-	IsOriginal             int    `json:"is_original,omitempty"`
-	IsPaid                 int    `json:"is_paid,omitempty"`
-	IsPaySubscribe         int    `json:"is_pay_subscribe,omitempty"`
-	ItemShowType           int    `json:"item_show_type,omitempty"`
-	CopyrightStat          int    `json:"copyright_stat,omitempty"`
-	Duration               int    `json:"duration,omitempty"`
-	AudioFileID            int    `json:"audio_fileid,omitempty"`
-	PlayURL                string `json:"play_url,omitempty"`
+	Title                  string         `json:"title"`
+	Digest                 string         `json:"digest"`
+	Content                string         `json:"content"`
+	FileID                 int            `json:"fileid"`
+	VideoID                string         `json:"video_id,omitempty"`
+	ContentURL             string         `json:"content_url"`
+	SourceURL              string         `json:"source_url"`
+	Cover                  string         `json:"cover"`
+	Author                 string         `json:"author"`
+	Subtype                int            `json:"subtype,omitempty"`
+	Mid                    string         `json:"mid,omitempty"`
+	Idx                    int            `json:"idx,omitempty"`
+	IsMulti                int            `json:"is_multi,omitempty"`
+	IsOriginal             int            `json:"is_original,omitempty"`
+	IsPaid                 int            `json:"is_paid,omitempty"`
+	IsPaySubscribe         int            `json:"is_pay_subscribe,omitempty"`
+	ItemShowType           int            `json:"item_show_type,omitempty"`
+	CopyrightStat          int            `json:"copyright_stat,omitempty"`
+	Duration               int            `json:"duration,omitempty"`
+	AudioFileID            int            `json:"audio_fileid,omitempty"`
+	PlayURL                string         `json:"play_url,omitempty"`
 	Media                  []ArticleMedia `json:"media,omitempty"`
-	MaliciousTitleReasonID int    `json:"malicious_title_reason_id,omitempty"`
-	MaliciousContentType   int    `json:"malicious_content_type,omitempty"`
-	DelFlag                int    `json:"del_flag,omitempty"`
-	PublishTime            int64  `json:"publish_time,omitempty"`
+	MaliciousTitleReasonID int            `json:"malicious_title_reason_id,omitempty"`
+	MaliciousContentType   int            `json:"malicious_content_type,omitempty"`
+	DelFlag                int            `json:"del_flag,omitempty"`
+	PublishTime            int64          `json:"publish_time,omitempty"`
 }
 
 type MessageExtInfo struct {

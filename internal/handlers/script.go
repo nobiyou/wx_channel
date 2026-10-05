@@ -177,6 +177,14 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 			utils.LogFileInfo("[脚本注入] 公众号页面检测到 CSP nonce，已应用到采集脚本")
 		}
 		utils.LogFileInfo("[脚本注入] 公众号文章页面已注入采集脚本 | Host=%s | Path=%s", host, path)
+		// The body and its byte length changed. Prevent the WebView from
+		// reusing an uninstrumented cached article or truncating the injected
+		// script because of upstream compression/length headers.
+		Conn.Response.Header.Del("Content-Encoding")
+		Conn.Response.Header.Del("Content-Length")
+		Conn.Response.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		Conn.Response.Header.Set("Pragma", "no-cache")
+		Conn.Response.Header.Set("Expires", "0")
 		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(html)))
 		return true
 	}

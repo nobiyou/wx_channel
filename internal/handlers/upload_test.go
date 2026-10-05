@@ -81,7 +81,7 @@ func TestNormalizeOriginalVideoURL(t *testing.T) {
 	}
 }
 
-func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
+func TestNormalizeDownloadURLCompactsOriginalSignedParameters(t *testing.T) {
 	t.Parallel()
 
 	raw := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=def&basedata=base&sign=sig&web=1&extg=10f0000&svrbypass=bypass&svrnonce=123"
@@ -89,8 +89,9 @@ func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
 	if mode != downloadVideoModeOriginal {
 		t.Fatalf("NormalizeDownloadURL mode = %q, want %q", mode, downloadVideoModeOriginal)
 	}
-	if got != raw {
-		t.Fatalf("NormalizeDownloadURL changed signed URL without legacy marker: got %q, want %q", got, raw)
+	want := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def"
+	if got != want {
+		t.Fatalf("NormalizeDownloadURL original URL = %q, want %q", got, want)
 	}
 
 	marked := raw + "&X-snsvideoflag=original"
@@ -103,9 +104,14 @@ func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
 		t.Fatalf("parse normalized URL: %v", err)
 	}
 	query := parsed.Query()
-	for _, key := range []string{"encfilekey", "hy", "idx", "m", "uzid", "token", "basedata", "sign", "web", "extg", "svrbypass", "svrnonce"} {
+	for _, key := range []string{"encfilekey", "token"} {
 		if query.Get(key) == "" {
-			t.Fatalf("normalized URL lost signed query parameter %q: %q", key, got)
+			t.Fatalf("normalized URL lost original query parameter %q: %q", key, got)
+		}
+	}
+	for _, key := range []string{"hy", "idx", "m", "uzid", "basedata", "sign", "web", "extg", "svrbypass", "svrnonce"} {
+		if query.Get(key) != "" {
+			t.Fatalf("normalized URL retained rendition query parameter %q: %q", key, got)
 		}
 	}
 	if marker := query.Get("X-snsvideoflag"); marker != "" {
@@ -163,6 +169,28 @@ func TestDownloadVideoModeFromRequest(t *testing.T) {
 				t.Fatalf("downloadModeFromRequest(%+v) = %q, want %q", tt.req, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeDownloadURLAppliesRequestedFileFormat(t *testing.T) {
+	t.Parallel()
+
+	raw := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def"
+	got, mode := NormalizeDownloadURL(raw, "WT111")
+	if mode != downloadVideoModeSpecific {
+		t.Fatalf("NormalizeDownloadURL mode = %q, want %q", mode, downloadVideoModeSpecific)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse normalized URL: %v", err)
+	}
+	query := parsed.Query()
+	if query.Get("encfilekey") != "abc" || query.Get("token") != "def" {
+		t.Fatalf("NormalizeDownloadURL lost signed parameters: %q", got)
+	}
+	if query.Get("X-snsvideoflag") != "WT111" {
+		t.Fatalf("NormalizeDownloadURL file format = %q, want %q", query.Get("X-snsvideoflag"), "WT111")
 	}
 }
 

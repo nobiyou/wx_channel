@@ -1,6 +1,7 @@
 package officialaccount
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,10 +40,11 @@ var (
 )
 
 const (
-	accountStaleAfter = 30 * time.Minute
-	maxRequestBody    = 1 << 20
-	maxJSONBody       = 16 << 20
-	defaultUserAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	accountStaleAfter    = 30 * time.Minute
+	maxRequestBody       = 1 << 20
+	maxJSONBody          = 16 << 20
+	defaultUserAgent     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	messageListUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090a13) UnifiedPCWindowsWechat(0xf2541022) XWEB/16467 Flue"
 )
 
 // Service owns public-account credentials and the HTTP-facing collection APIs.
@@ -549,13 +551,37 @@ func (s *Service) HandleMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) HandleMsgList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	var request MessageListRequest
+	switch r.Method {
+	case http.MethodGet:
+		query := r.URL.Query()
+		request = MessageListRequest{
+			Biz:         strings.TrimSpace(query.Get("biz")),
+			Uin:         strings.TrimSpace(query.Get("uin")),
+			Key:         strings.TrimSpace(query.Get("key")),
+			PassTicket:  strings.TrimSpace(query.Get("pass_ticket")),
+			AppmsgToken: strings.TrimSpace(query.Get("appmsg_token")),
+			Offset:      parseOffset(query.Get("offset")),
+		}
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			response.ErrorWithStatus(w, http.StatusBadRequest, http.StatusBadRequest, "invalid message list request payload")
+			return
+		}
+		request.Biz = strings.TrimSpace(request.Biz)
+		request.Uin = strings.TrimSpace(request.Uin)
+		request.Key = strings.TrimSpace(request.Key)
+		request.PassTicket = strings.TrimSpace(request.PassTicket)
+		request.AppmsgToken = strings.TrimSpace(request.AppmsgToken)
+		request.Cookie = strings.TrimSpace(request.Cookie)
+		request.Offset = normalizeOffset(request.Offset)
+	default:
 		response.ErrorWithStatus(w, http.StatusMethodNotAllowed, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	biz := strings.TrimSpace(r.URL.Query().Get("biz"))
-	offset := parseOffset(r.URL.Query().Get("offset"))
-	data, err := s.FetchMsgList(biz, offset)
+	data, err := s.FetchMsgListWithCredentials(request)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -642,7 +668,14 @@ func writeServiceError(w http.ResponseWriter, err error) {
 
 func parseOffset(raw string) int {
 	offset, err := strconv.Atoi(raw)
-	if err != nil || offset < 0 {
+	if err != nil {
+		return 0
+	}
+	return normalizeOffset(offset)
+}
+
+func normalizeOffset(offset int) int {
+	if offset < 0 {
 		return 0
 	}
 	if offset > 1000000 {
@@ -652,14 +685,18 @@ func parseOffset(raw string) int {
 }
 
 func (s *Service) FetchMsgList(biz string, offset int) (*MessageListResponse, error) {
-	return s.fetchMsgList(context.Background(), biz, offset)
+	return s.FetchMsgListWithCredentials(MessageListRequest{Biz: biz, Offset: offset})
 }
 
-func (s *Service) fetchMsgList(ctx context.Context, biz string, offset int) (*MessageListResponse, error) {
+func (s *Service) FetchMsgListWithCredentials(request MessageListRequest) (*MessageListResponse, error) {
+	return s.fetchMsgList(context.Background(), request)
+}
+
+func (s *Service) fetchMsgList(ctx context.Context, request MessageListRequest) (*MessageListResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	biz = strings.TrimSpace(biz)
+	biz := strings.TrimSpace(request.Biz)
 	if biz == "" {
 		return nil, ErrMissingBiz
 	}
@@ -667,19 +704,47 @@ func (s *Service) fetchMsgList(ctx context.Context, biz string, offset int) (*Me
 	if !ok {
 		return nil, ErrAccountNotFound
 	}
+	inlineCredentials := hasInlineMessageListCredentials(request)
+	account = mergeMessageListCredentials(account, request)
+	if strings.TrimSpace(request.Cookie) != "" {
+		account.CookieExpiration = s.now().Add(24 * time.Hour).Unix()
+	}
+	if inlineCredentials {
+		// A page request can carry a newer credential pair than the persisted
+		// account. Do not combine it with a cookie captured for the old pair.
+		if strings.TrimSpace(request.Cookie) == "" {
+			account.Cookie = ""
+			account.CookieExpiration = 0
+		}
+	}
 	if account.Key == "" {
 		return nil, ErrAccountExpired
 	}
+	if !inlineCredentials && strings.TrimSpace(account.AuthorID) != "" &&
+		(account.Cookie == "" || s.now().Unix() >= account.CookieExpiration) {
+		if err := s.fetchCookie(account); err != nil {
+			return nil, err
+		}
+		account, _ = s.accountSnapshot(biz)
+		account = mergeMessageListCredentials(account, request)
+	}
 
-	target := s.buildMsgListURL(account, offset)
+	target := s.buildMsgListURL(account, normalizeOffset(request.Offset))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build message list request: %w", err)
 	}
-	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
-	req.Header.Set("Referer", s.buildProfileURL(account))
-	req.Header.Set("User-Agent", defaultUserAgent)
+	req.Header.Set("Referer", s.buildMsgListReferer(account))
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Sec-CH-UA", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
+	req.Header.Set("Sec-CH-UA-Mobile", "?0")
+	req.Header.Set("Sec-CH-UA-Platform", `"Windows"`)
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("User-Agent", messageListUserAgent)
 	if account.Cookie != "" {
 		req.Header.Set("Cookie", account.Cookie)
 	}
@@ -703,11 +768,42 @@ func (s *Service) fetchMsgList(ctx context.Context, biz string, offset int) (*Me
 		}
 		return nil, fmt.Errorf("%w: %s", ErrUpstream, firstNonEmpty(data.ErrMsg, "message list request rejected"))
 	}
-	data.List, data.Articles, err = parseMessageList(data.GeneralMsgList)
+	data.List, data.Articles, err = parseMessageListPayload(data.GeneralMsgList, data.HomePageList)
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode general_msg_list: %v", ErrUpstream, err)
 	}
+	if len(data.Articles) == 0 {
+		data.EmptyReason = "getmsg returned an empty message list"
+	}
+	if len(data.List) > 0 {
+		data.MsgCount = len(data.List)
+	}
 	return &data, nil
+}
+
+func mergeMessageListCredentials(account Account, request MessageListRequest) Account {
+	if value := strings.TrimSpace(request.Uin); value != "" {
+		account.Uin = value
+	}
+	if value := strings.TrimSpace(request.Key); value != "" {
+		account.Key = value
+	}
+	if value := strings.TrimSpace(request.PassTicket); value != "" {
+		account.PassTicket = value
+	}
+	// appmsg_token is accepted for compatibility with captured page payloads,
+	// but getmsg does not require it and the upstream URL deliberately omits it.
+	if value := strings.TrimSpace(request.AppmsgToken); value != "" {
+		account.AppmsgToken = value
+	}
+	if value := strings.TrimSpace(request.Cookie); value != "" {
+		account.Cookie = value
+	}
+	return account
+}
+
+func hasInlineMessageListCredentials(request MessageListRequest) bool {
+	return strings.TrimSpace(request.Uin) != "" || strings.TrimSpace(request.Key) != "" || strings.TrimSpace(request.Cookie) != ""
 }
 
 func (s *Service) FetchArticleList(biz string) (*ArticleListResponse, error) {
@@ -722,11 +818,24 @@ func (s *Service) FetchArticleList(biz string) (*ArticleListResponse, error) {
 	if account.AuthorID == "" {
 		return nil, ErrMissingAuthorID
 	}
+	return s.fetchArticleList(context.Background(), account)
+}
+
+func (s *Service) fetchArticleList(ctx context.Context, account Account) (*ArticleListResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if account.Cookie == "" || s.now().Unix() >= account.CookieExpiration {
 		if err := s.fetchCookie(account); err != nil {
 			return nil, err
 		}
-		account, _ = s.accountSnapshot(biz)
+		refreshed, ok := s.accountSnapshot(account.Biz)
+		if ok {
+			// Keep inline credentials, if any; fetchCookie only refreshes the
+			// cookie in the persisted account snapshot.
+			account.Cookie = refreshed.Cookie
+			account.CookieExpiration = refreshed.CookieExpiration
+		}
 	}
 
 	base := s.upstream()
@@ -742,14 +851,14 @@ func (s *Service) FetchArticleList(biz string) (*ArticleListResponse, error) {
 	q.Set("f", "json")
 	q.Set("user_article_role", "0")
 	u.RawQuery = q.Encode()
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build article list request: %w", err)
 	}
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
 	req.Header.Set("Referer", s.buildAuthorURL(account))
-	req.Header.Set("User-Agent", defaultUserAgent)
+	req.Header.Set("User-Agent", messageListUserAgent)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	if account.Cookie != "" {
 		req.Header.Set("Cookie", account.Cookie)
@@ -778,17 +887,17 @@ func (s *Service) fetchCookie(account Account) error {
 	if err != nil {
 		return fmt.Errorf("build cookie request: %w", err)
 	}
-	req.Header.Set("User-Agent", defaultUserAgent)
+	req.Header.Set("User-Agent", messageListUserAgent)
 	resp, err := s.client().Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: fetch account cookie: %v", ErrUpstream, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("%w: cookie status %d", ErrUpstream, resp.StatusCode)
-	}
 	cookies := resp.Cookies()
 	if len(cookies) == 0 {
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return fmt.Errorf("%w: cookie status %d", ErrUpstream, resp.StatusCode)
+		}
 		return fmt.Errorf("%w: no account cookie returned", ErrUpstream)
 	}
 	parts := make([]string, 0, len(cookies))
@@ -838,9 +947,24 @@ func (s *Service) buildMsgListURL(account Account, offset int) string {
 	q.Set("count", "10")
 	q.Set("offset", strconv.Itoa(offset))
 	q.Set("f", "json")
-	if account.AppmsgToken != "" {
-		q.Set("appmsg_token", account.AppmsgToken)
-	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (s *Service) buildMsgListReferer(account Account) string {
+	u, _ := url.Parse(s.upstream() + "/mp/profile_ext")
+	q := u.Query()
+	q.Set("action", "home")
+	q.Set("__biz", account.Biz)
+	q.Set("scene", "124")
+	q.Set("uin", account.Uin)
+	q.Set("key", account.Key)
+	q.Set("devicetype", "UnifiedPCWindows")
+	q.Set("version", "f2541022")
+	q.Set("lang", "zh_CN")
+	q.Set("a8scene", "1")
+	q.Set("acctmode", "0")
+	q.Set("pass_ticket", account.PassTicket)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -883,48 +1007,150 @@ func parseMessageList(raw string) ([]MessageItem, []ArticleItem, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil, nil
 	}
-	var envelope struct {
-		List []MessageItem `json:"list"`
-	}
-	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
-		return nil, nil, err
-	}
-	articles := make([]ArticleItem, 0, len(envelope.List))
-	for _, item := range envelope.List {
-		msg := item.MsgExtInfo
-		published := int64(item.CommonMsgInfo.Datetime)
-		parent := ArticleItem{
-			Title:                  msg.Title,
-			Digest:                 msg.Digest,
-			Content:                msg.Content,
-			FileID:                 msg.FileID,
-			VideoID:                strings.TrimSpace(msg.VideoID),
-			ContentURL:             msg.ContentURL,
-			SourceURL:              msg.SourceURL,
-			Cover:                  msg.Cover,
-			Author:                 msg.Author,
-			Subtype:                msg.Subtype,
-			IsMulti:                msg.IsMulti,
-			IsOriginal:             msg.IsOriginal,
-			IsPaid:                 msg.IsPaid,
-			IsPaySubscribe:         msg.IsPaySubscribe,
-			ItemShowType:           msg.ItemShowType,
-			CopyrightStat:          msg.CopyrightStat,
-			Duration:               msg.Duration,
-			AudioFileID:            msg.AudioFileID,
-			PlayURL:                msg.PlayURL,
-			MaliciousTitleReasonID: msg.MaliciousTitleReasonID,
-			MaliciousContentType:   msg.MaliciousContentType,
-			DelFlag:                msg.DelFlag,
-			PublishTime:            published,
+	return parseMessageListJSON([]byte(raw))
+}
+
+func parseMessageListPayload(general string, homePageList json.RawMessage) ([]MessageItem, []ArticleItem, error) {
+	if strings.TrimSpace(general) != "" {
+		messages, articles, err := parseMessageList(general)
+		if err != nil {
+			return nil, nil, err
 		}
-		articles = append(articles, parent)
-		for _, child := range msg.MultiAppMsgItemList {
-			child.PublishTime = published
-			articles = append(articles, child)
+		if len(messages) > 0 || len(articles) > 0 {
+			return messages, articles, nil
 		}
 	}
-	return envelope.List, articles, nil
+	if len(bytes.TrimSpace(homePageList)) == 0 || bytes.Equal(bytes.TrimSpace(homePageList), []byte("null")) {
+		return nil, nil, nil
+	}
+	return parseMessageListJSON(homePageList)
+}
+
+func parseMessageListJSON(raw []byte) ([]MessageItem, []ArticleItem, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil, nil
+	}
+	if raw[0] == '"' {
+		var nested string
+		if err := json.Unmarshal(raw, &nested); err != nil {
+			return nil, nil, err
+		}
+		return parseMessageListJSON([]byte(nested))
+	}
+
+	var entries []json.RawMessage
+	if raw[0] == '[' {
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		var envelope struct {
+			List     []json.RawMessage `json:"list"`
+			Items    []json.RawMessage `json:"items"`
+			Articles []json.RawMessage `json:"articles"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return nil, nil, err
+		}
+		switch {
+		case envelope.List != nil:
+			entries = envelope.List
+		case envelope.Items != nil:
+			entries = envelope.Items
+		case envelope.Articles != nil:
+			entries = envelope.Articles
+		default:
+			return nil, nil, nil
+		}
+	}
+
+	messages := make([]MessageItem, 0, len(entries))
+	articles := make([]ArticleItem, 0, len(entries))
+	for _, entry := range entries {
+		var item MessageItem
+		if err := json.Unmarshal(entry, &item); err != nil {
+			return nil, nil, err
+		}
+		if strings.TrimSpace(item.MsgExtInfo.Title) != "" || strings.TrimSpace(item.MsgExtInfo.ContentURL) != "" ||
+			item.CommonMsgInfo.Datetime != 0 || len(item.MsgExtInfo.MultiAppMsgItemList) > 0 {
+			messages = append(messages, item)
+			articles = appendMessageArticles(articles, item)
+			continue
+		}
+
+		var entryArticle struct {
+			ArticleItem
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(entry, &entryArticle); err != nil {
+			return nil, nil, err
+		}
+		article := entryArticle.ArticleItem
+		article.ContentURL = firstNonEmpty(article.ContentURL, entryArticle.URL, article.SourceURL)
+		if strings.TrimSpace(article.Title) == "" && strings.TrimSpace(article.ContentURL) == "" {
+			continue
+		}
+		articles = append(articles, article)
+		messages = append(messages, MessageItem{
+			MsgExtInfo: MessageExtInfo{
+				Title:          article.Title,
+				Digest:         article.Digest,
+				ContentURL:     article.ContentURL,
+				SourceURL:      article.SourceURL,
+				Cover:          article.Cover,
+				Author:         article.Author,
+				Subtype:        article.Subtype,
+				IsMulti:        article.IsMulti,
+				IsOriginal:     article.IsOriginal,
+				IsPaid:         article.IsPaid,
+				IsPaySubscribe: article.IsPaySubscribe,
+				ItemShowType:   article.ItemShowType,
+				CopyrightStat:  article.CopyrightStat,
+				Duration:       article.Duration,
+				AudioFileID:    article.AudioFileID,
+				PlayURL:        article.PlayURL,
+			},
+			CommonMsgInfo: CommonMsgInfo{Datetime: int(article.PublishTime)},
+		})
+	}
+	return messages, articles, nil
+}
+
+func appendMessageArticles(articles []ArticleItem, item MessageItem) []ArticleItem {
+	msg := item.MsgExtInfo
+	published := int64(item.CommonMsgInfo.Datetime)
+	parent := ArticleItem{
+		Title:                  msg.Title,
+		Digest:                 msg.Digest,
+		Content:                msg.Content,
+		FileID:                 msg.FileID,
+		VideoID:                strings.TrimSpace(msg.VideoID),
+		ContentURL:             msg.ContentURL,
+		SourceURL:              msg.SourceURL,
+		Cover:                  msg.Cover,
+		Author:                 msg.Author,
+		Subtype:                msg.Subtype,
+		IsMulti:                msg.IsMulti,
+		IsOriginal:             msg.IsOriginal,
+		IsPaid:                 msg.IsPaid,
+		IsPaySubscribe:         msg.IsPaySubscribe,
+		ItemShowType:           msg.ItemShowType,
+		CopyrightStat:          msg.CopyrightStat,
+		Duration:               msg.Duration,
+		AudioFileID:            msg.AudioFileID,
+		PlayURL:                msg.PlayURL,
+		MaliciousTitleReasonID: msg.MaliciousTitleReasonID,
+		MaliciousContentType:   msg.MaliciousContentType,
+		DelFlag:                msg.DelFlag,
+		PublishTime:            published,
+	}
+	articles = append(articles, parent)
+	for _, child := range msg.MultiAppMsgItemList {
+		child.PublishTime = published
+		articles = append(articles, child)
+	}
+	return articles
 }
 
 func decodeJSONBody(reader io.Reader, target interface{}) error {

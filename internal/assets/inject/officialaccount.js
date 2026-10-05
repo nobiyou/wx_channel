@@ -4,6 +4,7 @@
   var config = window.__wx_channels_mp_config__ || {};
   var submitted = {};
   var accountSyncPromises = {};
+  var pageRequestCredentials = {};
   var metricSubmitted = {};
   var articleCommentRequestStarted = false;
   var pageMetricData = {};
@@ -12,11 +13,27 @@
   var pageVideoPageInfoObjects = [];
   var pageVideoPageInfos = [];
   var pageVideoTransferObjects = [];
+  var latestMessageListSnapshot = null;
+  var messageListSnapshotMaxAge = 5 * 60 * 1000;
+  var messageListDefaultPageSize = 10;
+  var messageListMaxPages = 100;
   var panelId = "__wx_channels_official_account__";
   var toolsRootId = "__wx_channels_mp_tools__";
+  var toolsStyleId = "__wx_channels_mp_tools_style__";
   var messageListDialogId = "__wx_channels_mp_message_list__";
   var noticeId = "__wx_channels_mp_notice__";
   var articleDownloadPromise = null;
+  var articleMountObserver = null;
+  var articleMountObserverTarget = null;
+  var articleMountInProgress = false;
+  var routeObserverInstalled = false;
+  var articleMountSelectors = [
+    ".interaction_bar",
+    ".wx_follow_media",
+    ".rich_media_tool",
+    "#js_share_bar",
+    ".ct_mp_opr"
+  ];
   var articleMenuIcons = {
     copy: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
     rss: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"></path><path d="M4 4a16 16 0 0 1 16 16"></path><circle cx="5" cy="19" r="1"></circle></svg>',
@@ -62,6 +79,31 @@
     } catch (error) {
       return "";
     }
+  }
+
+  function captureRequestCredentials(rawURL) {
+    if (!isOfficialNetworkURL(rawURL)) {
+      return;
+    }
+    var parsedURL;
+    try {
+      parsedURL = new URL(networkURL(rawURL), window.location.href);
+    } catch (error) {
+      return;
+    }
+    var query = parsedURL.searchParams;
+    var captured = {
+      biz: firstValue(query.get("__biz"), query.get("biz"), query.get("bizuin")),
+      uin: firstValue(query.get("uin"), query.get("user_uin")),
+      key: query.get("key") || "",
+      pass_ticket: query.get("pass_ticket") || "",
+      appmsg_token: query.get("appmsg_token") || ""
+    };
+    Object.keys(captured).forEach(function (name) {
+      if (captured[name]) {
+        pageRequestCredentials[name] = String(captured[name]).trim();
+      }
+    });
   }
 
   function isPageDataObject(value) {
@@ -410,6 +452,75 @@
     }
   }
 
+  function captureMessageListPayload(rawURL, value) {
+    var parsedURL;
+    try {
+      parsedURL = new URL(networkURL(rawURL), window.location.href);
+    } catch (error) {
+      return;
+    }
+    if (parsedURL.hostname.toLowerCase() !== "mp.weixin.qq.com" ||
+      parsedURL.pathname !== "/mp/profile_ext" ||
+      parsedURL.searchParams.get("action") !== "getmsg") {
+      return;
+    }
+    var offset = Number(parsedURL.searchParams.get("offset") || 0);
+    if (!isFinite(offset) || offset < 0) {
+      return;
+    }
+    var payload = value;
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload);
+      } catch (error) {
+        return;
+      }
+    }
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    if (payload.ret !== undefined && Number(payload.ret) !== 0) {
+      return;
+    }
+    var account = credentials();
+    var biz = firstValue(
+      parsedURL.searchParams.get("__biz"),
+      parsedURL.searchParams.get("biz"),
+      account.biz
+    );
+    if (!biz) {
+      return;
+    }
+    var page = messageListPageFromPayload(payload);
+    if (!latestMessageListSnapshot || latestMessageListSnapshot.biz !== biz ||
+      Date.now() - latestMessageListSnapshot.capturedAt > messageListSnapshotMaxAge) {
+      latestMessageListSnapshot = { biz: biz, pages: {}, capturedAt: Date.now() };
+    }
+    page.offset = offset;
+    latestMessageListSnapshot.pages[String(offset)] = page;
+    latestMessageListSnapshot.capturedAt = Date.now();
+  }
+
+  function observedMessageList(account) {
+    var snapshot = latestMessageListSnapshot;
+    if (!snapshot || !account || snapshot.biz !== account.biz ||
+      Date.now() - snapshot.capturedAt > messageListSnapshotMaxAge) {
+      return null;
+    }
+    var page = snapshot.pages && snapshot.pages["0"];
+    if (!page) {
+      return null;
+    }
+    return {
+      articles: page.articles.slice(),
+      canMsgContinue: page.canMsgContinue,
+      nextOffset: page.nextOffset,
+      batchSize: page.batchSize,
+      offset: 0,
+      source: "observed"
+    };
+  }
+
   function inspectNetworkResponse(rawURL, response) {
     if (!isOfficialNetworkURL(rawURL) || !response || typeof response.clone !== "function") {
       return;
@@ -418,6 +529,7 @@
       var copy = response.clone();
       if (copy && typeof copy.text === "function") {
         copy.text().then(function (body) {
+          captureMessageListPayload(rawURL, body);
           inspectNetworkValue(body, 0);
         }).catch(function () {
           // Ignore an unreadable clone and keep the original response intact.
@@ -436,6 +548,7 @@
     var originalFetch = window.fetch;
     window.fetch = function () {
       var rawURL = networkURL(arguments[0]);
+      captureRequestCredentials(rawURL);
       var result = originalFetch.apply(this, arguments);
       return Promise.resolve(result).then(function (response) {
         inspectNetworkResponse(rawURL, response);
@@ -458,6 +571,7 @@
     }
     prototype.open = function () {
       this.__wx_channels_mp_request_url__ = arguments[1];
+      captureRequestCredentials(arguments[1]);
       return originalOpen.apply(this, arguments);
     };
     prototype.send = function () {
@@ -467,9 +581,11 @@
           return;
         }
         try {
-          if (xhr.responseType === "json") {
+        if (xhr.responseType === "json") {
+            captureMessageListPayload(xhr.__wx_channels_mp_request_url__, xhr.response);
             inspectNetworkValue(xhr.response, 0);
           } else if (!xhr.responseType || xhr.responseType === "text") {
+            captureMessageListPayload(xhr.__wx_channels_mp_request_url__, xhr.responseText);
             inspectNetworkValue(xhr.responseText, 0);
           }
         } catch (error) {
@@ -564,6 +680,14 @@
     }
   }
 
+  function pageCookie() {
+    try {
+      return typeof document.cookie === "string" ? document.cookie.trim() : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
   function pageMetadata(cgiData, cgiDataNew) {
     return {
       nickname: firstValue(
@@ -615,13 +739,14 @@
     var metadata = pageMetadata(cgiData, cgiDataNew);
     var pageLink = firstValue(objectValue(cgiDataNew, "link"), objectValue(cgiData, "link"));
     var biz = firstValue(
-      config.biz,
-      window.biz,
-      window.__biz,
       objectValue(cgiData, "biz"),
       objectValue(cgiData, "bizuin"),
       objectValue(cgiDataNew, "biz"),
       objectValue(cgiDataNew, "bizuin"),
+      pageRequestCredentials.biz,
+      config.biz,
+      window.biz,
+      window.__biz,
       queryValue("__biz"),
       queryValue("biz"),
       urlValue(pageLink, "__biz"),
@@ -632,10 +757,11 @@
       nickname: metadata.nickname,
       avatar_url: metadata.avatar_url,
       author_id: metadata.author_id,
-      uin: firstValue(window.uin, objectValue(cgiData, "uin"), objectValue(cgiData, "user_uin"), objectValue(cgiDataNew, "uin"), objectValue(cgiDataNew, "user_uin"), queryValue("uin")),
-      key: firstValue(window.key, objectValue(cgiData, "key"), objectValue(cgiDataNew, "key"), queryValue("key")),
-      pass_ticket: firstValue(window.pass_ticket, objectValue(cgiData, "pass_ticket"), objectValue(cgiDataNew, "pass_ticket"), queryValue("pass_ticket")),
-      appmsg_token: firstValue(window.appmsg_token, objectValue(cgiData, "appmsg_token"), objectValue(cgiDataNew, "appmsg_token"), queryValue("appmsg_token")),
+      uin: firstValue(pageRequestCredentials.uin, window.uin, objectValue(cgiData, "uin"), objectValue(cgiData, "user_uin"), objectValue(cgiDataNew, "uin"), objectValue(cgiDataNew, "user_uin"), queryValue("uin")),
+      key: firstValue(pageRequestCredentials.key, window.key, objectValue(cgiData, "key"), objectValue(cgiDataNew, "key"), queryValue("key")),
+      pass_ticket: firstValue(pageRequestCredentials.pass_ticket, window.pass_ticket, objectValue(cgiData, "pass_ticket"), objectValue(cgiDataNew, "pass_ticket"), queryValue("pass_ticket")),
+      appmsg_token: firstValue(pageRequestCredentials.appmsg_token, window.appmsg_token, objectValue(cgiData, "appmsg_token"), objectValue(cgiDataNew, "appmsg_token"), queryValue("appmsg_token")),
+      cookie: pageCookie(),
       refresh_uri: buildRefreshURI(cgiData, cgiDataNew, biz)
     };
   }
@@ -931,9 +1057,94 @@
     });
   }
 
-  function articleItemsFromPayload(payload) {
+  function decodeMessageListValue(value) {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch (error) {
+        return null;
+      }
+    }
+    return value;
+  }
+
+  function messageListValueHasItems(value) {
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    return (Array.isArray(value.list) && value.list.length > 0) ||
+      (Array.isArray(value.items) && value.items.length > 0) ||
+      (Array.isArray(value.articles) && value.articles.length > 0);
+  }
+
+  function messageListPayloadFromData(data) {
+    var general = decodeMessageListValue(data.general_msg_list !== undefined
+      ? data.general_msg_list
+      : data.generalMsgList);
+    var home = decodeMessageListValue(data.home_page_list !== undefined
+      ? data.home_page_list
+      : data.homePageList);
+    if (messageListValueHasItems(general)) {
+      return general;
+    }
+    if (messageListValueHasItems(home)) {
+      return home;
+    }
+    if (general !== null) {
+      return general;
+    }
+    if (home !== null) {
+      return home;
+    }
+    return data;
+  }
+
+  function messageListDataFromPayload(payload) {
     var data = payload && payload.data !== undefined ? payload.data : payload;
     data = data && typeof data === "object" ? data : {};
+    var listPayload = messageListPayloadFromData(data);
+    if (Array.isArray(listPayload)) {
+      return { list: listPayload };
+    }
+    return listPayload && typeof listPayload === "object" ? listPayload : data;
+  }
+
+  function messageListPageFromPayload(payload) {
+    var data = payload && payload.data !== undefined ? payload.data : payload;
+    data = data && typeof data === "object" ? data : {};
+    var listPayload = messageListPayloadFromData(data);
+    var list = Array.isArray(listPayload)
+      ? listPayload
+      : listPayload && typeof listPayload === "object" && Array.isArray(listPayload.list)
+        ? listPayload.list
+        : listPayload && typeof listPayload === "object" && Array.isArray(listPayload.items)
+          ? listPayload.items
+          : listPayload && typeof listPayload === "object" && Array.isArray(listPayload.articles)
+            ? listPayload.articles
+            : Array.isArray(data.list) ? data.list : null;
+    var canMsgContinue = Number(data.can_msg_continue !== undefined
+      ? data.can_msg_continue
+      : data.canMsgContinue);
+    var nextOffset = Number(data.next_offset !== undefined ? data.next_offset : data.nextOffset);
+    var batchSize = list ? list.length : (Array.isArray(data.articles) ? data.articles.length : 0);
+    return {
+      articles: articleItemsFromPayload(payload),
+      canMsgContinue: isFinite(canMsgContinue) && canMsgContinue !== 0,
+      nextOffset: isFinite(nextOffset) ? nextOffset : -1,
+      batchSize: batchSize > 0 ? batchSize : messageListDefaultPageSize,
+      emptyReason: firstValue(data.empty_reason, data.emptyReason),
+      fallbackError: firstValue(data.fallback_error, data.fallbackError)
+    };
+  }
+
+  function articleItemsFromPayload(payload) {
+    var data = messageListDataFromPayload(payload);
     var result = [];
 
     function append(item, fallbackTime) {
@@ -979,6 +1190,11 @@
         append(data.list[j], objectValue(data.list[j] && data.list[j].comm_msg_info, "datetime"));
       }
     }
+    if (!result.length && Array.isArray(data.items)) {
+      for (var k = 0; k < data.items.length; k += 1) {
+        append(data.items[k], data.items[k] && data.items[k].publish_time);
+      }
+    }
 
     var seen = {};
     return result.filter(function (item) {
@@ -1017,7 +1233,7 @@
     }
   }
 
-  function renderMessageList(articles, account) {
+  function renderMessageList(articles, account, source) {
     if (!document.body) {
       return;
     }
@@ -1046,7 +1262,8 @@
     var header = document.createElement("div");
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px 13px;border-bottom:1px solid #eaecf0;background:#fff;";
     var heading = document.createElement("div");
-    heading.textContent = (account && account.nickname ? account.nickname + " - " : "") + "推送列表 (" + articles.length + ")";
+    var headingLabel = source === "current_article" ? "当前文章" : "推送列表";
+    heading.textContent = (account && account.nickname ? account.nickname + " - " : "") + headingLabel + " (" + articles.length + ")";
     heading.style.cssText = "min-width:0;overflow:hidden;color:#101828;font-weight:600;font-size:15px;white-space:nowrap;text-overflow:ellipsis;";
     header.appendChild(heading);
     var closeButton = document.createElement("button");
@@ -1143,21 +1360,281 @@
     document.body.appendChild(overlay);
   }
 
+  function buildMessageListURL(account, offset) {
+    if (!account || !account.biz || !account.key) {
+      return "";
+    }
+    var origin = firstValue(window.location && window.location.origin, "https://mp.weixin.qq.com");
+    try {
+      var target = new URL("/mp/profile_ext", origin);
+      var query = target.searchParams;
+      query.set("action", "getmsg");
+      query.set("__biz", account.biz);
+      query.set("uin", account.uin || "");
+      query.set("key", account.key);
+      query.set("pass_ticket", account.pass_ticket || "");
+      query.set("wxtoken", "");
+      query.set("x5", "0");
+      query.set("count", "10");
+      query.set("offset", String(Number(offset) >= 0 ? Number(offset) : 0));
+      query.set("f", "json");
+      return target.toString();
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function buildMessageListReferrer(account) {
+    if (!account || !account.biz || !account.key) {
+      return "";
+    }
+    var origin = firstValue(window.location && window.location.origin, "https://mp.weixin.qq.com");
+    try {
+      var target = new URL("/mp/profile_ext", origin);
+      var query = target.searchParams;
+      query.set("action", "home");
+      query.set("__biz", account.biz);
+      query.set("scene", "124");
+      query.set("uin", account.uin || "");
+      query.set("key", account.key);
+      query.set("devicetype", "UnifiedPCWindows");
+      query.set("version", "f2541022");
+      query.set("lang", "zh_CN");
+      query.set("a8scene", "1");
+      query.set("acctmode", "0");
+      query.set("pass_ticket", account.pass_ticket || "");
+      return target.toString();
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function fetchCurrentMessageList(account, offset) {
+    var target = buildMessageListURL(account, offset);
+    if (!target) {
+      return Promise.reject(new Error("公众号页面请求地址不可用"));
+    }
+    return fetch(target, {
+      method: "GET",
+      headers: { Accept: "application/json, text/plain, */*", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "include",
+      referrer: buildMessageListReferrer(account),
+      referrerPolicy: "strict-origin-when-cross-origin",
+      cache: "no-store"
+    }).then(readJSONResponse).then(function (payload) {
+      if (payload && payload.ret !== undefined && Number(payload.ret) !== 0) {
+        throw new Error(payload.errmsg || ("微信接口返回失败 (ret=" + payload.ret + ")"));
+      }
+      return payload;
+    });
+  }
+
+  function fetchCurrentMessageListPage(account, offset) {
+    return fetchCurrentMessageList(account, offset).then(messageListPageFromPayload);
+  }
+
+  function fetchCurrentPushList(account) {
+    return fetchCurrentMessageListPage(account, 0).then(function (page) {
+      if (page && (page.articles.length || page.canMsgContinue)) {
+        return collectLiveMessageList(page, function (offset) {
+          return fetchCurrentMessageListPage(account, offset);
+        });
+      }
+      return {
+        articles: page && Array.isArray(page.articles) ? page.articles : [],
+        source: "live",
+        emptyReason: firstValue(
+          page && page.emptyReason,
+          "微信推送接口未返回文章"
+        )
+      };
+    });
+  }
+
+  function currentArticleMessageListFallback(account) {
+    if (!isArticlePage()) {
+      return null;
+    }
+    var article;
+    try {
+      article = articleMetadata(account);
+    } catch (error) {
+      return null;
+    }
+    if (!article || (!article.title && !article.content_url)) {
+      return null;
+    }
+    return {
+      articles: [{
+        title: article.title || "当前文章",
+        url: firstValue(article.content_url, article.source_url, window.location && window.location.href),
+        digest: article.digest || "",
+        publish_time: article.publish_time || 0
+      }],
+      source: "current_article",
+      emptyReason: "微信推送接口返回空列表，已显示当前打开文章"
+    };
+  }
+
+  function useCurrentArticleFallback(result, account) {
+    if (result && Array.isArray(result.articles) && result.articles.length) {
+      return result;
+    }
+    return currentArticleMessageListFallback(account) || result;
+  }
+
+  function fetchLocalMessageListPage(account, offset) {
+    if (!account || !account.biz) {
+      return Promise.reject(new Error("公众号推送列表地址不可用"));
+    }
+    return fetch(refreshURL("/api/mp/msg/list"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        biz: account.biz,
+        uin: account.uin,
+        key: account.key,
+        pass_ticket: account.pass_ticket,
+        appmsg_token: account.appmsg_token,
+        cookie: account.cookie,
+        offset: Number(offset) >= 0 ? Number(offset) : 0
+      }),
+      credentials: "omit"
+    }).then(readJSONResponse).then(messageListPageFromPayload);
+  }
+
+  function appendMessageListArticles(target, seen, articles) {
+    if (!Array.isArray(articles)) {
+      return;
+    }
+    for (var i = 0; i < articles.length; i += 1) {
+      var article = articles[i];
+      if (!article) {
+        continue;
+      }
+      var key = article.url || article.title + "\u0001" + article.publish_time;
+      if (!key || seen[key]) {
+        continue;
+      }
+      seen[key] = true;
+      target.push(article);
+    }
+  }
+
+  function collectLiveMessageList(firstPage, fetchPage) {
+    var articles = [];
+    var seenArticles = {};
+    var visitedOffsets = {};
+    var pagesRead = 0;
+
+    function readPage(page, offset) {
+      page = page || { articles: [], canMsgContinue: false, nextOffset: -1, batchSize: messageListDefaultPageSize };
+      appendMessageListArticles(articles, seenArticles, page.articles);
+      pagesRead += 1;
+      if (!page.canMsgContinue) {
+        return Promise.resolve({ articles: articles, source: "live" });
+      }
+      if (pagesRead >= messageListMaxPages) {
+        return Promise.resolve({ articles: articles, source: "live", incomplete: true });
+      }
+
+      var nextOffset = Number(page.nextOffset);
+      if (!isFinite(nextOffset) || nextOffset <= offset) {
+        var batchSize = Number(page.batchSize);
+        nextOffset = offset + (isFinite(batchSize) && batchSize > 0 ? batchSize : messageListDefaultPageSize);
+      }
+      if (visitedOffsets[String(nextOffset)]) {
+        return Promise.resolve({ articles: articles, source: "live", incomplete: true });
+      }
+      visitedOffsets[String(nextOffset)] = true;
+      return Promise.resolve(fetchPage(nextOffset)).then(function (nextPage) {
+        return readPage(nextPage, nextOffset);
+      }).catch(function (error) {
+        if (!articles.length) {
+          throw error;
+        }
+        return { articles: articles, source: "live", partialError: error };
+      });
+    }
+
+    var initialOffset = Number(firstPage && firstPage.offset);
+    if (!isFinite(initialOffset) || initialOffset < 0) {
+      initialOffset = 0;
+    }
+    visitedOffsets[String(initialOffset)] = true;
+    return readPage(firstPage, initialOffset);
+  }
+
+  function renderResolvedMessageList(result, account) {
+    var articles = result && Array.isArray(result.articles) ? result.articles : [];
+    renderMessageList(articles, account, result && result.source);
+    if (result && result.partialError) {
+      showNotice("已读取 " + articles.length + " 篇推送，后续分页读取失败", true);
+    } else if (result && result.incomplete) {
+      showNotice("已读取 " + articles.length + " 篇推送，暂未完成全部分页", true);
+    } else if (articles.length) {
+      showNotice(result && result.source === "current_article"
+        ? "微信推送接口为空，已显示当前打开文章"
+        : "已读取 " + articles.length + " 篇推送", result && result.source === "current_article");
+    } else {
+      var emptyReason = result && firstValue(result.emptyReason, result.fallbackError);
+      showNotice(emptyReason
+        ? "推送列表为空：" + emptyReason
+        : "当前会话未获取到实时推送，请刷新公众号页面或重新打开文章后重试", true);
+    }
+    return articles;
+  }
+
   function loadMessageList() {
     showNotice("正在读取推送列表...", false);
     return waitForMessageListAccount(10000).then(function (account) {
-      var endpoint = "/api/mp/msg/list?biz=" + encodeURIComponent(account.biz);
-      return fetch(refreshURL(endpoint), {
-        method: "GET",
-        headers: { Accept: "application/json, text/plain, */*" },
-        credentials: "omit"
-      }).then(readJSONResponse).then(function (payload) {
-        var articles = articleItemsFromPayload(payload);
-        renderMessageList(articles, account);
-        showNotice("已读取 " + articles.length + " 篇推送", false);
-        return articles;
+      var observed = observedMessageList(account);
+      if (observed && (observed.articles.length || observed.canMsgContinue)) {
+        return collectLiveMessageList(observed, function (offset) {
+          return fetchCurrentMessageListPage(account, offset);
+        }).then(function (result) {
+          return renderResolvedMessageList(useCurrentArticleFallback(result, account), account);
+        });
+      }
+      // The article page already has the active WeChat browser session. Use
+      // it first so the list request carries the same cookies as the page;
+      // the local service is still useful as a credential-refresh fallback.
+      return fetchCurrentPushList(account).then(function (result) {
+        if (result && (result.articles.length || result.canMsgContinue)) {
+          return result;
+        }
+        return fetchLocalMessageListPage(account, 0).then(function (page) {
+          if (page.articles.length || page.canMsgContinue) {
+            return collectLiveMessageList(page, function (offset) {
+              return fetchLocalMessageListPage(account, offset);
+            });
+          }
+          if (result && !result.emptyReason && page.emptyReason) {
+            result.emptyReason = page.emptyReason;
+          }
+          return result;
+        }, function (localError) {
+          if (result && !result.emptyReason) {
+            result.emptyReason = localError.message;
+          }
+          return result;
+        });
+      }, function (pageError) {
+        return fetchLocalMessageListPage(account, 0).then(function (page) {
+          if (page.articles.length || page.canMsgContinue) {
+            return collectLiveMessageList(page, function (offset) {
+              return fetchLocalMessageListPage(account, offset);
+            });
+          }
+          throw pageError;
+        }, function () {
+          throw pageError;
+        });
+      }).then(function (result) {
+        return renderResolvedMessageList(useCurrentArticleFallback(result, account), account);
       });
     }).catch(function (error) {
+      renderMessageList([], credentials());
       showNotice("推送列表读取失败: " + error.message, true);
       throw error;
     });
@@ -2133,6 +2610,45 @@
     menu.style.top = Math.round(top) + "px";
   }
 
+  function ensureArticleToolsStyles() {
+    if (typeof document === "undefined" || !document.createElement || !document.getElementById) {
+      return;
+    }
+    if (document.getElementById(toolsStyleId)) {
+      return;
+    }
+    var host = document.head || document.body;
+    if (!host || typeof host.appendChild !== "function") {
+      return;
+    }
+    var style = document.createElement("style");
+    style.id = toolsStyleId;
+    style.textContent = [
+      ".wx-channels-mp-tools-root > .wx-channels-mp-tools-trigger {",
+      "  flex-direction: row !important;",
+      "  justify-content: center;",
+      "  white-space: nowrap;",
+      "}",
+      ".wx-channels-mp-tools-root > .wx-channels-mp-tools-trigger > .wx-channels-mp-tools-icon {",
+      "  flex: 0 0 18px;",
+      "}",
+      "@media (max-width: 640px) {",
+      "  .wx-channels-mp-tools-root > .wx-channels-mp-tools-trigger {",
+      "    flex-direction: column !important;",
+      "    gap: 2px !important;",
+      "    min-width: 48px;",
+      "    min-height: 48px !important;",
+      "    padding: 4px 7px !important;",
+      "  }",
+      "  .wx-channels-mp-tools-root > .wx-channels-mp-tools-trigger > span:not(.wx-channels-mp-tools-icon) {",
+      "    font-size: 12px;",
+      "    line-height: 1.15;",
+      "  }",
+      "}"
+    ].join("");
+    host.appendChild(style);
+  }
+
   function createArticleIcon(name, className) {
     var icon = document.createElement("span");
     icon.className = className || "wx-channels-mp-icon";
@@ -2206,6 +2722,7 @@
   }
 
   function createArticleTools() {
+    ensureArticleToolsStyles();
     var root = document.createElement("div");
     root.id = toolsRootId;
     root.className = "sns_opr_btn_con wx-channels-mp-tools-root";
@@ -2341,30 +2858,150 @@
     return root;
   }
 
+  function refreshArticleTools() {
+    if (articleMountInProgress) {
+      return;
+    }
+    if (isArticlePage()) {
+      mountArticleTools();
+    }
+  }
+
+  function installArticleDOMObserver() {
+    if (!isArticlePage() || typeof window.MutationObserver !== "function") {
+      return;
+    }
+    var target = document.documentElement || document.body;
+    if (!target || typeof articleMountObserver === "undefined") {
+      return;
+    }
+    if (articleMountObserver && articleMountObserverTarget === target) {
+      return;
+    }
+    if (articleMountObserver && typeof articleMountObserver.disconnect === "function") {
+      articleMountObserver.disconnect();
+    }
+    articleMountObserver = null;
+    articleMountObserverTarget = null;
+    try {
+      articleMountObserver = new window.MutationObserver(function () {
+        refreshArticleTools();
+      });
+      articleMountObserverTarget = target;
+      articleMountObserver.observe(target, { childList: true, subtree: true });
+    } catch (error) {
+      articleMountObserver = null;
+      articleMountObserverTarget = null;
+    }
+  }
+
+  function installRouteObserver() {
+    if (routeObserverInstalled) {
+      return;
+    }
+    routeObserverInstalled = true;
+    var history = window.history;
+    if (history) {
+      ["pushState", "replaceState"].forEach(function (method) {
+        var original = history[method];
+        if (typeof original !== "function") {
+          return;
+        }
+        history[method] = function () {
+          var result = original.apply(this, arguments);
+          refreshArticleTools();
+          installArticleDOMObserver();
+          return result;
+        };
+      });
+    }
+    if (typeof window.addEventListener === "function") {
+      window.addEventListener("popstate", refreshArticleTools);
+      window.addEventListener("hashchange", refreshArticleTools);
+    }
+  }
+
+  function articleToolsRootStyle(isFallback) {
+    if (isFallback) {
+      return "position:fixed;right:16px;bottom:18px;z-index:2147483646;display:inline-flex;align-items:center;overflow:visible;";
+    }
+    return "position:relative;display:inline-flex;align-items:center;overflow:visible;";
+  }
+
+  function setArticleToolsPlacement(root, isFallback) {
+    if (!root) {
+      return;
+    }
+    root.__wx_channels_mp_fallback__ = Boolean(isFallback);
+    root.style.cssText = articleToolsRootStyle(isFallback);
+    if (typeof root.setAttribute === "function") {
+      root.setAttribute("data-wx-channels-mp-fallback", isFallback ? "1" : "0");
+    }
+  }
+
+  function findArticleToolsContainer() {
+    for (var selectorIndex = 0; selectorIndex < articleMountSelectors.length; selectorIndex += 1) {
+      var wraps;
+      try {
+        wraps = document.querySelectorAll(articleMountSelectors[selectorIndex]);
+      } catch (error) {
+        wraps = null;
+      }
+      if (!wraps || !wraps.length) {
+        continue;
+      }
+      for (var wrapIndex = wraps.length - 1; wrapIndex >= 0; wrapIndex -= 1) {
+        if (wraps[wrapIndex] && typeof wraps[wrapIndex].appendChild === "function") {
+          return wraps[wrapIndex];
+        }
+      }
+    }
+    return null;
+  }
+
+  function placeArticleTools(root, container, isFallback) {
+    if (!root || !container || typeof container.appendChild !== "function") {
+      return false;
+    }
+    if (root.parentNode !== container) {
+      articleMountInProgress = true;
+      try {
+        if (root.parentNode && typeof root.parentNode.removeChild === "function") {
+          root.parentNode.removeChild(root);
+        }
+        var last = container.lastElementChild;
+        if (!isFallback && last && typeof container.insertBefore === "function") {
+          container.insertBefore(root, last);
+        } else {
+          container.appendChild(root);
+        }
+      } finally {
+        articleMountInProgress = false;
+      }
+    }
+    setArticleToolsPlacement(root, isFallback);
+    return true;
+  }
+
   function mountArticleTools() {
     if (!isArticlePage() || !document.body) {
       return !isArticlePage();
     }
     var existing = document.getElementById(toolsRootId);
-    if (existing) {
-      return true;
+    var root = existing;
+    if (!root) {
+      articleMountInProgress = true;
+      try {
+        root = createArticleTools();
+      } finally {
+        articleMountInProgress = false;
+      }
     }
-    var wraps = document.querySelectorAll(".interaction_bar");
-    if (!wraps || !wraps.length) {
-      return false;
+    var container = findArticleToolsContainer();
+    if (container) {
+      return placeArticleTools(root, container, false);
     }
-    var container = wraps[wraps.length - 1];
-    if (!container || typeof container.appendChild !== "function") {
-      return false;
-    }
-    var root = createArticleTools();
-    var last = container.lastElementChild;
-    if (last && typeof container.insertBefore === "function") {
-      container.insertBefore(root, last);
-    } else {
-      container.appendChild(root);
-    }
-    return true;
+    return placeArticleTools(root, document.body, true);
   }
 
   function setStatus(message, isError) {
@@ -2525,14 +3162,20 @@
     var account = credentials();
     var articlePage = isArticlePage();
     var articleToolsMounted = mountArticleTools();
+    installRouteObserver();
+    installArticleDOMObserver();
     renderPanel(account);
     updatePanel(account);
     var attempts = 0;
     var timer = window.setInterval(function () {
       attempts += 1;
       account = credentials();
+      articlePage = isArticlePage();
       if (articlePage && !articleToolsMounted) {
         articleToolsMounted = mountArticleTools();
+        installArticleDOMObserver();
+      } else if (!articlePage) {
+        articleToolsMounted = false;
       }
       updatePanel(account);
       if (account.biz && (account.key || account.nickname || account.avatar_url || account.author_id)) {
@@ -2563,7 +3206,9 @@
   }
 
   function onReady() {
-    window.setTimeout(start, 600);
+    // Install network and DOM observers as soon as the article DOM is ready;
+    // delaying this window can miss the first credential-bearing request.
+    start();
   }
 
   if (document.readyState === "loading") {

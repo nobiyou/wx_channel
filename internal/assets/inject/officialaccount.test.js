@@ -13,6 +13,46 @@ function loadOfficialAccount(pathname, options) {
   const execCommandCalls = [];
   const documentHandlers = {};
   const openedWindows = [];
+  const mutationObservers = [];
+
+  function isWithin(node, target) {
+    if (!target) {
+      return true;
+    }
+    let current = node;
+    while (current) {
+      if (current === target) {
+        return true;
+      }
+      current = current.parentNode;
+    }
+    return false;
+  }
+
+  function notifyMutations(target) {
+    mutationObservers.slice().forEach((observer) => {
+      if (typeof observer.callback === 'function' && isWithin(target, observer.target)) {
+        observer.callback([{ type: 'childList' }], observer);
+      }
+    });
+  }
+
+  function MockMutationObserver(callback) {
+    this.callback = callback;
+    this.target = null;
+    this.observe = (target) => {
+      this.target = target;
+      if (mutationObservers.indexOf(this) < 0) {
+        mutationObservers.push(this);
+      }
+    };
+    this.disconnect = () => {
+      const index = mutationObservers.indexOf(this);
+      if (index >= 0) {
+        mutationObservers.splice(index, 1);
+      }
+    };
+  }
 
   function createElement() {
     const element = {
@@ -30,7 +70,7 @@ function loadOfficialAccount(pathname, options) {
       attributes: {},
       eventHandlers: {},
       setAttribute(name, value) { this.attributes[name] = value; },
-      appendChild(child) { child.parentNode = this; this.children.push(child); },
+      appendChild(child) { child.parentNode = this; this.children.push(child); notifyMutations(this); },
       insertBefore(child, reference) {
         child.parentNode = this;
         const index = this.children.indexOf(reference);
@@ -39,10 +79,12 @@ function loadOfficialAccount(pathname, options) {
         } else {
           this.children.splice(index, 0, child);
         }
+        notifyMutations(this);
       },
       removeChild(child) {
         this.children = this.children.filter((item) => item !== child);
         child.parentNode = null;
+        notifyMutations(this);
       },
       addEventListener(name, handler) { this.eventHandlers[name] = handler; },
       querySelector(selector) {
@@ -72,22 +114,54 @@ function loadOfficialAccount(pathname, options) {
     interactionBar.appendChild(createElement());
   }
 
-  const body = {
+  const documentElement = {
+    parentNode: null,
     children: [],
-    innerHTML: options.bodyHTML || '<main>page</main>',
-    appendChild(child) { child.parentNode = this; this.children.push(child); },
+    appendChild(child) {
+      child.parentNode = this;
+      this.children.push(child);
+      notifyMutations(this);
+    },
     removeChild(child) {
       this.children = this.children.filter((item) => item !== child);
       child.parentNode = null;
+      notifyMutations(this);
     },
   };
+  function createBody() {
+    return {
+      parentNode: documentElement,
+      children: [],
+      innerHTML: options.bodyHTML || '<main>page</main>',
+      appendChild(child) { child.parentNode = this; this.children.push(child); notifyMutations(this); },
+      removeChild(child) {
+        this.children = this.children.filter((item) => item !== child);
+        child.parentNode = null;
+        notifyMutations(this);
+      },
+    };
+  }
+  let body = createBody();
+  documentElement.children.push(body);
+  const head = {
+    children: [],
+    appendChild(child) { child.parentNode = this; this.children.push(child); },
+  };
+  let fallbackContainer = options.fallbackContainer || null;
+  if (!fallbackContainer && options.withFallbackContainer) {
+    fallbackContainer = createElement();
+    fallbackContainer.appendChild(createElement());
+  }
 
   const sandbox = {
     console: { log() {}, warn() {}, error() {} },
     window: {},
     document: {
       readyState: 'complete',
+      cookie: options.cookie || '',
       body,
+      documentElement,
+      head,
       addEventListener(name, handler) { documentHandlers[name] = handler; },
       createElement,
       querySelector(selector) {
@@ -99,6 +173,9 @@ function loadOfficialAccount(pathname, options) {
       querySelectorAll(selector) {
         if (selector === '.interaction_bar') {
           return interactionBar ? [interactionBar] : [];
+        }
+        if (options.fallbackSelector && selector === options.fallbackSelector) {
+          return fallbackContainer ? [fallbackContainer] : [];
         }
         if (options.mediaElements) {
           return options.mediaElements;
@@ -144,6 +221,7 @@ function loadOfficialAccount(pathname, options) {
       return intervals.length;
     },
     clearInterval() {},
+    MutationObserver: MockMutationObserver,
   };
 
   sandbox.window = sandbox;
@@ -155,7 +233,37 @@ function loadOfficialAccount(pathname, options) {
 
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: 'officialaccount.js' });
-  return { intervals, fetchCalls, body, createdElements, execCommandCalls, openedWindows, documentHandlers, interactionBar, sandbox };
+  return {
+    intervals,
+    fetchCalls,
+    body,
+    createdElements,
+    execCommandCalls,
+    openedWindows,
+    documentHandlers,
+    interactionBar,
+    mutationObservers,
+    addInteractionBar() {
+      interactionBar = createElement();
+      interactionBar.appendChild(createElement());
+      body.appendChild(interactionBar);
+      return interactionBar;
+    },
+    replaceBody(withInteractionBar) {
+      body = createBody();
+      sandbox.document.body = body;
+      documentElement.children = [body];
+      interactionBar = null;
+      if (withInteractionBar) {
+        interactionBar = createElement();
+        interactionBar.appendChild(createElement());
+        body.appendChild(interactionBar);
+      }
+      notifyMutations(documentElement);
+      return body;
+    },
+    sandbox,
+  };
 }
 
 function findElementByText(element, text) {
@@ -235,6 +343,119 @@ test('normalizes account fields from the upstream cgiDataNew shape', () => {
   assert.equal(body.author_id, 'gh-cgi');
   assert.equal(body.uin, 'uin-cgi');
   assert.equal(body.refresh_uri, 'https://mp.weixin.qq.com/s?__biz=biz-cgi&mid=12&idx=2&sn=sn-cgi');
+});
+
+test('uses credentials captured from an official-account request URL', async () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-request-url', nick_name: '请求凭证公众号' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: {
+                articles: [{ title: '服务端文章', content_url: 'https://mp.weixin.qq.com/s/server' }],
+              },
+            });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          clone() {
+            return { text() { return Promise.resolve(JSON.stringify({ ret: 0, general_msg_list: '{"list":[]}' })); } };
+          },
+          json() { return Promise.resolve({ ret: 0, general_msg_list: '{"list":[]}' }); },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  await env.sandbox.fetch('https://mp.weixin.qq.com/mp/profile_ext?action=getmsg&__biz=biz-request-url&uin=uin-request-url&key=key-request-url&pass_ticket=ticket-request-url&offset=10');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const refreshCall = env.fetchCalls.find((item) => item.url.indexOf('/api/mp/refresh?token=test-token') >= 0);
+  assert.ok(refreshCall);
+  const body = JSON.parse(refreshCall.options.body);
+  assert.equal(body.biz, 'biz-request-url');
+  assert.equal(body.uin, 'uin-request-url');
+  assert.equal(body.key, 'key-request-url');
+  assert.equal(body.pass_ticket, 'ticket-request-url');
+  assert.ok(findElementByText(env.sandbox.document.getElementById('__wx_channels_mp_message_list__'), '服务端文章'));
+});
+
+test('prefers the latest request credentials over stale page globals', async () => {
+  const pageKeys = [];
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: {
+        bizuin: 'biz-current-request',
+        user_uin: 'uin-stale',
+        key: 'key-stale',
+        pass_ticket: 'ticket-stale',
+        nick_name: '最新请求公众号',
+      },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        const requestURL = new URL(url);
+        pageKeys.push({
+          uin: requestURL.searchParams.get('uin'),
+          key: requestURL.searchParams.get('key'),
+          passTicket: requestURL.searchParams.get('pass_ticket'),
+        });
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              ret: 0,
+              general_msg_list: JSON.stringify({
+                list: [{
+                  comm_msg_info: { datetime: 1710000000 },
+                  app_msg_ext_info: {
+                    title: '最新请求文章',
+                    content_url: 'https://mp.weixin.qq.com/s/current-request',
+                  },
+                }],
+              }),
+            });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  await env.sandbox.fetch('https://mp.weixin.qq.com/mp/profile_ext?action=getmsg&__biz=biz-current-request&uin=uin-fresh&key=key-fresh&pass_ticket=ticket-fresh&offset=0');
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.ok(pageKeys.length >= 2);
+  assert.deepEqual(pageKeys[pageKeys.length - 1], {
+    uin: 'uin-fresh',
+    key: 'key-fresh',
+    passTicket: 'ticket-fresh',
+  });
+  const refreshCall = env.fetchCalls.find((item) => item.url.indexOf('/api/mp/refresh?token=test-token') >= 0);
+  assert.ok(refreshCall);
+  const request = JSON.parse(refreshCall.options.body);
+  assert.equal(request.uin, 'uin-fresh');
+  assert.equal(request.key, 'key-fresh');
+  assert.equal(request.pass_ticket, 'ticket-fresh');
 });
 
 test('submits updated metadata when user_name arrives after the credential', () => {
@@ -720,6 +941,11 @@ test('mounts the article menu and copies article and RSS content', async () => {
   assert.equal(trigger.attributes['aria-label'], '下载');
   assert.equal(trigger.children[0].className, 'wx-channels-mp-tools-icon');
   assert.match(trigger.children[0].innerHTML, /<svg/);
+  const toolsStyle = env.createdElements.find((element) => element.id === '__wx_channels_mp_tools_style__');
+  assert.ok(toolsStyle);
+  assert.match(toolsStyle.textContent, /flex-direction: row/);
+  assert.match(toolsStyle.textContent, /@media \(max-width: 640px\)/);
+  assert.match(toolsStyle.textContent, /flex-direction: column/);
   assert.match(trigger.style.cssText, /background:transparent/);
   trigger.eventHandlers.mouseenter();
   assert.equal(trigger.style.background, 'rgba(7,193,96,.10)');
@@ -759,6 +985,38 @@ test('mounts the article menu and copies article and RSS content', async () => {
     'http://127.0.0.1:2026/rss/mp?biz=biz-menu&proxy=1',
   ]);
   assert.equal(menu.children.some((child) => child.textContent === '复制页面HTML'), false);
+});
+
+test('mounts a fallback article menu before WeChat renders the interaction bar', () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    window: { cgiDataNew: { bizuin: 'biz-replaced-body', nick_name: '重建页面公众号' } },
+  });
+
+  const root = env.sandbox.document.getElementById('__wx_channels_mp_tools__');
+  assert.ok(root);
+  assert.equal(root.parentNode, env.body);
+  assert.match(root.style.cssText, /position:fixed/);
+  assert.equal(env.mutationObservers.length, 1);
+  assert.equal(env.mutationObservers[0].target, env.sandbox.document.documentElement);
+
+  env.replaceBody(true);
+
+  const interactionBar = env.sandbox.document.querySelectorAll('.interaction_bar')[0];
+  assert.ok(interactionBar);
+  assert.equal(root.parentNode, interactionBar);
+  assert.ok(interactionBar.children.some((child) => child.id === '__wx_channels_mp_tools__'));
+  assert.doesNotMatch(root.style.cssText, /position:fixed/);
+});
+
+test('mounts the article menu on the alternate WeChat interaction container', () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    fallbackSelector: '.wx_follow_media',
+    withFallbackContainer: true,
+  });
+
+  const container = env.sandbox.document.querySelectorAll('.wx_follow_media')[0];
+  assert.ok(container);
+  assert.ok(container.children.some((child) => child.id === '__wx_channels_mp_tools__'));
 });
 
 test('downloads the visible article through the archive API', async () => {
@@ -846,11 +1104,12 @@ test('downloads the visible article through the archive API', async () => {
 test('loads the push list into an article dialog', async () => {
   const env = loadOfficialAccount('/s/article-id', {
     withInteractionBar: true,
+    cookie: 'slave_user=browser-cookie',
     window: {
       cgiDataNew: { bizuin: 'biz-list', nick_name: '列表公众号' },
     },
     fetchResponse(url) {
-      if (url.indexOf('/api/mp/msg/list?biz=biz-list&token=test-token') >= 0) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
         return Promise.resolve({
           ok: true,
           json() {
@@ -875,8 +1134,16 @@ test('loads the push list into an article dialog', async () => {
   findElementByText(root.children[1], '推送列表').eventHandlers.click();
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(env.fetchCalls[0].url, 'http://127.0.0.1:2026/api/mp/refresh?token=test-token');
-  assert.equal(env.fetchCalls[1].url, 'http://127.0.0.1:2026/api/mp/msg/list?biz=biz-list&token=test-token');
+  const refreshCall = env.fetchCalls.find((item) => item.url === 'http://127.0.0.1:2026/api/mp/refresh?token=test-token');
+  const messageListCall = env.fetchCalls.find((item) => item.url === 'http://127.0.0.1:2026/api/mp/msg/list?token=test-token');
+  assert.ok(refreshCall);
+  assert.ok(messageListCall);
+  assert.equal(messageListCall.options.method, 'POST');
+  const messageRequest = JSON.parse(messageListCall.options.body);
+  assert.equal(messageRequest.biz, 'biz-list');
+  assert.equal(messageRequest.key, 'key-1');
+  assert.equal(messageRequest.cookie, 'slave_user=browser-cookie');
+  assert.equal(messageRequest.offset, 0);
   const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
   assert.ok(overlay);
   const dialog = overlay.children[0];
@@ -895,6 +1162,476 @@ test('loads the push list into an article dialog', async () => {
   assert.ok(findElementByText(dialog, '第二篇'));
 });
 
+test('reads home_page_list when the local getmsg response has no general list', async () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-home-page', nick_name: '首页列表公众号' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: {
+                general_msg_list: '',
+                home_page_list: [{
+                  comm_msg_info: { datetime: 1700000200 },
+                  app_msg_ext_info: {
+                    title: '首页文章',
+                    content_url: 'https://mp.weixin.qq.com/s/home-page',
+                  },
+                }],
+              },
+            });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.ok(findElementByText(overlay, '首页文章'));
+});
+
+test('does not replace an empty push list with the author article list', async () => {
+  let authorRequests = 0;
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: {
+        bizuin: 'biz-author-fallback',
+        user_name: 'author-fallback',
+        user_uin: 'uin-author-fallback',
+        key: 'key-author-fallback',
+        pass_ticket: 'ticket-author-fallback',
+        appmsg_token: 'token-author-fallback',
+        nick_name: '作者列表公众号',
+      },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/refresh?token=test-token') >= 0) {
+        return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+      }
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ code: 0, data: { articles: [] } });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: 0, general_msg_list: '' });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/author?') === 0 && url.indexOf('action=get_articles') >= 0) {
+        authorRequests += 1;
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              ret: 0,
+              articles: [{ title: '作者接口文章', url: 'https://mp.weixin.qq.com/s/author-fallback', publish_time: 1700000200 }],
+              base_resp: { ret: 0 },
+            });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.equal(authorRequests, 0);
+  assert.equal(findElementByText(overlay, '作者接口文章'), null);
+});
+
+test('keeps getmsg session errors visible without calling the author list', async () => {
+  let authorRequests = 0;
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: {
+        bizuin: 'biz-session-expired',
+        user_name: 'session-expired',
+        key: 'key-session-expired',
+        nick_name: '会话失效公众号',
+      },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ code: 0, data: { articles: [] } });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: -3, errmsg: 'no session' });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/author?') === 0 && url.indexOf('action=get_articles') >= 0) {
+        authorRequests += 1;
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: -1, base_resp: { ret: -1 } });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.equal(authorRequests, 0);
+  assert.equal(findElementByText(overlay, '作者接口文章'), null);
+});
+
+test('shows the current article when WeChat returns an empty push list', async () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: {
+        bizuin: 'biz-current-article',
+        user_name: 'current-article',
+        user_uin: 'uin-current-article',
+        key: 'key-current-article',
+        pass_ticket: 'ticket-current-article',
+        nick_name: '当前文章公众号',
+      },
+      msg_title: '当前打开的文章',
+      msg_digest: '当前文章摘要',
+      msg_link: 'https://mp.weixin.qq.com/s/current-article',
+      create_time: 1710000400,
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: { articles: [], empty_reason: 'getmsg returned an empty message list' },
+            });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: 0, msg_count: 0, home_page_list: [] });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.ok(findElementByText(overlay, '当前打开的文章'));
+  assert.ok(findElementByText(overlay, '当前文章摘要'));
+});
+
+test('reuses the latest page getmsg response and continues live pagination', async () => {
+  const generalMessageList = JSON.stringify({
+    list: [{
+      comm_msg_info: { datetime: 1710000000 },
+      app_msg_ext_info: {
+        title: '页面已获取文章',
+        content_url: 'https://mp.weixin.qq.com/s/page-observed',
+      },
+    }],
+  });
+  const nextGeneralMessageList = JSON.stringify({
+    list: [{
+      comm_msg_info: { datetime: 1710000600 },
+      app_msg_ext_info: {
+        title: '页面继续文章',
+        content_url: 'https://mp.weixin.qq.com/s/page-observed-next',
+      },
+    }],
+  });
+  let pageMessageRequests = 0;
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-observed', nick_name: '已获取公众号' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ code: 0, data: { articles: [] } });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        pageMessageRequests += 1;
+        const offset = new URL(url).searchParams.get('offset');
+        const nextPage = offset === '10';
+        const payload = {
+          ret: 0,
+          general_msg_list: nextPage ? nextGeneralMessageList : generalMessageList,
+          can_msg_continue: nextPage ? 0 : 1,
+          next_offset: nextPage ? 10 : 10,
+        };
+        return Promise.resolve({
+          ok: true,
+          clone() {
+            return {
+              text() {
+                return Promise.resolve(JSON.stringify(payload));
+              },
+            };
+          },
+          json() {
+            return Promise.resolve(payload);
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  await env.sandbox.fetch('https://mp.weixin.qq.com/mp/profile_ext?action=getmsg&__biz=biz-observed&offset=0');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.ok(findElementByText(overlay, '页面已获取文章'));
+  assert.ok(findElementByText(overlay, '页面继续文章'));
+  assert.equal(pageMessageRequests, 2);
+});
+
+test('falls back to the current WeChat page when the local push list is empty', async () => {
+  const generalMessageList = JSON.stringify({
+    list: [{
+      comm_msg_info: { datetime: 1710000000 },
+      app_msg_ext_info: {
+        title: '页面直连文章',
+        content_url: 'https://mp.weixin.qq.com/s/page-direct',
+      },
+    }],
+  });
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-empty', nick_name: '空响应公众号' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: {
+                articles: [],
+                empty_reason: 'upstream returned an empty general_msg_list',
+              },
+            });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: 0, general_msg_list: generalMessageList });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const pageCall = env.fetchCalls.find((item) => item.url.indexOf('/mp/profile_ext?') >= 0);
+  assert.ok(pageCall);
+  assert.equal(pageCall.options.credentials, 'include');
+  assert.equal(pageCall.options.referrerPolicy, 'strict-origin-when-cross-origin');
+  assert.equal(pageCall.options.cache, 'no-store');
+  assert.match(pageCall.options.referrer, /\/mp\/profile_ext\?/);
+  assert.match(pageCall.options.referrer, /action=home/);
+  assert.match(pageCall.options.referrer, /scene=124/);
+  assert.match(pageCall.options.referrer, /key=key-1/);
+  assert.match(pageCall.url, /action=getmsg/);
+  assert.match(pageCall.url, /key=key-1/);
+  assert.match(pageCall.url, /wxtoken=/);
+  assert.doesNotMatch(pageCall.url, /wxtoken=777/);
+  for (const name of ['is_ok', 'scene', 'devicetype', 'version', 'lang', 'a8scene', 'acctmode']) {
+    assert.doesNotMatch(pageCall.url, new RegExp('(?:[?&])' + name + '='));
+  }
+  assert.doesNotMatch(pageCall.url, /appmsg_token/);
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.ok(findElementByText(overlay, '页面直连文章'));
+});
+
+test('does not substitute the local catalog when live push-list sources are empty', async () => {
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-catalog', nick_name: '本地目录公众号' },
+    },
+    fetchResponse(url) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json() {
+            return Promise.resolve({ code: 401, message: 'official account credential expired' });
+          },
+        });
+      }
+      if (url.indexOf('https://mp.weixin.qq.com/mp/profile_ext?') === 0 && url.indexOf('action=getmsg') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({ ret: 0, msg_count: 0, home_page_list: [] });
+          },
+        });
+      }
+      if (url.indexOf('/api/mp/articles?biz=biz-catalog') >= 0) {
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: {
+                items: [{
+                  title: '本地已采集文章',
+                  content_url: 'https://mp.weixin.qq.com/s/catalog-entry',
+                  publish_time: 1710000000,
+                  digest: '本地目录摘要',
+                }],
+              },
+            });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const catalogCall = env.fetchCalls.find((item) => item.url.indexOf('/api/mp/articles?biz=biz-catalog') >= 0);
+  assert.equal(catalogCall, undefined);
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(overlay);
+  assert.equal(findElementByText(overlay, '本地已采集文章'), null);
+});
+
+test('loads every live push-list page using the upstream continuation offset', async () => {
+  const offsets = [];
+  const env = loadOfficialAccount('/s/article-id', {
+    withInteractionBar: true,
+    window: {
+      cgiDataNew: { bizuin: 'biz-paged', nick_name: '分页公众号' },
+    },
+    fetchResponse(url, requestOptions) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
+        const request = JSON.parse(requestOptions.body);
+        offsets.push(request.offset);
+        const firstPage = request.offset === 0;
+        return Promise.resolve({
+          ok: true,
+          json() {
+            return Promise.resolve({
+              code: 0,
+              data: {
+                articles: [{
+                  title: firstPage ? '第一页推送' : '第二页推送',
+                  content_url: firstPage
+                    ? 'https://mp.weixin.qq.com/s/page-one'
+                    : 'https://mp.weixin.qq.com/s/page-two',
+                  publish_time: firstPage ? 1710000000 : 1710000600,
+                }],
+                can_msg_continue: firstPage ? 1 : 0,
+                next_offset: firstPage ? 10 : 10,
+              },
+            });
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, json() { return Promise.resolve({ code: 0 }); } });
+    },
+  });
+
+  const root = env.interactionBar.children[0];
+  findElementByText(root.children[0], '下载').eventHandlers.click();
+  findElementByText(root.children[1], '推送列表').eventHandlers.click();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(offsets, [0, 10]);
+  const overlay = env.sandbox.document.getElementById('__wx_channels_mp_message_list__');
+  assert.ok(findElementByText(overlay, '第一页推送'));
+  assert.ok(findElementByText(overlay, '第二页推送'));
+});
+
+test('mounts the article menu when the interaction bar is rendered after page start', () => {
+  const env = loadOfficialAccount('/s/article-id');
+  const root = env.sandbox.document.getElementById('__wx_channels_mp_tools__');
+  assert.ok(root);
+  assert.equal(root.parentNode, env.body);
+  assert.match(root.style.cssText, /position:fixed/);
+
+  const interactionBar = env.addInteractionBar();
+  assert.equal(root.parentNode, interactionBar);
+  assert.ok(interactionBar.children.some((child) => child.id === '__wx_channels_mp_tools__'));
+  assert.doesNotMatch(root.style.cssText, /position:fixed/);
+});
+
 test('waits for an in-flight account refresh before loading the push list', async () => {
   const order = [];
   let resolveRefresh;
@@ -911,7 +1648,7 @@ test('waits for an in-flight account refresh before loading the push list', asyn
         order.push('refresh');
         return refreshPending;
       }
-      if (url.indexOf('/api/mp/msg/list?biz=biz-race&token=test-token') >= 0) {
+      if (url.indexOf('/api/mp/msg/list?token=test-token') >= 0) {
         order.push('list');
         return Promise.resolve({
           ok: true,

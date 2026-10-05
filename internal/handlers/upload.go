@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	urlpkg "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,11 +69,15 @@ const (
 )
 
 func isOriginalVideoURL(url string) bool {
-	return strings.Contains(url, "X-snsvideoflag=original")
+	parsed, err := urlpkg.Parse(url)
+	if err == nil {
+		return strings.EqualFold(strings.TrimSpace(parsed.Query().Get("X-snsvideoflag")), "original")
+	}
+	return strings.Contains(strings.ToLower(url), "x-snsvideoflag=original")
 }
 
 func hasSpecificVideoSpec(raw string) bool {
-	parsed, err := url.Parse(raw)
+	parsed, err := urlpkg.Parse(raw)
 	if err != nil {
 		return false
 	}
@@ -82,27 +86,72 @@ func hasSpecificVideoSpec(raw string) bool {
 }
 
 func normalizeOriginalVideoURL(raw string) string {
-	if !isOriginalVideoURL(raw) {
+	parsed, err := urlpkg.Parse(raw)
+	if err != nil {
 		return raw
 	}
-	parsed, err := url.Parse(raw)
+	if strings.EqualFold(parsed.Scheme, "zip") {
+		return raw
+	}
+
+	query := parsed.Query()
+	marker := strings.TrimSpace(query.Get("X-snsvideoflag"))
+	if marker != "" && !strings.EqualFold(marker, "original") {
+		return raw
+	}
+	query.Del("X-snsvideoflag")
+	filekey := strings.TrimSpace(query.Get("encfilekey"))
+	token := strings.TrimSpace(query.Get("token"))
+	if filekey == "" || token == "" {
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+
+	cleaned := &urlpkg.URL{
+		Scheme:  parsed.Scheme,
+		Host:    parsed.Host,
+		Path:    parsed.Path,
+		RawPath: parsed.RawPath,
+	}
+	cleanQuery := urlpkg.Values{}
+	cleanQuery.Set("encfilekey", filekey)
+	cleanQuery.Set("token", token)
+	cleaned.RawQuery = cleanQuery.Encode()
+	return cleaned.String()
+}
+
+func normalizeSpecificVideoURL(raw, fileFormat string) string {
+	format := strings.TrimSpace(fileFormat)
+	if format == "" {
+		return raw
+	}
+	parsed, err := urlpkg.Parse(raw)
 	if err != nil {
-		return strings.ReplaceAll(raw, "&X-snsvideoflag=original", "")
+		separator := "?"
+		if strings.Contains(raw, "?") {
+			separator = "&"
+		}
+		return raw + separator + "X-snsvideoflag=" + urlpkg.QueryEscape(format)
 	}
 	query := parsed.Query()
-	if query.Get("X-snsvideoflag") == "original" {
-		query.Del("X-snsvideoflag")
-		parsed.RawQuery = query.Encode()
-	}
+	query.Set("X-snsvideoflag", format)
+	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }
 
 func NormalizeDownloadURL(videoURL string, fileFormat string) (string, downloadVideoMode) {
-	if isOriginalVideoURL(videoURL) {
+	format := strings.TrimSpace(fileFormat)
+	if strings.EqualFold(format, "original") || format == "" && isOriginalVideoURL(videoURL) {
 		return normalizeOriginalVideoURL(videoURL), downloadVideoModeOriginal
 	}
-	if strings.TrimSpace(fileFormat) != "" || hasSpecificVideoSpec(videoURL) {
+	if hasSpecificVideoSpec(videoURL) {
+		if format != "" {
+			return normalizeSpecificVideoURL(videoURL, format), downloadVideoModeSpecific
+		}
 		return videoURL, downloadVideoModeSpecific
+	}
+	if format != "" {
+		return normalizeSpecificVideoURL(videoURL, format), downloadVideoModeSpecific
 	}
 	return normalizeOriginalVideoURL(videoURL), downloadVideoModeOriginal
 }
@@ -1432,7 +1481,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		mode := downloadModeFromRequest(req)
 		normalizedURL := normalizeDownloadVideoURL(req)
 		if normalizedURL != req.VideoURL {
-			utils.Info("🩹 [视频下载] 已移除旧版 original 标记并保留签名参数")
+			utils.Info("🩹 [视频下载] 已规范化视频下载地址")
 			req.VideoURL = normalizedURL
 		}
 		connections = downloadConnectionCountFromMode(connections, mode)
