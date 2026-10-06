@@ -695,9 +695,9 @@
 
                             <p class="text-blue-700 text-sm mt-2">
 
-                                <strong>当前版本：</strong>v5.7.10 |
+                                <strong>当前版本：</strong>v5.7.11 |
 
-                                <strong>更新时间：</strong>2026-10-05
+                                <strong>更新时间：</strong>2026-10-06
 
                             </p>
 
@@ -2082,29 +2082,29 @@ upx --best wx_channel.exe</code></pre>
 
                     <div class="space-y-6">
 
-                        <!-- v5.7.10版本 - 最新版本 -->
+                        <!-- v5.7.11版本 - 最新版本 -->
 
                         <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-4">
 
                             <div class="flex items-center mb-2">
 
-                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.7.10 最新版本</span>
+                                <span class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1 rounded text-sm font-semibold">v5.7.11 最新版本</span>
 
-                                <span class="ml-2 text-xs text-gray-500">2026-10-05</span>
+                                <span class="ml-2 text-xs text-gray-500">2026-10-06</span>
 
                             </div>
 
                             <ul class="space-y-1 text-gray-700 text-sm">
 
-                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>推送列表凭证</strong>：捕获文章页当前请求的公众号凭证和 Cookie，降低缓存过期导致的空列表或 401。</li>
+                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>Gopeed 下载统一</strong>：单个原始视频和批量任务统一交由 Gopeed 后端处理。</li>
 
-                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>首次打开可用</strong>：监听文章异步渲染和路由切换，公众号文章无需手动刷新即可显示操作入口。</li>
+                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>页面直连退役</strong>：原始视频不再通过微信页面 fetch 下载，降低直连超时和浏览器内存压力。</li>
 
-                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>微信返回兼容</strong>：补齐桌面端请求头和 Referer，兼容 general_msg_list 与 home_page_list 返回格式。</li>
+                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>原始视频保护</strong>：继续使用单连接和源文件大小校验，拦截疑似低码率流。</li>
 
-                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>空列表兜底</strong>：微信明确返回空时显示当前打开文章并标注来源，不伪造历史推送。</li>
+                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>请求链路稳定</strong>：后端保留来源 Referer、Origin 和 User-Agent，使用完整请求上下文。</li>
 
-                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>注入缓存修复</strong>：清理修改 HTML 后的旧响应头，避免 WebView 复用未注入页面。</li>
+                                <li class="flex items-start"><span class="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2 mt-2 flex-shrink-0"></span><strong>下载结果一致</strong>：统一使用本地下载接口，进度、命名、落盘和历史记录保持一致。</li>
 
                             </ul>
 

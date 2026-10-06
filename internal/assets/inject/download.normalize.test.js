@@ -167,19 +167,10 @@ async function main() {
     'original mode should keep only the original-resource signature parameters',
   );
   assertEqual(original.mode, 'original', 'original mode should be preserved');
-  assertEqual(original.useDirectDownload, true, 'original mode should use the page session first');
   assertEqual(original.resolution, '1080x1920', 'original mode should preserve dimensions');
 
   const expectedSize = sandbox.__wx_channels_get_expected_video_size__(profile);
   assertEqual(expectedSize, 24 * 1024 * 1024, 'original mode should read the source size hint');
-  sandbox.__wx_channels_validate_original_video_size__(expectedSize, expectedSize);
-  let rejectedShrink = false;
-  try {
-    sandbox.__wx_channels_validate_original_video_size__(expectedSize, expectedSize * 0.5);
-  } catch (err) {
-    rejectedShrink = true;
-  }
-  assertEqual(rejectedShrink, true, 'original mode should reject an obviously shrunken stream');
 
   const markedOriginal = normalize({
     url: profile.url + '&X-snsvideoflag=original',
@@ -201,7 +192,6 @@ async function main() {
     'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&extg=10f0000&svrbypass=AAuL%2FQsF&svrnonce=1778655942&X-snsvideoflag=xWT111',
     'specific mode should preserve stream params and append explicit spec',
   );
-  assertEqual(specific.useDirectDownload, false, 'specific mode should continue through the backend');
 
   const markedSpecific = normalize({
     url: profile.url + '&X-snsvideoflag=original',
@@ -254,6 +244,29 @@ async function main() {
     backendRequest.videoUrl,
     specific.url,
     'backend fallback should receive the normalized URL rather than profile.url',
+  );
+
+  const backendRequests = [];
+  sandbox.fetch = async function (url, options) {
+    backendRequests.push({ url, options });
+    return {
+      ok: true,
+      async json() { return { success: true }; },
+    };
+  };
+  sandbox.__wx_channels_store__.profile = profile;
+  await sandbox.__wx_channels_handle_click_download__();
+  assertEqual(backendRequests.length, 1, 'original click should use the backend once without a page-direct request');
+  assertEqual(
+    backendRequests[0].url,
+    '/__wx_channels_api/download_video',
+    'original click should submit the download to the local backend',
+  );
+  const originalBackendRequest = JSON.parse(backendRequests[0].options.body);
+  assertEqual(
+    originalBackendRequest.videoUrl,
+    original.url,
+    'original click should submit the normalized original URL to Gopeed',
   );
 }
 
