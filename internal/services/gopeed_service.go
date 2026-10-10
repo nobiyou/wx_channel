@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -32,6 +35,7 @@ type GopeedService struct {
 	Downloader *download.Downloader
 	mu         sync.RWMutex
 	tasks      map[string]string // Maps internal ID to Gopeed Task ID
+	taskErrors map[string]error
 }
 
 // NewGopeedService creates a new GopeedService
@@ -50,10 +54,20 @@ func NewGopeedService(storageDir string) *GopeedService {
 		utils.Warn("Gopeed Setup failed: %v", err)
 	}
 
-	return &GopeedService{
+	service := &GopeedService{
 		Downloader: d,
 		tasks:      make(map[string]string),
+		taskErrors: make(map[string]error),
 	}
+	d.Listener(func(event *download.Event) {
+		if event == nil || event.Key != download.EventKeyError || event.Task == nil || event.Err == nil {
+			return
+		}
+		service.mu.Lock()
+		service.taskErrors[event.Task.ID] = event.Err
+		service.mu.Unlock()
+	})
+	return service
 }
 
 func normalizeConnections(connections int) int {
@@ -184,6 +198,21 @@ func (s *GopeedService) GetTaskSnapshot(taskID string) (*GopeedTaskSnapshot, err
 	return snapshot, nil
 }
 
+func (s *GopeedService) takeTaskError(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	err := s.taskErrors[taskID]
+	delete(s.taskErrors, taskID)
+	return err
+}
+
+func (s *GopeedService) clearTaskError(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.taskErrors, taskID)
+}
+
 func (s *GopeedService) WaitTask(ctx context.Context, taskID string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
 	if s.Downloader == nil {
 		return "", fmt.Errorf("downloader not initialized")
@@ -215,6 +244,9 @@ func (s *GopeedService) WaitTask(ctx context.Context, taskID string, onProgress 
 			case base.DownloadStatusDone:
 				return snapshot.ActualPath, nil
 			case base.DownloadStatusError:
+				if taskErr := s.takeTaskError(taskID); taskErr != nil {
+					return snapshot.ActualPath, fmt.Errorf("download task failed: %w", taskErr)
+				}
 				return snapshot.ActualPath, fmt.Errorf("download task failed")
 			case base.DownloadStatusPause:
 				return snapshot.ActualPath, ErrTaskPaused
@@ -227,6 +259,88 @@ func (s *GopeedService) WaitTask(ctx context.Context, taskID string, onProgress 
 	}
 }
 
+// Gopeed v1.8.3 probes HTTP resources with Range: bytes=0-0. Some signed
+// video endpoints reject that probe while accepting a normal GET request.
+func isGopeedRangeProbeFailure(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "http request fail,code:400")
+}
+
+func downloadHTTPFallback(ctx context.Context, url string, path string, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("create fallback request failed: %w", err)
+	}
+	for key, value := range headers {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "*/*")
+	}
+	if req.Header.Get("Accept-Language") == "" {
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	}
+	if req.Header.Get("Cache-Control") == "" {
+		req.Header.Set("Cache-Control", "no-cache")
+	}
+
+	resp, err := (&http.Client{Timeout: 0}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fallback request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("fallback request returned HTTP %s", resp.Status)
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("create fallback file failed: %w", err)
+	}
+	defer file.Close()
+
+	total := resp.ContentLength
+	var downloaded int64
+	lastReport := time.Time{}
+	buffer := make([]byte, 256*1024)
+	for {
+		read, readErr := resp.Body.Read(buffer)
+		if read > 0 {
+			if _, err := file.Write(buffer[:read]); err != nil {
+				return "", fmt.Errorf("write fallback file failed: %w", err)
+			}
+			downloaded += int64(read)
+			if onProgress != nil {
+				now := time.Now()
+				if now.Sub(lastReport) >= 300*time.Millisecond {
+					progress := 0.0
+					if total > 0 {
+						progress = float64(downloaded) / float64(total)
+					}
+					onProgress(progress, downloaded, total)
+					lastReport = now
+				}
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("read fallback response failed: %w", readErr)
+		}
+	}
+	if onProgress != nil {
+		progress := 0.0
+		if total > 0 {
+			progress = float64(downloaded) / float64(total)
+		}
+		onProgress(progress, downloaded, total)
+	}
+	return path, nil
+}
+
 // DownloadSync downloads a file synchronously (blocking until done)
 // and returns the actual output path used by Gopeed.
 func (s *GopeedService) DownloadSync(ctx context.Context, url string, path string, connections int, headers map[string]string, onProgress func(progress float64, downloaded int64, total int64)) (string, error) {
@@ -234,6 +348,7 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 	if err != nil {
 		return "", fmt.Errorf("failed to create task: %v", err)
 	}
+	defer s.clearTaskError(id)
 
 	actualPath, waitErr := s.WaitTask(ctx, id, onProgress)
 	if waitErr != nil {
@@ -241,6 +356,14 @@ func (s *GopeedService) DownloadSync(ctx context.Context, url string, path strin
 			actualPath = path
 		}
 		_ = s.DeleteTask(id, true)
+		if isGopeedRangeProbeFailure(waitErr) {
+			utils.Warn("Gopeed HTTP 400 拒绝 Range 探测，回退到后端单流下载")
+			fallbackPath, fallbackErr := downloadHTTPFallback(ctx, url, path, headers, onProgress)
+			if fallbackErr == nil {
+				return fallbackPath, nil
+			}
+			return actualPath, fmt.Errorf("%w; backend fallback failed: %v", waitErr, fallbackErr)
+		}
 		return actualPath, waitErr
 	}
 	if actualPath == "" {
