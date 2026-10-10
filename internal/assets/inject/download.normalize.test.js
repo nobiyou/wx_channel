@@ -118,6 +118,13 @@ async function main() {
     '最高可用画质 (xWT111)',
     'primary label should expose the highest available media spec',
   );
+  assertEqual(
+    sandbox.__wx_channels_get_best_available_spec__({
+      spec: [{ fileFormat: 'xWT111' }, { fileFormat: 'xWT112' }],
+    }).fileFormat,
+    'xWT111',
+    'when bitrate metadata is absent, the upstream spec order should select the first rendition',
+  );
 
   const noOriginalProfile = Object.assign({}, availableProfile, {
     url: '',

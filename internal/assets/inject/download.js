@@ -230,6 +230,7 @@ function __wx_channels_get_best_available_spec__(profile) {
   var specs = profile && Array.isArray(profile.spec) ? profile.spec : [];
   var best = null;
   var bestScore = -1;
+  var bestIndex = -1;
 
   for (var i = 0; i < specs.length; i++) {
     var spec = specs[i];
@@ -240,14 +241,13 @@ function __wx_channels_get_best_available_spec__(profile) {
     var bitRate = videoBitrate + audioBitrate;
     if (bitRate <= 0) bitRate = Number(spec.bitRate || 0);
 
-    // xWT111 is the stable highest-quality fallback on the current desktop
-    // feed; keep it ahead of codec-specific bitrate hints when present.
-    var format = String(spec.fileFormat);
     var score = bitRate > 0 ? bitRate : 0;
-    if (format === 'xWT111') score += 1000000000000;
-    if (!best || score > bestScore || (score === bestScore && format === 'xWT111')) {
+    // The upstream feed orders specs from highest to lowest when bitrate
+    // metadata is absent. Keep that ordering as the stable tie-breaker.
+    if (!best || score > bestScore || (score === bestScore && i < bestIndex)) {
       best = spec;
       bestScore = score;
+      bestIndex = i;
     }
   }
 

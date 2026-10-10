@@ -208,6 +208,29 @@ func TestNormalizeDownloadURLAppliesRequestedFileFormat(t *testing.T) {
 	}
 }
 
+func TestNormalizeDownloadURLPreservesSignedQueryBytes(t *testing.T) {
+	t.Parallel()
+
+	raw := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&svrbypass=AAuL%2FQsF&svrnonce=1778655942&raw_plus=a+b"
+
+	got, mode := NormalizeDownloadURL(raw, "")
+	if mode != downloadVideoModeOriginal {
+		t.Fatalf("NormalizeDownloadURL mode = %q, want %q", mode, downloadVideoModeOriginal)
+	}
+	if got != raw {
+		t.Fatalf("NormalizeDownloadURL rewrote signed query bytes: got %q, want %q", got, raw)
+	}
+
+	specific, mode := NormalizeDownloadURL(raw, "xWT111")
+	if mode != downloadVideoModeSpecific {
+		t.Fatalf("NormalizeDownloadURL specific mode = %q, want %q", mode, downloadVideoModeSpecific)
+	}
+	wantSpecific := raw + "&X-snsvideoflag=xWT111"
+	if specific != wantSpecific {
+		t.Fatalf("NormalizeDownloadURL rewrote signed query while adding spec: got %q, want %q", specific, wantSpecific)
+	}
+}
+
 func TestDownloadConnectionCountFromMode(t *testing.T) {
 	t.Parallel()
 

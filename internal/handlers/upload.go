@@ -85,6 +85,56 @@ func hasSpecificVideoSpec(raw string) bool {
 	return spec != "" && !strings.EqualFold(spec, "original")
 }
 
+func rawQueryParamName(part string) string {
+	if index := strings.IndexByte(part, '='); index >= 0 {
+		part = part[:index]
+	}
+	if decoded, err := urlpkg.QueryUnescape(part); err == nil {
+		return decoded
+	}
+	return part
+}
+
+func removeRawQueryParam(rawQuery, name string) string {
+	if rawQuery == "" {
+		return ""
+	}
+
+	parts := strings.Split(rawQuery, "&")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || rawQueryParamName(part) == name {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	return strings.Join(kept, "&")
+}
+
+func setRawQueryParam(rawQuery, name, value string) string {
+	encoded := name + "=" + urlpkg.QueryEscape(value)
+	parts := strings.Split(rawQuery, "&")
+	kept := make([]string, 0, len(parts)+1)
+	replaced := false
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if rawQueryParamName(part) == name {
+			if !replaced {
+				kept = append(kept, encoded)
+				replaced = true
+			}
+			continue
+		}
+		kept = append(kept, part)
+	}
+	if !replaced {
+		kept = append(kept, encoded)
+	}
+	return strings.Join(kept, "&")
+}
+
 func normalizeOriginalVideoURL(raw string) string {
 	parsed, err := urlpkg.Parse(raw)
 	if err != nil {
@@ -94,15 +144,13 @@ func normalizeOriginalVideoURL(raw string) string {
 		return raw
 	}
 
-	query := parsed.Query()
-	marker := strings.TrimSpace(query.Get("X-snsvideoflag"))
+	marker := strings.TrimSpace(parsed.Query().Get("X-snsvideoflag"))
 	if marker != "" && !strings.EqualFold(marker, "original") {
 		return raw
 	}
-	query.Del("X-snsvideoflag")
-	// The complete signed query is required by the video endpoint. Keep every
-	// parameter and only remove the legacy rendition marker.
-	parsed.RawQuery = query.Encode()
+	// Signed video URLs are byte-sensitive. Remove only the legacy rendition
+	// marker and keep every other query segment in its original order/encoding.
+	parsed.RawQuery = removeRawQueryParam(parsed.RawQuery, "X-snsvideoflag")
 	return parsed.String()
 }
 
@@ -119,9 +167,9 @@ func normalizeSpecificVideoURL(raw, fileFormat string) string {
 		}
 		return raw + separator + "X-snsvideoflag=" + urlpkg.QueryEscape(format)
 	}
-	query := parsed.Query()
-	query.Set("X-snsvideoflag", format)
-	parsed.RawQuery = query.Encode()
+	// Reference downloader behavior appends the rendition marker to the signed
+	// URL. Do not re-encode or reorder the existing signature parameters.
+	parsed.RawQuery = setRawQueryParam(parsed.RawQuery, "X-snsvideoflag", format)
 	return parsed.String()
 }
 
