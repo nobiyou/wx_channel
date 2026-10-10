@@ -81,7 +81,7 @@ func TestNormalizeOriginalVideoURL(t *testing.T) {
 	}
 }
 
-func TestNormalizeDownloadURLCompactsOriginalSignedParameters(t *testing.T) {
+func TestNormalizeDownloadURLPreservesOriginalSignedParameters(t *testing.T) {
 	t.Parallel()
 
 	raw := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=def&basedata=base&sign=sig&web=1&extg=10f0000&svrbypass=bypass&svrnonce=123"
@@ -89,9 +89,28 @@ func TestNormalizeDownloadURLCompactsOriginalSignedParameters(t *testing.T) {
 	if mode != downloadVideoModeOriginal {
 		t.Fatalf("NormalizeDownloadURL mode = %q, want %q", mode, downloadVideoModeOriginal)
 	}
-	want := "https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc&token=def"
-	if got != want {
-		t.Fatalf("NormalizeDownloadURL original URL = %q, want %q", got, want)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse normalized URL: %v", err)
+	}
+	query := parsed.Query()
+	for key, want := range map[string]string{
+		"encfilekey": "abc",
+		"hy":         "SH",
+		"idx":        "1",
+		"m":          "compressed",
+		"uzid":       "7a1ac",
+		"token":      "def",
+		"basedata":   "base",
+		"sign":       "sig",
+		"web":        "1",
+		"extg":       "10f0000",
+		"svrbypass":  "bypass",
+		"svrnonce":   "123",
+	} {
+		if query.Get(key) != want {
+			t.Fatalf("NormalizeDownloadURL lost or changed signed parameter %q: got %q from %q, want %q", key, query.Get(key), got, want)
+		}
 	}
 
 	marked := raw + "&X-snsvideoflag=original"
@@ -99,19 +118,14 @@ func TestNormalizeDownloadURLCompactsOriginalSignedParameters(t *testing.T) {
 	if mode != downloadVideoModeOriginal {
 		t.Fatalf("NormalizeDownloadURL marked mode = %q, want %q", mode, downloadVideoModeOriginal)
 	}
-	parsed, err := url.Parse(got)
+	parsed, err = url.Parse(got)
 	if err != nil {
 		t.Fatalf("parse normalized URL: %v", err)
 	}
-	query := parsed.Query()
+	query = parsed.Query()
 	for _, key := range []string{"encfilekey", "token"} {
 		if query.Get(key) == "" {
 			t.Fatalf("normalized URL lost original query parameter %q: %q", key, got)
-		}
-	}
-	for _, key := range []string{"hy", "idx", "m", "uzid", "basedata", "sign", "web", "extg", "svrbypass", "svrnonce"} {
-		if query.Get(key) != "" {
-			t.Fatalf("normalized URL retained rendition query parameter %q: %q", key, got)
 		}
 	}
 	if marker := query.Get("X-snsvideoflag"); marker != "" {

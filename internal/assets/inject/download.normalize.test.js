@@ -163,8 +163,8 @@ async function main() {
   const original = normalize(profile, null);
   assertEqual(
     original.url,
-    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
-    'original mode should keep only the original-resource signature parameters',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&extg=10f0000&svrbypass=AAuL%2FQsF&svrnonce=1778655942',
+    'original mode should keep the complete original-resource signature',
   );
   assertEqual(original.mode, 'original', 'original mode should be preserved');
   assertEqual(original.resolution, '1080x1920', 'original mode should preserve dimensions');
@@ -178,8 +178,8 @@ async function main() {
   }, null);
   assertEqual(
     markedOriginal.url,
-    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
-    'original mode should remove rendition parameters and the legacy marker',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&extg=10f0000&svrbypass=AAuL%2FQsF&svrnonce=1778655942',
+    'original mode should preserve the signed query and remove only the legacy marker',
   );
 
   const specific = normalize(profile, {
@@ -216,8 +216,8 @@ async function main() {
   const recovered = normalize(compactPrimary, null);
   assertEqual(
     recovered.url,
-    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&token=tok456',
-    'original mode should normalize a recovered signed URL to the original resource',
+    'https://finder.video.qq.com/251/20302/stodownload?encfilekey=abc123&hy=SH&idx=1&m=compressed&uzid=7a1ac&token=tok456&basedata=CAMSBnhXVDEyOCJa&sign=sig789&web=1&extg=10f0000&svrbypass=AAuL%2FQsF&svrnonce=1778655942',
+    'original mode should preserve a recovered signed URL',
   );
 
   const recoveredSpecific = normalize(compactPrimary, {

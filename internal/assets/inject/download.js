@@ -204,17 +204,10 @@ function __wx_channels_build_original_video_url__(rawUrl) {
     }
   }
 
-  var filekey = String(parsed.searchParams.get('encfilekey') || '').trim();
-  var token = String(parsed.searchParams.get('token') || '').trim();
-  if (!filekey || !token) {
-    parsed.searchParams.delete('X-snsvideoflag');
-    return parsed.toString();
-  }
-
-  var cleaned = new URL(parsed.origin + parsed.pathname);
-  cleaned.searchParams.set('encfilekey', filekey);
-  cleaned.searchParams.set('token', token);
-  return cleaned.toString();
+  // The complete signed query is required by the video endpoint. Keep every
+  // parameter and only remove the legacy rendition marker.
+  parsed.searchParams.delete('X-snsvideoflag');
+  return parsed.toString();
 }
 
 function __wx_channels_get_original_video_url__(profile) {

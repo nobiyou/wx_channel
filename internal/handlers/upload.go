@@ -100,24 +100,10 @@ func normalizeOriginalVideoURL(raw string) string {
 		return raw
 	}
 	query.Del("X-snsvideoflag")
-	filekey := strings.TrimSpace(query.Get("encfilekey"))
-	token := strings.TrimSpace(query.Get("token"))
-	if filekey == "" || token == "" {
-		parsed.RawQuery = query.Encode()
-		return parsed.String()
-	}
-
-	cleaned := &urlpkg.URL{
-		Scheme:  parsed.Scheme,
-		Host:    parsed.Host,
-		Path:    parsed.Path,
-		RawPath: parsed.RawPath,
-	}
-	cleanQuery := urlpkg.Values{}
-	cleanQuery.Set("encfilekey", filekey)
-	cleanQuery.Set("token", token)
-	cleaned.RawQuery = cleanQuery.Encode()
-	return cleaned.String()
+	// The complete signed query is required by the video endpoint. Keep every
+	// parameter and only remove the legacy rendition marker.
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func normalizeSpecificVideoURL(raw, fileFormat string) string {
