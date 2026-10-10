@@ -219,9 +219,11 @@ function __wx_channels_get_original_video_url__(profile) {
 }
 
 function __wx_channels_has_true_original__(profile) {
-  // The page's signed base URL is the original-resource entry point. A size
-  // hint alone is insufficient, but a usable URL is enough to request it.
-  return !!__wx_channels_get_original_video_url__(profile);
+  // A signed playable URL is only a rendition entry point. Treat it as the
+  // original stream when the page exposes an explicit fullUrl; otherwise the
+  // caller must select a concrete media.spec such as xWT111.
+  var candidate = __wx_channels_get_true_original_url__(profile);
+  return /^https?:\/\//i.test(String(candidate || '').trim());
 }
 
 function __wx_channels_get_best_available_spec__(profile) {

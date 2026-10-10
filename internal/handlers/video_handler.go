@@ -68,6 +68,12 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 		utils.HandleError(err, "关闭请求体")
 	}
 
+	if len(body) == 0 {
+		utils.Warn("profile请求体为空，跳过处理")
+		h.sendEmptyResponse(Conn)
+		return true
+	}
+
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		utils.HandleError(err, "解析profile JSON数据")

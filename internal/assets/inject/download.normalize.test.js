@@ -97,8 +97,8 @@ async function main() {
 
   assertEqual(
     sandbox.__wx_channels_has_true_original__(profile),
-    true,
-    'a signed base URL should be treated as an original-video candidate',
+    false,
+    'a signed playable URL without fullUrl should use a concrete media spec',
   );
 
   const availableProfile = Object.assign({}, profile, {
@@ -115,8 +115,8 @@ async function main() {
   );
   assertEqual(
     sandbox.__wx_channels_primary_download_label__(availableProfile),
-    '原始视频',
-    'primary label should expose the original-video candidate',
+    '最高可用画质 (xWT111)',
+    'primary label should expose the highest available media spec',
   );
 
   const noOriginalProfile = Object.assign({}, availableProfile, {
@@ -254,9 +254,9 @@ async function main() {
       async json() { return { success: true }; },
     };
   };
-  sandbox.__wx_channels_store__.profile = profile;
+  sandbox.__wx_channels_store__.profile = availableProfile;
   await sandbox.__wx_channels_handle_click_download__();
-  assertEqual(backendRequests.length, 1, 'original click should use the backend once without a page-direct request');
+  assertEqual(backendRequests.length, 1, 'primary click should use the backend once without a page-direct request');
   assertEqual(
     backendRequests[0].url,
     '/__wx_channels_api/download_video',
@@ -265,8 +265,13 @@ async function main() {
   const originalBackendRequest = JSON.parse(backendRequests[0].options.body);
   assertEqual(
     originalBackendRequest.videoUrl,
-    original.url,
-    'original click should submit the normalized original URL to Gopeed',
+    specific.url,
+    'primary click should submit the highest-quality spec URL to Gopeed',
+  );
+  assertEqual(
+    originalBackendRequest.fileFormat,
+    'xWT111',
+    'primary click should send the selected media spec to the backend',
   );
 }
 
