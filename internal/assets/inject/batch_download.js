@@ -8,12 +8,12 @@ console.log('[batch_download.js] 加载通用批量下载模块');
 window.__wx_batch_download_manager__ = {
   videos: [], // 当前视频列表
   selectedItems: {}, // 选中的项目 {id: true}
+  activeTab: 'all',
   currentPage: 1,
   pageSize: 50,
   maxItems: 100000, // Gopeed接管后取消限制 (原300)
   isVisible: false,
   title: '视频列表',
-  isDownloading: false, // 是否正在下载
   isDownloading: false, // 是否正在下载
   stopSignal: false, // 取消下载信号
   forceRedownload: false, // 强制重新下载
@@ -24,6 +24,7 @@ window.__wx_batch_download_manager__ = {
     this.videos = videos.slice(0, this.maxItems); // 限制最多300个
     this.selectedItems = {};
     this.currentPage = 1;
+    this.activeTab = window.location.pathname.includes('/pages/profile') ? 'video' : 'all';
     if (title) this.title = title;
     console.log('[批量下载] 设置视频数据，共', this.videos.length, '个');
   },
@@ -49,23 +50,55 @@ window.__wx_batch_download_manager__ = {
     return newCount;
   },
 
-  // 获取当前页的视频
+  // 分类与选择共用同一份采集数据，切换时保留各分类的勾选。
+  getVideosForTab: function (tab) {
+    return this.videos.filter(function (video) {
+      if (tab === 'all') return true;
+      if (tab === 'live_replay') return video.type === 'live_replay';
+      return video.type !== 'live_replay' && video.type !== 'live';
+    });
+  },
+
+  getFilteredVideos: function () {
+    return this.getVideosForTab(this.activeTab);
+  },
+
+  setActiveTab: function (tab) {
+    if (this.activeTab === 'all' || this.isDownloading || (tab !== 'video' && tab !== 'live_replay')) return false;
+    this.activeTab = tab;
+    this.currentPage = 1;
+    return true;
+  },
+
+  clearCurrentTab: function () {
+    var self = this;
+    var removedIds = {};
+    this.getFilteredVideos().forEach(function (video) {
+      removedIds[video.id] = true;
+      delete self.selectedItems[video.id];
+    });
+    this.videos = this.videos.filter(function (video) { return !removedIds[video.id]; });
+    this.currentPage = 1;
+  },
+
+  // 获取当前分类、当前页的视频
   getCurrentPageVideos: function () {
+    this.currentPage = Math.min(this.currentPage, this.getTotalPages());
     var start = (this.currentPage - 1) * this.pageSize;
     var end = start + this.pageSize;
-    return this.videos.slice(start, end);
+    return this.getFilteredVideos().slice(start, end);
   },
 
   // 获取总页数
   getTotalPages: function () {
-    return Math.ceil(this.videos.length / this.pageSize);
+    return Math.max(1, Math.ceil(this.getFilteredVideos().length / this.pageSize));
   },
 
   // 获取选中的视频
   getSelectedVideos: function () {
     var self = this;
-    return this.videos.filter(function (video) {
-      return self.selectedItems[video.id];
+    return this.getFilteredVideos().filter(function (video) {
+      return self.selectedItems[video.id] && video.canDownload !== false && video.type !== 'live';
     });
   },
 
@@ -82,7 +115,9 @@ window.__wx_batch_download_manager__ = {
   selectAllCurrentPage: function (selected) {
     var pageVideos = this.getCurrentPageVideos();
     for (var i = 0; i < pageVideos.length; i++) {
-      this.toggleSelect(pageVideos[i].id, selected);
+      if (pageVideos[i].canDownload !== false && pageVideos[i].type !== 'live') {
+        this.toggleSelect(pageVideos[i].id, selected);
+      }
     }
   }
 };
@@ -97,6 +132,16 @@ function __wx_channels_batch_api_headers__() {
 
 // ==================== 显示批量下载弹窗 ====================
 function __show_batch_download_ui__(videos, title) {
+  var existingUI = document.getElementById('wx-batch-download-ui');
+  // 下载期间复用原弹窗，保留分类、勾选及轮询正在更新的进度节点。
+  if (existingUI && __wx_batch_download_manager__.isDownloading) {
+    existingUI.style.display = '';
+    __wx_batch_download_manager__.isVisible = true;
+    __wx_batch_download_manager__.appendVideos(videos || []);
+    __render_batch_video_list__();
+    return;
+  }
+
   if (!videos || videos.length === 0) {
     __wx_log({ msg: '❌ 暂无视频数据' });
     return;
@@ -106,63 +151,36 @@ function __show_batch_download_ui__(videos, title) {
   __wx_batch_download_manager__.setVideos(videos, title || '视频列表');
 
   // 移除已存在的弹窗
-  var existingUI = document.getElementById('wx-batch-download-ui');
   if (existingUI) existingUI.remove();
 
   // 创建弹窗
   var ui = document.createElement('div');
   ui.id = 'wx-batch-download-ui';
-  ui.style.cssText = 'position:fixed;top:60px;right:20px;background:#2b2b2b;color:#e5e5e5;padding:0;border-radius:8px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:14px;width:450px;max-height:80vh;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;';
+  ui.style.cssText = 'position:fixed;top:60px;right:20px;background:#2b2b2b;color:#e5e5e5;padding:0;border-radius:8px;z-index:99999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;font-size:14px;width:450px;max-width:calc(100vw - 40px);max-height:80vh;box-shadow:0 8px 24px rgba(0,0,0,0.5);overflow:hidden;';
 
-  // 统计视频和直播数量
-  var videoCount = 0;
-  var liveCount = 0;
-  videos.forEach(function (v) {
-    if (v.type === 'live' || v.type === 'live_replay') {
-      liveCount++;
-    } else if (v.type === 'media' || !v.type) {
-      videoCount++;
-    }
-  });
-
-  // 根据页面类型构建统计文本
-  var statsText = '';
-  var currentPath = window.location.pathname;
-
-  if (currentPath.includes('/pages/home')) {
-    // Home页：显示"X 个视频"
-    statsText = videoCount + ' 个视频';
-    if (liveCount > 0) {
-      statsText += ', ' + liveCount + ' 个直播';
-    }
-  } else if (currentPath.includes('/pages/profile')) {
-    // Profile页：显示"X 个视频, Y 个直播回放"
-    if (liveCount > 0) {
-      statsText = videoCount + ' 个视频, ' + liveCount + ' 个直播回放';
-    } else {
-      statsText = videoCount + ' 个视频';
-    }
-  } else {
-    // 其他页面：默认显示
-    if (liveCount > 0) {
-      statsText = videoCount + ' 个视频, ' + liveCount + ' 个直播';
-    } else {
-      statsText = videos.length + ' 个';
-    }
-  }
+  var hasMediaTabs = __wx_batch_download_manager__.activeTab !== 'all';
+  var tabStyle = 'flex:1;background:transparent;color:#bbb;border:1px solid rgba(255,255,255,0.12);padding:8px 6px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px;';
+  var tabsHTML = hasMediaTabs
+    ? '<div role="tablist" aria-label="内容类型" style="display:flex;gap:8px;padding:12px 20px;">' +
+      '<button type="button" id="batch-video-tab" role="tab" aria-controls="batch-list-container" style="' + tabStyle + '">视频</button>' +
+      '<button type="button" id="batch-replay-tab" role="tab" aria-controls="batch-list-container" style="' + tabStyle + '">直播回放</button>' +
+      '</div>'
+    : '';
 
   ui.innerHTML =
     // 标题栏
     '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;">' +
     '<div style="font-size:15px;font-weight:500;color:#fff;">' + __wx_batch_download_manager__.title + '</div>' +
     '<div style="display:flex;align-items:center;gap:12px;">' +
-    '<div id="batch-total-count" style="font-size:13px;color:#999;">' + statsText + '</div>' +
+    '<div id="batch-total-count" style="font-size:13px;color:#999;"></div>' +
     '<div id="batch-close-icon" style="cursor:pointer;color:#999;font-size:20px;line-height:1;padding:4px;" title="关闭">×</div>' +
     '</div>' +
     '</div>' +
 
+    tabsHTML +
+
     // 列表区域
-    '<div id="batch-list-container" style="overflow-y:auto;padding:12px 20px;max-height:200px;">' +
+    '<div id="batch-list-container"' + (hasMediaTabs ? ' role="tabpanel" aria-labelledby="batch-video-tab"' : '') + ' style="overflow-y:auto;padding:12px 20px;max-height:200px;">' +
     '<div id="batch-list" style="display:flex;flex-direction:column;gap:8px;"></div>' +
     '</div>' +
 
@@ -211,8 +229,8 @@ function __show_batch_download_ui__(videos, title) {
 
     // 次要操作区
     '<div style="padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);display:flex;gap:8px;">' +
-    '<button id="batch-export-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">导出列表</button>' +
-    '<button id="batch-clear-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">清空列表</button>' +
+    '<button id="batch-export-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">' + (hasMediaTabs ? '导出当前分类' : '导出列表') + '</button>' +
+    '<button id="batch-clear-btn" style="flex:1;background:transparent;color:#999;border:1px solid rgba(255,255,255,0.12);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.2s;">' + (hasMediaTabs ? '清空当前分类' : '清空列表') + '</button>' +
     '</div>';
 
   document.body.appendChild(ui);
@@ -224,6 +242,36 @@ function __show_batch_download_ui__(videos, title) {
 
   // 绑定事件
   setTimeout(function () {
+    if (hasMediaTabs) {
+      ['video', 'live_replay'].forEach(function (tab) {
+        var button = document.getElementById(tab === 'video' ? 'batch-video-tab' : 'batch-replay-tab');
+        button.onclick = function () {
+          if (__wx_batch_download_manager__.setActiveTab(tab)) {
+            __render_batch_video_list__();
+            document.getElementById('batch-list-container').scrollTop = 0;
+          }
+        };
+        button.onkeydown = function (event) {
+          var targetId;
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            targetId = tab === 'video' ? 'batch-replay-tab' : 'batch-video-tab';
+          } else if (event.key === 'Home') {
+            targetId = 'batch-video-tab';
+          } else if (event.key === 'End') {
+            targetId = 'batch-replay-tab';
+          } else {
+            return;
+          }
+          event.preventDefault();
+          var target = document.getElementById(targetId);
+          if (!target.disabled) {
+            target.click();
+            target.focus();
+          }
+        };
+      });
+    }
+
     // 分页
     document.getElementById('batch-prev-page').onclick = function () {
       if (__wx_batch_download_manager__.currentPage > 1) {
@@ -340,7 +388,13 @@ function __handle_download_progress__(e) {
 // ==================== 关闭弹窗 ====================
 function __close_batch_download_ui__() {
   var ui = document.getElementById('wx-batch-download-ui');
-  if (ui) ui.remove();
+  if (ui) {
+    if (__wx_batch_download_manager__.isDownloading) {
+      ui.style.display = 'none';
+    } else {
+      ui.remove();
+    }
+  }
   __wx_batch_download_manager__.isVisible = false;
 }
 
@@ -370,7 +424,7 @@ function __cancel_batch_download__() {
 
 // ==================== 导出视频列表 ====================
 function __export_batch_video_list__() {
-  var videos = __wx_batch_download_manager__.videos;
+  var videos = __wx_batch_download_manager__.getFilteredVideos();
 
   if (videos.length === 0) {
     __wx_log({ msg: '⚠️ 没有可导出的视频' });
@@ -434,7 +488,7 @@ function __export_batch_video_list__() {
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = 'batch_videos_' + new Date().toISOString().slice(0, 10) + '.json';
+  a.download = (__wx_batch_download_manager__.activeTab === 'live_replay' ? 'batch_live_replays_' : 'batch_videos_') + new Date().toISOString().slice(0, 10) + '.json';
   a.click();
   URL.revokeObjectURL(url);
 
@@ -448,7 +502,7 @@ function __clear_batch_video_list__() {
     return;
   }
 
-  var count = __wx_batch_download_manager__.videos.length;
+  var count = __wx_batch_download_manager__.getFilteredVideos().length;
 
   if (count === 0) {
     __wx_log({ msg: '⚠️ 列表已经是空的' });
@@ -456,23 +510,16 @@ function __clear_batch_video_list__() {
   }
 
   // 确认清空
-  if (!confirm('确定要清空 ' + count + ' 个视频吗？')) {
+  var category = __wx_batch_download_manager__.activeTab === 'live_replay' ? '直播回放' : '视频';
+  if (!confirm('确定要清空' + (__wx_batch_download_manager__.activeTab !== 'all' ? '当前分类的 ' : ' ') + count + ' 个' + category + '吗？')) {
     return;
   }
 
-  __wx_batch_download_manager__.videos = [];
-  __wx_batch_download_manager__.selectedItems = {};
-  __wx_batch_download_manager__.currentPage = 1;
-
-  // 更新UI
-  var countElement = document.getElementById('batch-total-count');
-  if (countElement) {
-    countElement.textContent = '0 个';
-  }
+  __wx_batch_download_manager__.clearCurrentTab();
 
   __render_batch_video_list__();
 
-  __wx_log({ msg: '🗑️ 已清空 ' + count + ' 个视频' });
+  __wx_log({ msg: '🗑️ 已清空 ' + count + ' 个' + category });
 }
 
 // ==================== 更新弹窗 ====================
@@ -486,6 +533,15 @@ function __update_batch_download_ui__(videos, title) {
     __wx_batch_download_manager__.title = title;
   }
 
+  // 重新渲染列表，同时更新分类、总数及勾选状态。
+  __render_batch_video_list__();
+
+  if (newCount > 0) {
+    console.log('[批量下载] UI已更新，新增', newCount, '个视频');
+  }
+}
+
+function __update_batch_counts__() {
   // 统计视频和直播数量
   var allVideos = __wx_batch_download_manager__.videos;
   var videoCount = 0;
@@ -511,12 +567,8 @@ function __update_batch_download_ui__(videos, title) {
         statsText += ', ' + liveCount + ' 个直播';
       }
     } else if (currentPath.includes('/pages/profile')) {
-      // Profile页：显示"X 个视频, Y 个直播回放"
-      if (liveCount > 0) {
-        statsText = videoCount + ' 个视频, ' + liveCount + ' 个直播回放';
-      } else {
-        statsText = videoCount + ' 个视频';
-      }
+      // 分类数量由标签展示，标题栏只显示已采集的总量。
+      statsText = '已加载 ' + allVideos.length + ' 项';
     } else {
       // 其他页面：默认显示
       if (liveCount > 0) {
@@ -529,11 +581,21 @@ function __update_batch_download_ui__(videos, title) {
     countElement.textContent = statsText;
   }
 
-  // 重新渲染列表
-  __render_batch_video_list__();
-
-  if (newCount > 0) {
-    console.log('[批量下载] UI已更新，新增', newCount, '个视频');
+  if (__wx_batch_download_manager__.activeTab !== 'all') {
+    ['video', 'live_replay'].forEach(function (tab) {
+      var button = document.getElementById(tab === 'video' ? 'batch-video-tab' : 'batch-replay-tab');
+      if (!button) return;
+      var active = __wx_batch_download_manager__.activeTab === tab;
+      button.textContent = (tab === 'video' ? '视频' : '直播回放') + '（' + __wx_batch_download_manager__.getVideosForTab(tab).length + '）';
+      button.setAttribute('aria-selected', String(active));
+      button.tabIndex = active ? 0 : -1;
+      button.disabled = __wx_batch_download_manager__.isDownloading;
+      button.style.background = active ? 'rgba(7,193,96,0.15)' : 'transparent';
+      button.style.borderColor = active ? '#07c160' : 'rgba(255,255,255,0.12)';
+      button.style.color = active ? '#fff' : '#bbb';
+      button.style.cursor = button.disabled ? 'not-allowed' : 'pointer';
+    });
+    document.getElementById('batch-list-container').setAttribute('aria-labelledby', __wx_batch_download_manager__.activeTab === 'video' ? 'batch-video-tab' : 'batch-replay-tab');
   }
 }
 
@@ -544,6 +606,17 @@ function __render_batch_video_list__() {
   if (!listContainer) return;
 
   listContainer.innerHTML = '';
+
+  if (pageVideos.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:24px 8px;text-align:center;color:#bbb;line-height:1.8;';
+    empty.textContent = __wx_batch_download_manager__.activeTab === 'live_replay'
+      ? '暂无直播回放，请先在个人主页打开直播回放列表以加载数据。'
+      : __wx_batch_download_manager__.getVideosForTab('live_replay').length > 0
+        ? '暂无视频，可切换「直播回放」查看已加载的回放。'
+        : '暂无视频数据';
+    listContainer.appendChild(empty);
+  }
 
   for (var i = 0; i < pageVideos.length; i++) {
     var video = pageVideos[i];
@@ -719,10 +792,8 @@ function __render_batch_video_list__() {
     item.appendChild(info);
 
     item.onclick = function () {
-      // 如果是直播或不能下载，不响应点击
-      if (isLive || !canDownload) return;
-
       var cb = this.querySelector('input[type="checkbox"]');
+      if (cb.disabled) return;
       cb.checked = !cb.checked;
       __wx_batch_download_manager__.toggleSelect(cb.dataset.videoId, cb.checked);
       __update_batch_ui__();
@@ -735,6 +806,7 @@ function __render_batch_video_list__() {
 }
 
 function __update_batch_ui__() {
+  __update_batch_counts__();
   // 更新页码
   document.getElementById('batch-current-page').textContent = __wx_batch_download_manager__.currentPage;
   document.getElementById('batch-total-pages').textContent = __wx_batch_download_manager__.getTotalPages();
@@ -744,14 +816,26 @@ function __update_batch_ui__() {
   document.getElementById('batch-selected-count').textContent = '已选 ' + selectedCount + ' 个';
 
   // 更新全选状态
-  var pageVideos = __wx_batch_download_manager__.getCurrentPageVideos();
+  var pageVideos = __wx_batch_download_manager__.getCurrentPageVideos().filter(function (video) {
+    return video.canDownload !== false && video.type !== 'live';
+  });
   var allSelected = pageVideos.length > 0 && pageVideos.every(function (video) {
     return __wx_batch_download_manager__.selectedItems[video.id];
   });
   var selectAllCheckbox = document.getElementById('batch-select-all');
   if (selectAllCheckbox) {
     selectAllCheckbox.checked = allSelected;
+    selectAllCheckbox.indeterminate = !allSelected && pageVideos.some(function (video) {
+      return __wx_batch_download_manager__.selectedItems[video.id];
+    });
+    selectAllCheckbox.disabled = pageVideos.length === 0;
   }
+  document.getElementById('batch-prev-page').disabled = __wx_batch_download_manager__.currentPage <= 1;
+  document.getElementById('batch-next-page').disabled = __wx_batch_download_manager__.currentPage >= __wx_batch_download_manager__.getTotalPages();
+  var downloadBtn = document.getElementById('batch-download-btn');
+  downloadBtn.disabled = __wx_batch_download_manager__.isDownloading || selectedCount === 0;
+  downloadBtn.style.opacity = downloadBtn.disabled ? '0.5' : '1';
+  downloadBtn.style.cursor = downloadBtn.disabled ? 'not-allowed' : 'pointer';
 }
 
 function __format_batch_create_time__(unixSeconds) {
@@ -817,6 +901,7 @@ async function __batch_download_selected__() {
   // 设置下载状态
   __wx_batch_download_manager__.isDownloading = true;
   __wx_batch_download_manager__.stopSignal = false;
+  if (__wx_batch_download_manager__.isVisible) __update_batch_ui__();
 
   __wx_log({ msg: '🚀 开始批量下载 ' + formattedVideos.length + ' 个视频（后端并发）...' });
 
@@ -1054,6 +1139,7 @@ function __reset_batch_download_ui__() {
   if (cancelBtn) {
     cancelBtn.style.display = 'none';
   }
+  if (__wx_batch_download_manager__.isVisible) __update_batch_ui__();
 
   // 延迟隐藏进度条
   setTimeout(function () {
