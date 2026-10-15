@@ -28,6 +28,9 @@ jobs:
       CGO_ENABLED: '1'
       CC: gcc
       GOTOOLCHAIN: local
+      GOFLAGS: -tags=zombiezen_sqlite
+      # go-libutp predates C23, where bool became a built-in type.
+      CGO_CFLAGS: -O2 -g -std=gnu11
     steps:
       - uses: actions/checkout@v4
 
@@ -45,10 +48,10 @@ jobs:
           install: mingw-w64-x86_64-gcc
 
       - name: Build
-        run: go build -v ./...
+        run: go build -mod=readonly -v ./...
 
       - name: Test
-        run: go test -v ./...
+        run: go test -mod=readonly -v ./...
 
   javascript:
     name: JavaScript tests

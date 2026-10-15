@@ -1,7 +1,7 @@
 #include "c_iphlpapi_tcp.h"
 
 // 定义指向 GetTcpTable2 函数的指针变量
-GetTcpTable2 pGetTcpTable2;
+SUNNY_GETTCPTABLE2 pGetTcpTable2;
 
 // 定义指向 GetExtendedTcpTable 函数的指针变量
 GETEXTENDEDTABLE pGetExtendedTcpTable;
@@ -25,7 +25,7 @@ void closeTcpConnectionInit() {
 	pSetTcpEntry = (SETTCPENTRY)GetProcAddress(hModule, "SetTcpEntry");
 
 	// 获取 GetTcpTable2 函数地址
-	pGetTcpTable2 = (GetTcpTable2) GetProcAddress(hModule, "GetTcpTable2");
+	pGetTcpTable2 = (SUNNY_GETTCPTABLE2) GetProcAddress(hModule, "GetTcpTable2");
 
 	if (pGetExtendedTcpTable == NULL || pSetTcpEntry == NULL || pGetTcpTable2 == NULL) {
 		// 获取失败，释放动态库并退出函数
@@ -98,7 +98,7 @@ int getTcpInfoPID(char* Addr, int SunnyProt) {
 	}
 
 	// 分配内存空间
-	PMIB_TCPTABLE2 tcpTable = (PMIB_TCPTABLE2)malloc(bufferSize);
+	PSUNNY_MIB_TCPTABLE2 tcpTable = (PSUNNY_MIB_TCPTABLE2)malloc(bufferSize);
 	result = pGetTcpTable2(tcpTable, &bufferSize, TRUE);
 	if (result != NO_ERROR){
 		free(tcpTable);

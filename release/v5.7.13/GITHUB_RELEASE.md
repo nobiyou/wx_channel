@@ -14,6 +14,7 @@
 - 日志目录或文件不可写时继续输出控制台日志，避免空指针崩溃，并显示文件日志不可用的具体原因。
 - CI 使用 `go.mod` 指定的 Go 版本，补齐 Windows/Linux 构建、Go 测试和 JavaScript 测试。
 - 补齐 SunnyNet 内嵌所需的两份 NFAPI DLL 源码资源，修复干净检出缺失资源的构建失败。
+- 统一 CI 与打包的 SQLite 构建选项，升级 SQLite 适配器至 v0.2.0，修复重复链接及新 Windows 编译器兼容问题。
 
 ## 下载说明
 

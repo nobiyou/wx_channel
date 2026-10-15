@@ -205,11 +205,13 @@ git clone https://github.com/nobiyou/wx_channel.git
 cd wx_channel
 
 # 基本编译
-go build -o wx_channel.exe
+go build -tags=zombiezen_sqlite -o wx_channel.exe
 
 # 优化体积编译（推荐）
-go build -ldflags="-s -w" -o wx_channel_mini.exe
+go build -tags=zombiezen_sqlite -ldflags="-s -w" -o wx_channel_mini.exe
 ```
+
+`zombiezen_sqlite` 使用下载引擎支持的纯 Go SQLite 实现，避免与应用数据库重复链接 C SQLite。使用 GCC 15 或更新版本时，将 `CGO_CFLAGS` 设为 `-O2 -g -std=gnu11`，与 CI 的 C 标准一致。
 
 ---
 

@@ -14,6 +14,7 @@
 - 文件日志初始化失败时保留可用的控制台日志，并输出具体失败原因，避免 `GetLogger()` 返回空指针。
 - CI 使用 `go.mod` 指定的 Go 版本，补齐 Windows/Linux 构建、Go 测试及 JavaScript 测试。
 - 将 SunnyNet 内嵌所需的两份 NFAPI DLL 纳入源码，修复干净检出缺失资源、只能依赖本地 vendor 构建的问题。
+- 统一 CI 与打包的 SQLite 构建选项，将 SQLite 适配器升级至 v0.2.0，修复重复链接；修正新 Windows 编译器下的声明重名及 C 标准兼容问题。
 
 ## [5.7.12] - 2026-10-10
 

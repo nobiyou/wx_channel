@@ -191,6 +191,8 @@ github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
 github.com/go-llsqlite/adapter v0.1.0 h1:wGSQNsu/rtYeu/lqZNZQMjwUdEF3OW66xTLvsFwJQUw=
 github.com/go-llsqlite/adapter v0.1.0/go.mod h1:DADrR88ONKPPeSGjFp5iEN55Arx3fi2qXZeKCYDpbmU=
+github.com/go-llsqlite/adapter v0.2.0 h1:6k4dmTSTg1eKIeH+2kBWaoohn9SFNZeg4LWayZweevI=
+github.com/go-llsqlite/adapter v0.2.0/go.mod h1:tcIEbwjdknnizwMsq9ogjMW6246aIjk97cRywjkbqZ0=
 github.com/go-llsqlite/crawshaw v0.5.5 h1:sXnRkiV26MBv++lbPbzp+ZzFcTqzVMxftO8yHyFvwUA=
 github.com/go-llsqlite/crawshaw v0.5.5/go.mod h1:/YJdV7uBQaYDE0fwe4z3wwJIZBJxdYzd38ICggWqtaE=
 github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9GBnD5lWE=
