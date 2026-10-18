@@ -220,6 +220,12 @@ function __show_batch_download_ui__(videos, title) {
     '</div>' +
     '</div>' +
 
+    // 顺带下载挂车商品主图（全部主图 + 规格图）
+    '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;margin-bottom:10px;">' +
+    '<input type="checkbox" id="batch-download-product-images" style="margin-right:8px;cursor:pointer;" />' +
+    '<span>同时下载商品主图（挂车商品，全部主图与规格图）</span>' +
+    '</label>' +
+
     // 强制重新下载选项
     '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;color:#999;user-select:none;">' +
     '<input type="checkbox" id="batch-force-redownload" style="margin-right:8px;cursor:pointer;" />' +
@@ -925,6 +931,10 @@ async function __batch_download_selected__() {
   }
 
   try {
+    // 固定本批次选项：商品图开关
+    var productImagesCheckbox = document.getElementById('batch-download-product-images');
+    var downloadProductImages = !!(productImagesCheckbox && productImagesCheckbox.checked);
+
     // 构建批量下载请求数据
     var batchVideos = formattedVideos.map(function(video) {
       var authorName = video.nickname || (video.contact && video.contact.nickname) || '未知作者';
@@ -970,7 +980,8 @@ async function __batch_download_selected__() {
       headers: __wx_channels_batch_api_headers__(),
       body: JSON.stringify({
         videos: batchVideos,
-        forceRedownload: __wx_batch_download_manager__.forceRedownload
+        forceRedownload: __wx_batch_download_manager__.forceRedownload,
+        downloadProductImages: downloadProductImages
       })
     });
 
