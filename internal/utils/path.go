@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -128,6 +129,13 @@ func ResolveDownloadDir(downloadDir string) (string, error) {
 	// 如果是绝对路径，直接使用
 	if filepath.IsAbs(downloadDir) {
 		return downloadDir, nil
+	}
+
+	// macOS: .app 包内目录随安装/升级被整体替换，相对路径统一锚定到用户数据目录，避免数据丢失
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, ".wx_channel", downloadDir), nil
+		}
 	}
 
 	// 如果是相对路径，相对于程序基础目录
