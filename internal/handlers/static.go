@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"net/http"
-	"os"
+	"path"
 	"strings"
 
 	"wx_channel/internal/utils"
+	"wx_channel/web"
 
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
@@ -19,6 +20,43 @@ func NewStaticFileHandler() *StaticFileHandler {
 	return &StaticFileHandler{}
 }
 
+// readWebFile 从内嵌资源读取文件，name 为相对 web/ 的路径
+func readWebFile(name string) ([]byte, bool) {
+	clean := path.Clean("/" + name)
+	if strings.Contains(clean, "..") {
+		return nil, false
+	}
+	data, err := web.FS.ReadFile(strings.TrimPrefix(clean, "/"))
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// contentTypeByExt 按扩展名返回 Content-Type
+func contentTypeByExt(name string) string {
+	switch {
+	case strings.HasSuffix(name, ".html"):
+		return "text/html; charset=utf-8"
+	case strings.HasSuffix(name, ".js"):
+		return "application/javascript; charset=utf-8"
+	case strings.HasSuffix(name, ".css"):
+		return "text/css; charset=utf-8"
+	case strings.HasSuffix(name, ".md"):
+		return "text/plain; charset=utf-8"
+	case strings.HasSuffix(name, ".png"):
+		return "image/png"
+	case strings.HasSuffix(name, ".ico"):
+		return "image/x-icon"
+	case strings.HasSuffix(name, ".svg"):
+		return "image/svg+xml"
+	case strings.HasSuffix(name, ".json"):
+		return "application/json; charset=utf-8"
+	default:
+		return "application/octet-stream"
+	}
+}
+
 // Handle implements router.Interceptor
 func (h *StaticFileHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 
@@ -27,11 +65,11 @@ func (h *StaticFileHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	}
 	path := Conn.Request.URL.Path
 
-	// 1. 处理控制台页面重定向/加载
+	// 1. 处理控制台页面（资源内嵌于二进制，与工作目录无关）
 	if path == "/console" || path == "/console/" {
-		consoleHTML, err := os.ReadFile("web/console.html")
-		if err != nil {
-			utils.Warn("无法读取 web/console.html: %v", err)
+		consoleHTML, ok := readWebFile("console.html")
+		if !ok {
+			utils.Warn("无法读取内嵌控制台资源 console.html")
 			Conn.StopRequest(404, "Console not found", http.Header{})
 			return true
 		}
@@ -55,27 +93,21 @@ func (h *StaticFileHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	// 3. 处理静态资源文件
+	// 3. 处理静态资源文件（内嵌资源）
 	if strings.HasPrefix(path, "/js/") || strings.HasPrefix(path, "/css/") || strings.HasPrefix(path, "/docs/") ||
 		strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") ||
 		strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".gif") ||
 		strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".ico") ||
 		strings.HasSuffix(path, ".md") {
 
-		filePath := "web" + path
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			// 此时不拦截，可能不是本地文件，交给后续处理或透传
+		content, ok := readWebFile(strings.TrimPrefix(path, "/"))
+		if !ok {
+			// 内嵌资源中没有，交给后续处理或透传
 			return false
 		}
 
 		headers := http.Header{}
-		if strings.HasSuffix(path, ".js") {
-			headers.Set("Content-Type", "application/javascript; charset=utf-8")
-		} else if strings.HasSuffix(path, ".css") {
-			headers.Set("Content-Type", "text/css; charset=utf-8")
-		}
-		// 可以添加更多MIME类型支持
+		headers.Set("Content-Type", contentTypeByExt(path))
 
 		Conn.StopRequest(200, string(content), headers)
 		return true

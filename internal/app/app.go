@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,7 +32,6 @@ import (
 	"wx_channel/internal/utils"
 	"wx_channel/internal/websocket"
 	"wx_channel/pkg/certificate"
-	"wx_channel/pkg/proxy"
 )
 
 // App 结构体，用于保存依赖项和状态
@@ -161,6 +159,7 @@ func (app *App) Run() {
 	// 确保端口设置正确
 	app.Sunny.SetPort(app.Port)
 
+	// macOS: 不修改系统代理，使用微信内置的网络代理设置
 	done := make(chan struct{})
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	defer lifecycleCancel()
@@ -172,13 +171,6 @@ func (app *App) Run() {
 		utils.LogSystemShutdown(fmt.Sprintf("收到信号: %v", sig))
 		lifecycleCancel()
 		database.Close()
-		if os_env == "darwin" {
-			proxy.DisableProxyInMacOS(proxy.ProxySettings{
-				Device:   "",
-				Hostname: "127.0.0.1",
-				Port:     strconv.Itoa(app.Port),
-			})
-		}
 		close(done)
 	}()
 
@@ -325,6 +317,17 @@ func (app *App) Run() {
 		} else {
 			utils.Info("✓ 证书安装成功！")
 		}
+	} else if os_env == "darwin" && !certificate.IsTrustedMacOS(assets.CertData) {
+		// macOS: 证书存在但未受信任（旧版仅添加未设信任），需重新配置信任
+		utils.Warn("证书已存在但未受信任，正在重新配置信任...")
+		err := certificate.InstallCertificate(assets.CertData)
+		time.Sleep(app.Cfg.CertInstallDelay)
+		if err != nil {
+			utils.HandleError(err, "证书信任配置")
+			utils.Warn("如需完整功能，请手动在钥匙串访问中将证书设为始终信任。")
+		} else {
+			utils.Info("✓ 证书信任配置成功！")
+		}
 	} else {
 		utils.Info("✓ 证书已存在，无需重新安装。")
 	}
@@ -338,6 +341,14 @@ func (app *App) Run() {
 	}
 	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
 
+	// macOS: 不修改系统代理，引导用户在微信内置网络代理中配置
+	if os_env == "darwin" {
+		utils.PrintSeparator()
+		color.Green("📱 请在微信「设置 → 网络代理设置」中开启使用代理：")
+		color.Green("   服务器 127.0.0.1 ，端口 %d（微信会记住该配置，仅需设置一次）", app.Port)
+		utils.PrintSeparator()
+	}
+
 	// 2. 立即渲染界面面板 (不再受网络连接阻塞)
 	utils.PrintSeparator()
 	color.Blue("📡 服务状态信息")
@@ -347,8 +358,8 @@ func (app *App) Run() {
 	utils.PrintLabelValue("📱", "支持平台", "微信视频号")
 
 	proxyMode := "进程代理"
-	if os_env != "windows" {
-		proxyMode = "系统代理"
+	if os_env == "darwin" {
+		proxyMode = "微信内置代理"
 	}
 	utils.LogSystemStart(app.Port, proxyMode)
 

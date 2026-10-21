@@ -157,11 +157,18 @@ func removeCertificateInWindows(cert_name string) error {
 }
 
 func removeCertificateInMacOS(cert_name string) error {
-	cmd := fmt.Sprintf("security delete-certificate -c '%s' /Library/Keychains/System.keychain", cert_name)
-	ps := exec.Command("bash", "-c", cmd)
+	secCmd := fmt.Sprintf("security delete-certificate -c %q /Library/Keychains/System.keychain", cert_name)
+	ps := exec.Command("bash", "-c", secCmd)
 	output, err := ps.CombinedOutput()
-	if err != nil {
-		return errors.New(fmt.Sprintf("删除证书时发生错误，%v\n", output))
+	if err == nil {
+		return nil
+	}
+	// 无 root 权限时弹出系统管理员授权框
+	osaCmd := fmt.Sprintf("do shell script %q with administrator privileges", secCmd)
+	osascript := exec.Command("osascript", "-e", osaCmd)
+	output2, err2 := osascript.CombinedOutput()
+	if err2 != nil {
+		return errors.New(fmt.Sprintf("删除证书时发生错误（取消授权或授权失败），%v\n%v\n", output2, output))
 	}
 	return nil
 }
@@ -211,6 +218,29 @@ func installCertificateInWindows(cert_data []byte) error {
 	}
 	return nil
 }
+
+// IsTrustedMacOS 校验证书是否已被系统信任（仅添加进钥匙串但未设信任时返回 false）
+func IsTrustedMacOS(cert_data []byte) bool {
+	if runtime.GOOS != "darwin" {
+		return true
+	}
+	cert_file, err := os.CreateTemp("", "SunnyRoot-verify.cer")
+	if err != nil {
+		return false
+	}
+	defer os.Remove(cert_file.Name())
+	if _, err := cert_file.Write(cert_data); err != nil {
+		cert_file.Close()
+		return false
+	}
+	if err := cert_file.Close(); err != nil {
+		return false
+	}
+	// verify-cert 对受信任根返回 0，未信任返回非 0
+	cmd := exec.Command("security", "verify-cert", "-c", cert_file.Name(), "-p", "ssl")
+	return cmd.Run() == nil
+}
+
 func installCertificateInMacOS(cert_data []byte) error {
 	cert_file, err := os.CreateTemp("", "SunnyRoot.cer")
 	if err != nil {
@@ -223,11 +253,22 @@ func installCertificateInMacOS(cert_data []byte) error {
 	if err := cert_file.Close(); err != nil {
 		return errors.New(fmt.Sprintf("生成证书失败，%v\n", err.Error()))
 	}
-	cmd := fmt.Sprintf("security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain '%s'", cert_file.Name())
-	ps := exec.Command("bash", "-c", cmd)
+
+	secCmd := fmt.Sprintf("security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain %q", cert_file.Name())
+
+	// 1. 已有 root 权限（sudo 运行）时直接安装
+	ps := exec.Command("bash", "-c", secCmd)
 	output, err2 := ps.CombinedOutput()
-	if err2 != nil {
-		return errors.New(fmt.Sprintf("安装证书时发生错误，%v\n", output))
+	if err2 == nil {
+		return nil
+	}
+
+	// 2. 无 root 权限时，通过 osascript 弹出系统管理员授权框提权安装
+	osaCmd := fmt.Sprintf("do shell script %q with administrator privileges", secCmd)
+	osascript := exec.Command("osascript", "-e", osaCmd)
+	output2, err3 := osascript.CombinedOutput()
+	if err3 != nil {
+		return errors.New(fmt.Sprintf("自动安装证书失败（取消授权或授权失败），%v\n可手动安装：双击证书文件，在钥匙串访问中将其设为始终信任\n%v\n", output2, output))
 	}
 	return nil
 }
