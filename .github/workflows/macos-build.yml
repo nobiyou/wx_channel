@@ -1,0 +1,93 @@
+name: macOS Build
+
+on:
+  push:
+    branches: [ "master", "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: macOS (arm64)
+    runs-on: macos-latest
+    env:
+      CGO_ENABLED: '1'
+      GOTOOLCHAIN: local
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build binary
+        run: go build -trimpath -o wx_channel_darwin_arm64 .
+
+      - name: Package .app bundle
+        run: |
+          set -e
+          APP=wx_channel.app
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp wx_channel_darwin_arm64 "$APP/Contents/MacOS/wx_channel"
+          # 应用图标：从 winres/icon.png 生成 icns 与状态栏小图
+          mkdir -p AppIcon.iconset
+          for s in 16 32 128 256; do
+            sips -z $s $s winres/icon.png --out AppIcon.iconset/icon_${s}x${s}.png >/dev/null
+          done
+          for s in 16 32 128; do
+            d=$((s*2))
+            sips -z $d $d winres/icon.png --out AppIcon.iconset/icon_${s}x${s}@2x.png >/dev/null
+          done
+          iconutil -c icns AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+          rm -rf AppIcon.iconset
+          sips -z 36 36 winres/icon.png --out "$APP/Contents/Resources/StatusIcon.png" >/dev/null
+          # WebView 管理台静态资源打包时已通过 go:embed 内嵌进二进制，无需额外拷贝
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>wx_channel</string>
+            <key>CFBundleDisplayName</key><string>微信视频号下载助手</string>
+            <key>CFBundleIdentifier</key><string>com.nobiyou.wx-channel</string>
+            <key>CFBundleVersion</key><string>${GITHUB_REF_NAME}</string>
+            <key>CFBundleShortVersionString</key><string>${GITHUB_REF_NAME}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleExecutable</key><string>wx_channel</string>
+            <key>CFBundleIconFile</key><string>AppIcon</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSAppTransportSecurity</key>
+            <dict>
+              <key>NSAllowsLocalNetworking</key><true/>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force -s - "$APP"
+          zip -qry wx_channel_macos_arm64.zip "$APP"
+          # 同时提供纯二进制，便于命令行用户
+          zip -q wx_channel_darwin_arm64.zip wx_channel_darwin_arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wx_channel-macos-arm64
+          path: |
+            wx_channel_macos_arm64.zip
+            wx_channel_darwin_arm64.zip
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wx_channel_macos_arm64.zip
+            wx_channel_darwin_arm64.zip
