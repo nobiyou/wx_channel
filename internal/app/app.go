@@ -123,7 +123,13 @@ func (app *App) initDownloadRecords() error {
 	}
 
 	// Initialize Database
+	// macOS: 数据库与下载文件分离，固定放在用户数据目录根下，避免清空下载目录时丢失记录
 	dbPath := filepath.Join(downloadsDir, "records.db")
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dbPath = filepath.Join(home, ".wx_channel", "records.db")
+		}
+	}
 	if err := database.Initialize(&database.Config{DBPath: dbPath}); err != nil {
 		return fmt.Errorf("初始化数据库失败: %v", err)
 	}
@@ -135,12 +141,24 @@ func (app *App) initDownloadRecords() error {
 	return nil
 }
 
-func (app *App) initOfficialAccountService() error {
-	downloadsDir, err := utils.ResolveDownloadDir(app.Cfg.DownloadsDir)
-	if err != nil {
-		return fmt.Errorf("解析公众号凭证目录失败: %v", err)
+// downloadsDataDir macOS 下返回 ~/.wx_channel（存放数据库、凭证等），其他平台返回程序基础目录
+func downloadsDataDir() string {
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, ".wx_channel")
+		}
 	}
-	service, err := officialaccount.NewService(filepath.Join(downloadsDir, "mp.json"))
+	base, err := utils.GetBaseDir()
+	if err != nil {
+		return "."
+	}
+	return base
+}
+
+func (app *App) initOfficialAccountService() error {
+	// 凭证文件（含 cookie）不放下载文件夹，固定存用户数据目录
+	dataDir := downloadsDataDir()
+	service, err := officialaccount.NewService(filepath.Join(dataDir, "mp.json"))
 	if err != nil {
 		return err
 	}
