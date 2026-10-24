@@ -15,10 +15,10 @@ function escapeForOnclick(str) {
 const downloadState = {
     records: [],
     currentPage: 1,
-    pageSize: 20,
+    pageSize: loadStoredPageSize('wx_channel_download_page_size', 20),
     totalCount: 0,
     totalPages: 0,
-    statusFilter: '',
+    statusFilter: [], // 多选状态，空数组表示全部
     dateStart: '',
     dateEnd: '',
     selectedIds: new Set(),
@@ -32,6 +32,9 @@ async function loadDownloadRecords() {
         return;
     }
 
+    const sizeSelect = document.getElementById('downloadPageSize');
+    if (sizeSelect) sizeSelect.value = String(downloadState.pageSize);
+
     try {
         const params = {
             page: downloadState.currentPage,
@@ -39,8 +42,8 @@ async function loadDownloadRecords() {
         };
 
         // Add status filter - Requirements: 2.4
-        if (downloadState.statusFilter) {
-            params.status = downloadState.statusFilter;
+        if (downloadState.statusFilter.length > 0) {
+            params.status = downloadState.statusFilter.join(',');
         }
 
         // Add date range filter - Requirements: 2.3
@@ -58,7 +61,7 @@ async function loadDownloadRecords() {
             const data = result.data || {};
             downloadState.records = data.items || [];
             downloadState.totalCount = data.total || 0;
-            downloadState.totalPages = data.totalPages || Math.ceil(downloadState.totalCount / downloadState.pageSize);
+            downloadState.totalPages = data.totalPages || Math.ceil(downloadState.totalCount / (downloadState.pageSize || 1));
 
             renderDownloadTable();
             renderDownloadPagination();
@@ -258,13 +261,20 @@ function goToDownloadPage(page) {
 // Change page size for download records
 function changeDownloadPageSize(size) {
     downloadState.pageSize = parseInt(size);
+    localStorage.setItem('wx_channel_download_page_size', String(downloadState.pageSize));
     downloadState.currentPage = 1;
     loadDownloadRecords();
 }
 
 // Filter downloads - Requirements: 2.3, 2.4
+function toggleDownloadStatus(btn) {
+    btn.classList.toggle('active');
+    filterDownloads();
+}
+
 function filterDownloads() {
-    downloadState.statusFilter = document.getElementById('downloadStatusFilter').value;
+    downloadState.statusFilter = Array.from(document.querySelectorAll('#downloadStatusFilter .filter-btn.active'))
+        .map(b => b.dataset.status);
     downloadState.dateStart = document.getElementById('downloadDateStart').value;
     downloadState.dateEnd = document.getElementById('downloadDateEnd').value;
     downloadState.currentPage = 1;
@@ -273,15 +283,15 @@ function filterDownloads() {
 
 // Check if any filters are active
 function hasDownloadFilters() {
-    return downloadState.statusFilter || downloadState.dateStart || downloadState.dateEnd;
+    return downloadState.statusFilter.length > 0 || downloadState.dateStart || downloadState.dateEnd;
 }
 
 // Clear all filters
 function clearDownloadFilters() {
-    document.getElementById('downloadStatusFilter').value = '';
+    document.querySelectorAll('#downloadStatusFilter .filter-btn.active').forEach(b => b.classList.remove('active'));
     document.getElementById('downloadDateStart').value = '';
     document.getElementById('downloadDateEnd').value = '';
-    downloadState.statusFilter = '';
+    downloadState.statusFilter = [];
     downloadState.dateStart = '';
     downloadState.dateEnd = '';
     downloadState.currentPage = 1;
@@ -676,13 +686,14 @@ async function loadDownloadQueue() {
 
         if (result.success) {
             queueState.items = result.data || [];
-
-            // 检查pending状态的任务是否已经下载完成
-            // 如果已完成，自动更新队列状态
-            await checkAndUpdateCompletedQueueItems();
-
             renderQueueList();
             updateQueueStats();
+
+            // 核对 pending 任务是否已下载完成；先渲染再核对，避免大队列时页面长时间停在旧列表
+            if (await checkAndUpdateCompletedQueueItems()) {
+                renderQueueList();
+                updateQueueStats();
+            }
         } else {
             renderQueueEmptyState('加载失败: ' + (result.error || '未知错误'));
         }
@@ -695,43 +706,33 @@ async function loadDownloadQueue() {
     }
 }
 
-// 检查并更新已完成的队列项目
+// 检查并更新已完成的队列项目；返回是否有状态变化
 async function checkAndUpdateCompletedQueueItems() {
-    if (!queueState.items || queueState.items.length === 0) {
-        return;
-    }
-
-    // 只检查pending状态的任务
-    const pendingItems = queueState.items.filter(item => item.status === 'pending');
+    const pendingItems = (queueState.items || []).filter(item => item.status === 'pending');
     if (pendingItems.length === 0) {
-        return;
+        return false;
     }
 
+    let changed = false;
     try {
-        // 批量检查这些任务是否已在下载记录中
+        // 一次拉取全部已完成的下载记录，而不是逐个任务请求
+        const result = await ApiClient.getDownloadRecords({ pageSize: 0, status: 'completed' });
+        const completed = new Set(((result.data && result.data.items) || []).map(r => r.videoId || r.id));
         for (const item of pendingItems) {
+            if (!completed.has(item.videoId || item.id)) continue;
             try {
-                // 通过videoId查询下载记录
-                const downloadRecord = await ApiClient.getDownloadRecord(item.videoId || item.id);
-                if (downloadRecord && downloadRecord.success && downloadRecord.data) {
-                    const record = downloadRecord.data;
-                    // 如果下载记录存在且状态为completed，更新队列状态
-                    if (record.status === 'completed') {
-                        console.log(`检测到队列任务已完成: ${item.title}，自动更新状态`);
-                        await ApiClient.completeDownload(item.id);
-                        // 更新本地状态
-                        item.status = 'completed';
-                        item.downloadedSize = item.totalSize;
-                    }
-                }
+                await ApiClient.completeDownload(item.id);
+                item.status = 'completed';
+                item.downloadedSize = item.totalSize;
+                changed = true;
             } catch (e) {
-                // 忽略单个任务的检查错误（可能是记录不存在）
-                // console.log(`检查任务 ${item.title} 失败:`, e.message);
+                // 忽略单个任务的更新错误
             }
         }
     } catch (e) {
         console.error('Failed to check completed queue items:', e);
     }
+    return changed;
 }
 
 // 批量下载进度轮询（用于下载队列页面）

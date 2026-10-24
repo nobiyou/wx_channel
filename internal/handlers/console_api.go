@@ -181,7 +181,9 @@ func getPaginationParams(r *http.Request) *database.PaginationParams {
 		}
 	}
 	if pageSize := r.URL.Query().Get("pageSize"); pageSize != "" {
-		if ps, err := strconv.Atoi(pageSize); err == nil && ps > 0 && ps <= 100 {
+		if ps, err := strconv.Atoi(pageSize); err == nil && ps == 0 {
+			params.PageSize = database.PageSizeAll // 0 表示“全部”
+		} else if err == nil && ps > 0 && ps <= 100 {
 			params.PageSize = ps
 		}
 	}

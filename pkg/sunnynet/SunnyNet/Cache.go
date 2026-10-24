@@ -1,8 +1,10 @@
 package SunnyNet
 
 import (
-	"github.com/qtgolang/SunnyNet/src/crypto/tls"
+	"errors"
 	"sync"
+
+	"github.com/qtgolang/SunnyNet/src/crypto/tls"
 )
 
 type caller struct {
@@ -28,10 +30,11 @@ func (group *Group) Do(key string, fn func() (interface{}, error)) (interface{},
 	}
 
 	caller := new(caller)
+	// 必须在放入 map 之前 Add，否则并发等待者可能在 Add 之前 Wait 并立即返回 nil
+	caller.wg.Add(1)
 	group.buffer[key] = caller
 	group.mu.Unlock()
 
-	caller.wg.Add(1)
 	caller.response, caller.err = fn()
 	caller.wg.Done()
 
@@ -61,8 +64,12 @@ func (cache *Cache) GetOrStore(key string, fn func() (interface{}, error)) (inte
 	if err != nil {
 		return nil, err
 	}
-	cache.M.Store(key, cert)
-	return cert.(tls.Certificate), nil
+	c, ok := cert.(tls.Certificate)
+	if !ok {
+		return nil, errors.New("certificate cache: unexpected nil certificate for " + key)
+	}
+	cache.M.Store(key, c)
+	return c, nil
 }
 
 func (cache *Cache) GetCache() sync.Map {

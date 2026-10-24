@@ -56,9 +56,13 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 		return nil, fmt.Errorf("failed to get queue items: %w", err)
 	}
 	maxPriority := 0
+	active := make(map[string]bool, len(items)) // 已在队列中且未结束的视频，跳过重复加入
 	for _, item := range items {
 		if item.Priority > maxPriority {
 			maxPriority = item.Priority
+		}
+		if item.Status == database.QueueStatusPending || item.Status == database.QueueStatusDownloading || item.Status == database.QueueStatusPaused {
+			active[item.VideoID] = true
 		}
 	}
 
@@ -66,6 +70,10 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 	now := time.Now()
 
 	for i, video := range videos {
+		if active[video.VideoID] {
+			continue
+		}
+		active[video.VideoID] = true
 		// 计算分片
 		chunkSize := settings.ChunkSize
 		chunksTotal := CalculateChunkCount(video.Size, chunkSize)
@@ -144,9 +152,9 @@ func (s *QueueService) Resume(id string) error {
 		return fmt.Errorf("queue item not found: %s", id)
 	}
 
-	// 只能恢复暂停的项目
-	if item.Status != database.QueueStatusPaused {
-		return fmt.Errorf("can only resume paused items, current status: %s", item.Status)
+	// 暂停或失败的项目都可以恢复（控制台“重试”按钮走的也是这个接口）
+	if item.Status != database.QueueStatusPaused && item.Status != database.QueueStatusFailed {
+		return fmt.Errorf("can only resume paused or failed items, current status: %s", item.Status)
 	}
 
 	return s.repo.UpdateStatus(id, database.QueueStatusPending)
@@ -317,10 +325,7 @@ func calculateDownloadFilePath(item *database.QueueItem) string {
 	}
 
 	// 清理作者名作为文件夹名
-	authorFolder := utils.CleanFolderName(item.Author)
-	if authorFolder == "" {
-		authorFolder = "未知作者"
-	}
+	authorFolder := config.AuthorFolder(item.Author, "未知作者")
 
 	settings := loadQueueSettings()
 	includeVideoID := true
