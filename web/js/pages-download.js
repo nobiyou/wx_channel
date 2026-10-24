@@ -58,7 +58,7 @@ async function loadDownloadRecords() {
             const data = result.data || {};
             downloadState.records = data.items || [];
             downloadState.totalCount = data.total || 0;
-            downloadState.totalPages = data.totalPages || Math.ceil(downloadState.totalCount / downloadState.pageSize);
+            downloadState.totalPages = data.totalPages || Math.ceil(downloadState.totalCount / (downloadState.pageSize || 1));
 
             renderDownloadTable();
             renderDownloadPagination();

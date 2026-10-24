@@ -40,7 +40,7 @@ async function loadBrowseHistory() {
             const data = result.data || {};
             browseState.records = data.items || [];
             browseState.totalCount = data.total || 0;
-            browseState.totalPages = data.totalPages || Math.ceil(browseState.totalCount / browseState.pageSize);
+            browseState.totalPages = data.totalPages || Math.ceil(browseState.totalCount / (browseState.pageSize || 1));
 
             renderBrowseTable();
             renderBrowsePagination();

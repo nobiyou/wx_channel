@@ -191,8 +191,8 @@ func (r *DownloadRecordRepository) List(params *FilterParams) (*PagedResult[Down
 	if params.PageSize < 1 {
 		params.PageSize = 20
 	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
+	if params.PageSize > PageSizeAll {
+		params.PageSize = PageSizeAll
 	}
 	if params.SortBy == "" {
 		params.SortBy = "download_time"

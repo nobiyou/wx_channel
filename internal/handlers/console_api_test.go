@@ -395,3 +395,14 @@ func databaseTestSetupForHandlers(t *testing.T) func() {
 		}
 	}
 }
+
+func TestGetPaginationParams_ZeroMeansAll(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/browse?pageSize=0", nil)
+	if got := getPaginationParams(r).PageSize; got != database.PageSizeAll {
+		t.Fatalf("PageSize = %d, want %d", got, database.PageSizeAll)
+	}
+	r = httptest.NewRequest(http.MethodGet, "/api/browse?pageSize=500", nil)
+	if got := getPaginationParams(r).PageSize; got != 20 {
+		t.Fatalf("PageSize = %d, want default 20 for over-limit", got)
+	}
+}
