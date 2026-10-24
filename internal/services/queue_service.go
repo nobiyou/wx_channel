@@ -56,9 +56,13 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 		return nil, fmt.Errorf("failed to get queue items: %w", err)
 	}
 	maxPriority := 0
+	active := make(map[string]bool, len(items)) // 已在队列中且未结束的视频，跳过重复加入
 	for _, item := range items {
 		if item.Priority > maxPriority {
 			maxPriority = item.Priority
+		}
+		if item.Status == database.QueueStatusPending || item.Status == database.QueueStatusDownloading || item.Status == database.QueueStatusPaused {
+			active[item.VideoID] = true
 		}
 	}
 
@@ -66,6 +70,10 @@ func (s *QueueService) AddToQueue(videos []VideoInfo) ([]database.QueueItem, err
 	now := time.Now()
 
 	for i, video := range videos {
+		if active[video.VideoID] {
+			continue
+		}
+		active[video.VideoID] = true
 		// 计算分片
 		chunkSize := settings.ChunkSize
 		chunksTotal := CalculateChunkCount(video.Size, chunkSize)

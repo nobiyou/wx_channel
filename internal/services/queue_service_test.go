@@ -71,3 +71,28 @@ func TestCalculateDownloadFilePath_FlatLayoutWhenAuthorSubdirDisabled(t *testing
 		t.Fatalf("path = %s", path)
 	}
 }
+
+func TestQueueService_AddToQueue_SkipsVideosAlreadyActive(t *testing.T) {
+	if err := database.Initialize(&database.Config{DBPath: filepath.Join(t.TempDir(), "test.db")}); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	svc := NewQueueService()
+	videos := []VideoInfo{{VideoID: "dup-1", Title: "a", VideoURL: "http://x"}, {VideoID: "dup-2", Title: "b", VideoURL: "http://y"}}
+
+	first, err := svc.AddToQueue(videos)
+	if err != nil || len(first) != 2 {
+		t.Fatalf("first add: %v, added=%d", err, len(first))
+	}
+	again, err := svc.AddToQueue(videos)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("second add should skip both: %v, added=%d", err, len(again))
+	}
+	if err := svc.UpdateStatus(first[0].ID, database.QueueStatusCompleted); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	third, err := svc.AddToQueue(videos)
+	if err != nil || len(third) != 1 || third[0].VideoID != "dup-1" {
+		t.Fatalf("completed video should be re-addable: %v, added=%v", err, third)
+	}
+}

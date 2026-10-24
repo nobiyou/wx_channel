@@ -539,8 +539,10 @@ async function downloadSelectedBrowse() {
     }));
 
     try {
-        await ApiClient.addToQueue(videos);
-        showMessage(`已将 ${videos.length} 个视频添加到下载队列`, 'success');
+        const result = await ApiClient.addToQueue(videos);
+        const added = (result.data || []).length;
+        const skipped = videos.length - added;
+        showMessage(`已将 ${added} 个视频添加到下载队列` + (skipped > 0 ? `，${skipped} 个已在队列中` : ''), 'success');
         clearBrowseSelection();
     } catch (e) {
         showMessage('添加失败: ' + e.message, 'error');

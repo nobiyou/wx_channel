@@ -676,13 +676,14 @@ async function loadDownloadQueue() {
 
         if (result.success) {
             queueState.items = result.data || [];
-
-            // 检查pending状态的任务是否已经下载完成
-            // 如果已完成，自动更新队列状态
-            await checkAndUpdateCompletedQueueItems();
-
             renderQueueList();
             updateQueueStats();
+
+            // 核对 pending 任务是否已下载完成；先渲染再核对，避免大队列时页面长时间停在旧列表
+            if (await checkAndUpdateCompletedQueueItems()) {
+                renderQueueList();
+                updateQueueStats();
+            }
         } else {
             renderQueueEmptyState('加载失败: ' + (result.error || '未知错误'));
         }
@@ -695,43 +696,33 @@ async function loadDownloadQueue() {
     }
 }
 
-// 检查并更新已完成的队列项目
+// 检查并更新已完成的队列项目；返回是否有状态变化
 async function checkAndUpdateCompletedQueueItems() {
-    if (!queueState.items || queueState.items.length === 0) {
-        return;
-    }
-
-    // 只检查pending状态的任务
-    const pendingItems = queueState.items.filter(item => item.status === 'pending');
+    const pendingItems = (queueState.items || []).filter(item => item.status === 'pending');
     if (pendingItems.length === 0) {
-        return;
+        return false;
     }
 
+    let changed = false;
     try {
-        // 批量检查这些任务是否已在下载记录中
+        // 一次拉取全部已完成的下载记录，而不是逐个任务请求
+        const result = await ApiClient.getDownloadRecords({ pageSize: 0, status: 'completed' });
+        const completed = new Set(((result.data && result.data.items) || []).map(r => r.videoId || r.id));
         for (const item of pendingItems) {
+            if (!completed.has(item.videoId || item.id)) continue;
             try {
-                // 通过videoId查询下载记录
-                const downloadRecord = await ApiClient.getDownloadRecord(item.videoId || item.id);
-                if (downloadRecord && downloadRecord.success && downloadRecord.data) {
-                    const record = downloadRecord.data;
-                    // 如果下载记录存在且状态为completed，更新队列状态
-                    if (record.status === 'completed') {
-                        console.log(`检测到队列任务已完成: ${item.title}，自动更新状态`);
-                        await ApiClient.completeDownload(item.id);
-                        // 更新本地状态
-                        item.status = 'completed';
-                        item.downloadedSize = item.totalSize;
-                    }
-                }
+                await ApiClient.completeDownload(item.id);
+                item.status = 'completed';
+                item.downloadedSize = item.totalSize;
+                changed = true;
             } catch (e) {
-                // 忽略单个任务的检查错误（可能是记录不存在）
-                // console.log(`检查任务 ${item.title} 失败:`, e.message);
+                // 忽略单个任务的更新错误
             }
         }
     } catch (e) {
         console.error('Failed to check completed queue items:', e);
     }
+    return changed;
 }
 
 // 批量下载进度轮询（用于下载队列页面）
