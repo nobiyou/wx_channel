@@ -55,3 +55,19 @@ func TestQueueService_Resume_AllowsFailedItems(t *testing.T) {
 		t.Fatalf("status = %s, want pending", got.Status)
 	}
 }
+
+func TestCalculateDownloadFilePath_FlatLayoutWhenAuthorSubdirDisabled(t *testing.T) {
+	config.Reload()
+	cfg := config.Get()
+	cfg.DownloadsDir = "downloads"
+	cfg.DownloadFilenameTemplate = "{author}_{title}"
+	cfg.DownloadAuthorSubdir = false
+
+	item := &database.QueueItem{VideoID: "vid1", Title: "标题", Author: "作者"}
+
+	path := calculateDownloadFilePath(item)
+
+	if !strings.HasSuffix(path, filepath.Join("downloads", "作者_标题.mp4")) {
+		t.Fatalf("path = %s", path)
+	}
+}

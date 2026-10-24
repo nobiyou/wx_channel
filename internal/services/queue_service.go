@@ -317,10 +317,7 @@ func calculateDownloadFilePath(item *database.QueueItem) string {
 	}
 
 	// 清理作者名作为文件夹名
-	authorFolder := utils.CleanFolderName(item.Author)
-	if authorFolder == "" {
-		authorFolder = "未知作者"
-	}
+	authorFolder := config.AuthorFolder(item.Author, "未知作者")
 
 	settings := loadQueueSettings()
 	includeVideoID := true

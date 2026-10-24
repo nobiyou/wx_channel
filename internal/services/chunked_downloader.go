@@ -441,7 +441,7 @@ func (d *ChunkedDownloader) prepareDownloadPath(item *database.QueueItem) (strin
 	}
 
 	// 创建作者文件夹
-	authorFolder := utils.CleanFolderName(item.Author)
+	authorFolder := config.AuthorFolder(item.Author, "")
 	downloadDir := filepath.Join(baseDir, d.downloadDir, authorFolder)
 
 	if err := utils.EnsureDir(downloadDir); err != nil {

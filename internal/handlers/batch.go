@@ -504,7 +504,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 // downloadVideo 下载单个视频（带重试和断点续传）
 func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downloadsDir string, forceRedownload bool, taskIdx int) error {
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(task.GetAuthor())
+	authorFolder := config.AuthorFolder(task.GetAuthor(), "")
 	savePath := filepath.Join(downloadsDir, authorFolder)
 	if err := utils.EnsureDir(savePath); err != nil {
 		return fmt.Errorf("创建作者目录失败: %v", err)
