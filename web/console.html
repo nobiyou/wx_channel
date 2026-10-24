@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>视频号下载控制台</title>
     <link rel="icon" type="image/png" href="icon.png">
-    <link rel="stylesheet" href="css/app.css?v=20260827">
+    <link rel="stylesheet" href="css/app.css?v=2026102305">
 </head>
 
 <body>
@@ -514,13 +514,11 @@
                 <div class="filter-bar">
                     <div class="filter-left">
                         <!-- Status Filter - Requirements: 2.4 -->
-                        <select id="downloadStatusFilter" onchange="filterDownloads()" class="filter-btn"
-                            style="cursor: pointer;">
-                            <option value="">全部状态</option>
-                            <option value="completed">已完成</option>
-                            <option value="failed">失败</option>
-                            <option value="in_progress">进行中</option>
-                        </select>
+                        <div class="status-filter" id="downloadStatusFilter" title="可多选，都不选即全部状态">
+                            <button type="button" class="filter-btn" data-status="completed" onclick="toggleDownloadStatus(this)">已完成</button>
+                            <button type="button" class="filter-btn" data-status="failed" onclick="toggleDownloadStatus(this)">失败</button>
+                            <button type="button" class="filter-btn" data-status="in_progress" onclick="toggleDownloadStatus(this)">进行中</button>
+                        </div>
                         <!-- Date Range Filter - Requirements: 2.3 -->
                         <div class="date-picker">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1933,7 +1931,7 @@
     <script src="js/pages-official-account.js?v=20260828"></script>
     <script src="js/radar.js?v=20260827"></script>
     <script src="js/pages-browse.js?v=2026102304"></script>
-    <script src="js/pages-download.js?v=2026102304"></script>
+    <script src="js/pages-download.js?v=2026102305"></script>
     <script src="js/pages-settings.js?v=20260827"></script>
     <script src="js/video-player.js?v=20260827"></script>
 </body>

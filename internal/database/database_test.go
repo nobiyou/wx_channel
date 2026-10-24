@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -348,5 +349,35 @@ func TestSettingsRepository(t *testing.T) {
 	err = repo.Validate(invalidSettings)
 	if err == nil {
 		t.Error("Expected validation error for high concurrent limit")
+	}
+}
+
+func TestDownloadRecordRepository_ListFiltersMultipleStatuses(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewDownloadRecordRepository()
+	for i, st := range []string{DownloadStatusCompleted, DownloadStatusFailed, DownloadStatusInProgress} {
+		rec := &DownloadRecord{ID: fmt.Sprintf("d-%d", i), VideoID: fmt.Sprintf("v-%d", i), Title: st, Status: st, DownloadTime: time.Now()}
+		if err := repo.Create(rec); err != nil {
+			t.Fatalf("create %s: %v", st, err)
+		}
+	}
+
+	list := func(status string) int {
+		res, err := repo.List(&FilterParams{PaginationParams: PaginationParams{Page: 1, PageSize: 20}, Status: status})
+		if err != nil {
+			t.Fatalf("list %q: %v", status, err)
+		}
+		return len(res.Items)
+	}
+	if n := list("completed,failed"); n != 2 {
+		t.Fatalf("completed,failed = %d, want 2", n)
+	}
+	if n := list("failed"); n != 1 {
+		t.Fatalf("failed = %d, want 1", n)
+	}
+	if n := list(""); n != 3 {
+		t.Fatalf("all = %d, want 3", n)
 	}
 }

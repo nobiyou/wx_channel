@@ -220,8 +220,12 @@ func (r *DownloadRecordRepository) List(params *FilterParams) (*PagedResult[Down
 		args = append(args, *params.EndDate)
 	}
 	if params.Status != "" {
-		conditions = append(conditions, "status = ?")
-		args = append(args, params.Status)
+		// 支持逗号分隔的多个状态，如 "completed,failed"
+		statuses := strings.Split(params.Status, ",")
+		conditions = append(conditions, "status IN (?"+strings.Repeat(",?", len(statuses)-1)+")")
+		for _, st := range statuses {
+			args = append(args, strings.TrimSpace(st))
+		}
 	}
 	if params.Query != "" {
 		conditions = append(conditions, "(title LIKE ? OR author LIKE ?)")

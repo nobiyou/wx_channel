@@ -18,7 +18,7 @@ const downloadState = {
     pageSize: loadStoredPageSize('wx_channel_download_page_size', 20),
     totalCount: 0,
     totalPages: 0,
-    statusFilter: '',
+    statusFilter: [], // 多选状态，空数组表示全部
     dateStart: '',
     dateEnd: '',
     selectedIds: new Set(),
@@ -42,8 +42,8 @@ async function loadDownloadRecords() {
         };
 
         // Add status filter - Requirements: 2.4
-        if (downloadState.statusFilter) {
-            params.status = downloadState.statusFilter;
+        if (downloadState.statusFilter.length > 0) {
+            params.status = downloadState.statusFilter.join(',');
         }
 
         // Add date range filter - Requirements: 2.3
@@ -267,8 +267,14 @@ function changeDownloadPageSize(size) {
 }
 
 // Filter downloads - Requirements: 2.3, 2.4
+function toggleDownloadStatus(btn) {
+    btn.classList.toggle('active');
+    filterDownloads();
+}
+
 function filterDownloads() {
-    downloadState.statusFilter = document.getElementById('downloadStatusFilter').value;
+    downloadState.statusFilter = Array.from(document.querySelectorAll('#downloadStatusFilter .filter-btn.active'))
+        .map(b => b.dataset.status);
     downloadState.dateStart = document.getElementById('downloadDateStart').value;
     downloadState.dateEnd = document.getElementById('downloadDateEnd').value;
     downloadState.currentPage = 1;
@@ -277,15 +283,15 @@ function filterDownloads() {
 
 // Check if any filters are active
 function hasDownloadFilters() {
-    return downloadState.statusFilter || downloadState.dateStart || downloadState.dateEnd;
+    return downloadState.statusFilter.length > 0 || downloadState.dateStart || downloadState.dateEnd;
 }
 
 // Clear all filters
 function clearDownloadFilters() {
-    document.getElementById('downloadStatusFilter').value = '';
+    document.querySelectorAll('#downloadStatusFilter .filter-btn.active').forEach(b => b.classList.remove('active'));
     document.getElementById('downloadDateStart').value = '';
     document.getElementById('downloadDateEnd').value = '';
-    downloadState.statusFilter = '';
+    downloadState.statusFilter = [];
     downloadState.dateStart = '';
     downloadState.dateEnd = '';
     downloadState.currentPage = 1;
