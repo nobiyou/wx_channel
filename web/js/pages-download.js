@@ -15,7 +15,7 @@ function escapeForOnclick(str) {
 const downloadState = {
     records: [],
     currentPage: 1,
-    pageSize: 20,
+    pageSize: loadStoredPageSize('wx_channel_download_page_size', 20),
     totalCount: 0,
     totalPages: 0,
     statusFilter: '',
@@ -31,6 +31,9 @@ async function loadDownloadRecords() {
         renderDownloadEmptyState('请先连接到本地服务');
         return;
     }
+
+    const sizeSelect = document.getElementById('downloadPageSize');
+    if (sizeSelect) sizeSelect.value = String(downloadState.pageSize);
 
     try {
         const params = {
@@ -258,6 +261,7 @@ function goToDownloadPage(page) {
 // Change page size for download records
 function changeDownloadPageSize(size) {
     downloadState.pageSize = parseInt(size);
+    localStorage.setItem('wx_channel_download_page_size', String(downloadState.pageSize));
     downloadState.currentPage = 1;
     loadDownloadRecords();
 }

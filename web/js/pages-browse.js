@@ -6,7 +6,7 @@
 const browseState = {
     records: [],
     currentPage: 1,
-    pageSize: 20,
+    pageSize: loadStoredPageSize('wx_channel_browse_page_size', 20),
     totalCount: 0,
     totalPages: 0,
     searchQuery: '',
@@ -22,6 +22,9 @@ async function loadBrowseHistory() {
         renderBrowseEmptyState('请先连接到本地服务');
         return;
     }
+
+    const sizeSelect = document.getElementById('browsePageSize');
+    if (sizeSelect) sizeSelect.value = String(browseState.pageSize);
 
     try {
         const params = {
@@ -235,6 +238,7 @@ function goToBrowsePage(page) {
 // Change page size - Requirements: 1.4
 function changeBrowsePageSize(size) {
     browseState.pageSize = parseInt(size);
+    localStorage.setItem('wx_channel_browse_page_size', String(browseState.pageSize));
     browseState.currentPage = 1;
     loadBrowseHistory();
 }
