@@ -144,9 +144,9 @@ func (s *QueueService) Resume(id string) error {
 		return fmt.Errorf("queue item not found: %s", id)
 	}
 
-	// 只能恢复暂停的项目
-	if item.Status != database.QueueStatusPaused {
-		return fmt.Errorf("can only resume paused items, current status: %s", item.Status)
+	// 暂停或失败的项目都可以恢复（控制台“重试”按钮走的也是这个接口）
+	if item.Status != database.QueueStatusPaused && item.Status != database.QueueStatusFailed {
+		return fmt.Errorf("can only resume paused or failed items, current status: %s", item.Status)
 	}
 
 	return s.repo.UpdateStatus(id, database.QueueStatusPending)

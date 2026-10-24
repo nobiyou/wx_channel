@@ -31,3 +31,27 @@ func TestCalculateDownloadFilePath_UsesTemplateWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestQueueService_Resume_AllowsFailedItems(t *testing.T) {
+	if err := database.Initialize(&database.Config{DBPath: filepath.Join(t.TempDir(), "test.db")}); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	svc := NewQueueService()
+	items, err := svc.AddToQueue([]VideoInfo{{VideoID: "retry-vid", Title: "t", VideoURL: "http://x"}})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("add: %v, items=%d", err, len(items))
+	}
+	id := items[0].ID
+	if err := svc.UpdateStatus(id, database.QueueStatusFailed); err != nil {
+		t.Fatalf("set failed: %v", err)
+	}
+
+	if err := svc.Resume(id); err != nil {
+		t.Fatalf("Resume failed item: %v", err)
+	}
+
+	got, _ := svc.GetByID(id)
+	if got.Status != database.QueueStatusPending {
+		t.Fatalf("status = %s, want pending", got.Status)
+	}
+}
