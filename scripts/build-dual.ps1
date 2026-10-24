@@ -111,7 +111,7 @@ function Invoke-GoBuild {
         if (Test-Path $OutputName) {
             Remove-Item $OutputName -Force
         }
-        go build -mod=vendor "-ldflags=$ldflags" -o $OutputName
+        go build -mod=vendor -tags=zombiezen_sqlite "-ldflags=$ldflags" -o $OutputName
         Assert-LastExitCode -CommandName ("go build -o " + $OutputName)
     }
     finally {

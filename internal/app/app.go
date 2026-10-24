@@ -94,11 +94,14 @@ func NewApp(cfgParam *config.Config) *App {
 
 	// 初始化日志
 	app.printTitle()
-	utils.LogConfigLoad("config.yaml", true)
 	if app.Cfg.LogFile != "" {
-		_ = utils.InitLoggerWithRotation(utils.INFO, app.Cfg.LogFile, app.Cfg.MaxLogSizeMB)
-		app.LogInitMsg = fmt.Sprintf("日志已初始化: %s (最大 %dMB)", app.Cfg.LogFile, app.Cfg.MaxLogSizeMB)
+		if err := utils.InitLoggerWithRotation(utils.INFO, app.Cfg.LogFile, app.Cfg.MaxLogSizeMB); err != nil {
+			utils.Warn("日志文件初始化失败: %v；继续使用已有日志输出", err)
+		} else {
+			app.LogInitMsg = fmt.Sprintf("日志已初始化: %s (最大 %dMB)", app.Cfg.LogFile, app.Cfg.MaxLogSizeMB)
+		}
 	}
+	utils.LogConfigLoad("config.yaml", true)
 
 	// 尽早初始化 WebSocket Hub，以确保它对 APIRouter 可用
 	app.WSHub = websocket.NewHub()

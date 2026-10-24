@@ -23,8 +23,8 @@ const (
 
 var (
 	// 保持对外的 Logger 结构，但内部换成 zerolog
-	defaultLogger *Logger
-	once          sync.Once
+	defaultLogger   *Logger
+	defaultLoggerMu sync.Mutex
 )
 
 // Logger 封装 zerolog
@@ -38,10 +38,29 @@ type Logger struct {
 
 // InitLoggerWithRotation 初始化带日志轮转的日志系统
 func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error {
+	defaultLoggerMu.Lock()
+	defer defaultLoggerMu.Unlock()
+	return initLoggerWithRotation(level, logFile, maxSizeMB)
+}
+
+// 调用方持有 defaultLoggerMu；失败时保留已有记录器，首次失败时提供控制台日志。
+func initLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) (err error) {
+	defer func() {
+		if err != nil && defaultLogger == nil {
+			consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "2006-01-02 15:04:05"}
+			defaultLogger = &Logger{
+				zLogger:    zerolog.New(consoleWriter).With().Timestamp().Logger(),
+				fileLogger: zerolog.Nop(),
+			}
+			defaultLogger.SetLevel(level)
+			log.Logger = defaultLogger.zLogger
+		}
+	}()
+
 	// 创建日志目录
 	logDir := filepath.Dir(logFile)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return err
+		return fmt.Errorf("创建日志目录 %q 失败: %w", logDir, err)
 	}
 
 	// 检查文件大小，如果超过限制则轮转 (保持原有的简单启动时轮转逻辑)
@@ -57,7 +76,7 @@ func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error
 	// 打开日志文件
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开日志文件 %q 失败: %w", logFile, err)
 	}
 
 	// 配置 zerolog
@@ -118,9 +137,12 @@ func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error
 
 // GetLogger 获取默认日志记录器
 func GetLogger() *Logger {
+	defaultLoggerMu.Lock()
+	defer defaultLoggerMu.Unlock()
 	if defaultLogger == nil {
-		// 默认初始化
-		_ = InitLoggerWithRotation(INFO, "logs/wx_channel.log", 5)
+		if err := initLoggerWithRotation(INFO, "logs/wx_channel.log", 5); err != nil {
+			defaultLogger.zLogger.Warn().Err(err).Msg("文件日志不可用，继续输出控制台日志")
+		}
 	}
 	return defaultLogger
 }
