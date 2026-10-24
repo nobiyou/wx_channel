@@ -30,7 +30,7 @@ async function loadBrowseHistory() {
         };
 
         if (browseState.searchQuery) {
-            params.search = browseState.searchQuery;
+            params.query = browseState.searchQuery;
         }
 
         const result = await ApiClient.getBrowseHistory(params);
