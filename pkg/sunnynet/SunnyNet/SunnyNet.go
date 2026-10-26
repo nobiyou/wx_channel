@@ -1071,7 +1071,7 @@ func (s *ProxyRequest) isCerDownloadPage(request *http.Request) bool {
 			}
 
 			if request.URL.Path == "/" || request.URL.Path == "/ssl" || request.URL.Path == public.NULL {
-				_, _ = s.RwObj.Write(public.LocalBuildBody("text/html", `<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>证书安装</title></head><body style="font-family: arial,sans-serif;"><h1>[Sunny中间件] 证书安装</h1><br /><ul><li>您可以下载 <a href="SunnyRoot.cer">SunnyRoot 证书</a></ul><ul><li>您也可以下载 <a href="install.html">查看证书安装教程</a></ul></body></html>`))
+				_, _ = s.RwObj.Write(public.LocalBuildBody("text/html", `<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta http-equiv="refresh" content="0; url=/console"><title>wx_channel</title></head><body></body></html>`))
 				return true
 			}
 			if request.URL.Path == "/SunnyRoot.cer" || request.URL.Path == "SunnyRoot.cer" {
