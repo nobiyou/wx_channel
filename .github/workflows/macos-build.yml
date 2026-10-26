@@ -62,7 +62,7 @@ jobs:
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleExecutable</key><string>wx_channel</string>
             <key>CFBundleIconFile</key><string>AppIcon</string>
-            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
             <key>NSHighResolutionCapable</key><true/>
             <key>NSAppTransportSecurity</key>
             <dict>

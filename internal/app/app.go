@@ -156,9 +156,16 @@ func downloadsDataDir() string {
 }
 
 func (app *App) initOfficialAccountService() error {
-	// 凭证文件（含 cookie）不放下载文件夹，固定存用户数据目录
-	dataDir := downloadsDataDir()
-	service, err := officialaccount.NewService(filepath.Join(dataDir, "mp.json"))
+	// 凭证文件（含 cookie）：macOS 固定存 ~/.wx_channel（与下载文件分离）；
+	// 其他平台保持原有路径（下载目录），避免升级后找不到旧凭证
+	credDir, err := utils.ResolveDownloadDir(app.Cfg.DownloadsDir)
+	if err != nil {
+		return fmt.Errorf("解析公众号凭证目录失败: %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		credDir = downloadsDataDir()
+	}
+	service, err := officialaccount.NewService(filepath.Join(credDir, "mp.json"))
 	if err != nil {
 		return err
 	}

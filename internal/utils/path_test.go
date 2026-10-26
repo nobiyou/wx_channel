@@ -51,9 +51,22 @@ func TestResolveDownloadDir(t *testing.T) {
 				t.Errorf("ResolveDownloadDir() = %v, 期望绝对路径", result)
 			}
 
-			// 对于相对路径，结果应该包含原始路径
+			// 对于相对路径，验证解析结果
 			if !filepath.IsAbs(tt.downloadDir) {
-				if !contains(result, tt.downloadDir) {
+				if runtime.GOOS == "darwin" {
+					// macOS: 相对路径统一锚定到 ~/Downloads/wx_channel（默认值直接落到该目录，不嵌套）
+					home, err := os.UserHomeDir()
+					if err != nil {
+						t.Fatalf("无法获取用户目录: %v", err)
+					}
+					want := filepath.Join(home, "Downloads", "wx_channel")
+					if tt.downloadDir != "downloads" && tt.downloadDir != "./downloads" {
+						want = filepath.Join(want, tt.downloadDir)
+					}
+					if filepath.Clean(result) != filepath.Clean(want) {
+						t.Errorf("ResolveDownloadDir() = %v, 期望 %v", result, want)
+					}
+				} else if !contains(result, tt.downloadDir) {
 					t.Errorf("ResolveDownloadDir() = %v, 应该包含 %v", result, tt.downloadDir)
 				}
 			}
@@ -130,7 +143,24 @@ func TestResolveDownloadDirEdgeCases(t *testing.T) {
 				}
 
 				// 验证结果是否正确解析
-				expected := filepath.Join(baseDir, tt.downloadDir)
+				var expected string
+				if runtime.GOOS == "darwin" {
+					// macOS: 相对路径统一锚定到 ~/Downloads/wx_channel
+					home, err := os.UserHomeDir()
+					if err != nil {
+						t.Fatalf("无法获取用户目录: %v", err)
+					}
+					switch tt.downloadDir {
+					case "", ".", "./downloads", "downloads":
+						expected = filepath.Join(home, "Downloads", "wx_channel")
+					case "..":
+						expected = filepath.Join(home, "Downloads")
+					default:
+						expected = filepath.Join(home, "Downloads", "wx_channel", tt.downloadDir)
+					}
+				} else {
+					expected = filepath.Join(baseDir, tt.downloadDir)
+				}
 				if result != expected {
 					// 尝试 Clean 后比较，因为 filepath.Join 可能会清理路径
 					if filepath.Clean(result) != filepath.Clean(expected) {

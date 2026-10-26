@@ -1534,7 +1534,13 @@ func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, erro
 		realBaseDir = absBaseDir
 	}
 
-	if !isPathWithinBase(realBaseDir, absPath) {
+	// 目标路径同样做符号链接解析（如 macOS 上 /var -> /private/var），否则路径前缀比较会误判
+	realTarget := absPath
+	if real, err := filepath.EvalSymlinks(absPath); err == nil {
+		realTarget = real
+	}
+
+	if !isPathWithinBase(realBaseDir, realTarget) {
 		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
 	}
 
