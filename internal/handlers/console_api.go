@@ -87,15 +87,6 @@ type APIResponse struct {
 	Message string      `json:"message,omitempty"`
 }
 
-type pathValidationError struct {
-	status int
-	msg    string
-}
-
-func (e *pathValidationError) Error() string {
-	return e.msg
-}
-
 // sendJSON 发送 JSON 响应
 func (h *ConsoleAPIHandler) sendJSON(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1404,7 +1395,7 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 		h.sendError(w, r, http.StatusInternalServerError, "failed to resolve downloads directory")
 		return
 	}
-	resolvedPath, err := validatePathInBase(downloadsDir, filePath, false)
+	file, resolvedPath, err := openFileInBase(downloadsDir, filePath)
 	if err != nil {
 		if pe, ok := err.(*pathValidationError); ok {
 			h.sendError(w, r, pe.status, pe.msg)
@@ -1413,19 +1404,16 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 		h.sendError(w, r, http.StatusInternalServerError, "failed to validate path")
 		return
 	}
-	fileInfo, err := os.Stat(resolvedPath)
+	defer file.Close()
+	fileInfo, err := file.Stat()
 	if err != nil {
 		h.sendError(w, r, http.StatusInternalServerError, "failed to access file")
 		return
 	}
-
-	// 打开文件
-	file, err := os.Open(resolvedPath)
-	if err != nil {
-		h.sendError(w, r, http.StatusInternalServerError, "failed to open file")
+	if fileInfo.IsDir() {
+		h.sendError(w, r, http.StatusBadRequest, "path is a directory")
 		return
 	}
-	defer file.Close()
 
 	// 根据文件扩展名确定内容类型
 	ext := strings.ToLower(filepath.Ext(resolvedPath))
@@ -1499,65 +1487,6 @@ func (h *ConsoleAPIHandler) HandleVideoStream(w http.ResponseWriter, r *http.Req
 		// 复制整个文件
 		io.Copy(w, file)
 	}
-}
-
-// isPathWithinBase returns true when targetPath is within baseDir.
-func isPathWithinBase(baseDir, targetPath string) bool {
-	rel, err := filepath.Rel(baseDir, targetPath)
-	if err != nil {
-		return false
-	}
-	if rel == "." {
-		return true
-	}
-	if rel == ".." {
-		return false
-	}
-	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
-	}
-	return !filepath.IsAbs(rel)
-}
-
-func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, error) {
-	absPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return "", &pathValidationError{status: http.StatusBadRequest, msg: "invalid path"}
-	}
-
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to resolve downloads directory"}
-	}
-	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
-	if err != nil {
-		realBaseDir = absBaseDir
-	}
-
-	if !isPathWithinBase(realBaseDir, absPath) {
-		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
-	}
-
-	info, err := os.Stat(absPath)
-	if os.IsNotExist(err) {
-		return "", &pathValidationError{status: http.StatusNotFound, msg: "file not found"}
-	}
-	if err != nil {
-		return "", &pathValidationError{status: http.StatusInternalServerError, msg: "failed to access file"}
-	}
-	if !allowDir && info.IsDir() {
-		return "", &pathValidationError{status: http.StatusBadRequest, msg: "path is a directory"}
-	}
-
-	realPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		realPath = absPath
-	}
-	if !isPathWithinBase(realBaseDir, realPath) {
-		return "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
-	}
-
-	return realPath, nil
 }
 
 func isAllowedVideoExtension(path string) bool {
