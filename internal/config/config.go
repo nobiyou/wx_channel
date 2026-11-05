@@ -53,6 +53,7 @@ type Config struct {
 	DownloadRetryCount       int           `mapstructure:"download_retry_count"`
 	DownloadResumeEnabled    bool          `mapstructure:"download_resume_enabled"`
 	DownloadFilenameTemplate string        `mapstructure:"download_filename_template"` // 下载文件名模板
+	DownloadAuthorSubdir     bool          `mapstructure:"download_author_subdir"`     // 是否按作者分子目录保存，false 则全部平铺在下载目录
 	DownloadTimeout          time.Duration `mapstructure:"download_timeout"`
 
 	// 日志配置
@@ -223,6 +224,7 @@ func setDefaults() {
 	viper.SetDefault("download_retry_count", 3)
 	viper.SetDefault("download_resume_enabled", true)
 	viper.SetDefault("download_filename_template", "")
+	viper.SetDefault("download_author_subdir", true)
 	viper.SetDefault("download_timeout", 30*time.Minute)
 
 	viper.SetDefault("log_file", "logs/wx_channel.log")
@@ -522,4 +524,16 @@ func (c *Config) GetRecordsPath() string {
 		return filepath.Join(c.DownloadsDir, c.RecordsFile)
 	}
 	return filepath.Join(downloadsDir, c.RecordsFile)
+}
+
+// AuthorFolder 返回下载文件的作者子目录名。
+// download_author_subdir 为 false 时返回空串，所有视频平铺在下载目录下。
+func AuthorFolder(author, fallback string) string {
+	if cfg := Get(); cfg != nil && !cfg.DownloadAuthorSubdir {
+		return ""
+	}
+	if name := utils.CleanFolderName(author); name != "" {
+		return name
+	}
+	return fallback
 }

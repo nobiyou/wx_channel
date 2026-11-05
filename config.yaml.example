@@ -51,6 +51,8 @@ allowed_origins:
 # 下载文件名模板（留空则使用默认标题命名）
 # 可用变量: {date} {datetime} {author} {title} {duration} {video_id} {size}
 download_filename_template: ""
+# 是否按作者分子目录保存（false 则所有视频平铺在下载目录）
+download_author_subdir: true
 
 # === 其他配置 ===
 # 根据需要添加其他配置项

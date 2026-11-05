@@ -10,6 +10,12 @@ const STORAGE_KEY_SERVICE_URL = 'wx_channel_service_url';
 const DEFAULT_SERVICE_URL = 'http://127.0.0.1:2025';
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
 
+// 从 localStorage 读取记住的每页条数（0 表示“全部”），无效时用默认值
+function loadStoredPageSize(key, fallback) {
+    const n = parseInt(localStorage.getItem(key));
+    return Number.isNaN(n) ? fallback : n;
+}
+
 function getLocalAuthToken() {
     try {
         return (localStorage.getItem('wx_channel_auth_token') || localStorage.getItem('wx_channel_token') || '').trim();

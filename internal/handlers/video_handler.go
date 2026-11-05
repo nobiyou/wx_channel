@@ -353,11 +353,8 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 	if existing != nil {
 		// 更新现有记录
 		record.CreatedAt = existing.CreatedAt
-		// 如果现有记录没有解密密钥但新数据有，则更新
-		if existing.DecryptKey == "" && decryptKey != "" {
-			record.DecryptKey = decryptKey
-		} else if existing.DecryptKey != "" {
-			// 保留现有的解密密钥
+		// 解密密钥与 video_url 的 token 一一对应，URL 刷新时必须一起更新；仅在新数据没带 key 时沿用旧值
+		if decryptKey == "" {
 			record.DecryptKey = existing.DecryptKey
 		}
 		err = repo.Update(record)

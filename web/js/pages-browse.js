@@ -6,7 +6,7 @@
 const browseState = {
     records: [],
     currentPage: 1,
-    pageSize: 20,
+    pageSize: loadStoredPageSize('wx_channel_browse_page_size', 20),
     totalCount: 0,
     totalPages: 0,
     searchQuery: '',
@@ -23,6 +23,9 @@ async function loadBrowseHistory() {
         return;
     }
 
+    const sizeSelect = document.getElementById('browsePageSize');
+    if (sizeSelect) sizeSelect.value = String(browseState.pageSize);
+
     try {
         const params = {
             page: browseState.currentPage,
@@ -30,7 +33,7 @@ async function loadBrowseHistory() {
         };
 
         if (browseState.searchQuery) {
-            params.search = browseState.searchQuery;
+            params.query = browseState.searchQuery;
         }
 
         const result = await ApiClient.getBrowseHistory(params);
@@ -40,7 +43,7 @@ async function loadBrowseHistory() {
             const data = result.data || {};
             browseState.records = data.items || [];
             browseState.totalCount = data.total || 0;
-            browseState.totalPages = data.totalPages || Math.ceil(browseState.totalCount / browseState.pageSize);
+            browseState.totalPages = data.totalPages || Math.ceil(browseState.totalCount / (browseState.pageSize || 1));
 
             renderBrowseTable();
             renderBrowsePagination();
@@ -235,6 +238,7 @@ function goToBrowsePage(page) {
 // Change page size - Requirements: 1.4
 function changeBrowsePageSize(size) {
     browseState.pageSize = parseInt(size);
+    localStorage.setItem('wx_channel_browse_page_size', String(browseState.pageSize));
     browseState.currentPage = 1;
     loadBrowseHistory();
 }
@@ -539,8 +543,10 @@ async function downloadSelectedBrowse() {
     }));
 
     try {
-        await ApiClient.addToQueue(videos);
-        showMessage(`已将 ${videos.length} 个视频添加到下载队列`, 'success');
+        const result = await ApiClient.addToQueue(videos);
+        const added = (result.data || []).length;
+        const skipped = videos.length - added;
+        showMessage(`已将 ${added} 个视频添加到下载队列` + (skipped > 0 ? `，${skipped} 个已在队列中` : ''), 'success');
         clearBrowseSelection();
     } catch (e) {
         showMessage('添加失败: ' + e.message, 'error');

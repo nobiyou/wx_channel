@@ -86,6 +86,10 @@ type QueueItem struct {
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
+// PageSizeAll 是 pageSize=0（“全部”）时使用的实际分页大小。
+// ponytail: 以大上限代替真正的无限制，本地记录远不会到这个量级。
+const PageSizeAll = 100000
+
 // QueueStatus 常量
 const (
 	QueueStatusPending     = "pending"
