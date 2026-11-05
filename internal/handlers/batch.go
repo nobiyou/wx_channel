@@ -80,6 +80,9 @@ type BatchTask struct {
 	GopeedTaskID string `json:"-"`
 	TempPath     string `json:"-"`
 	FinalPath    string `json:"-"`
+	// 顺带下载该视频挂车商品的主图与规格图
+	DownloadProductImages bool   `json:"-"`
+	ProductImagePath      string `json:"-"` // 已下载的图片路径，仅日志/排障用
 }
 
 // GetAuthor 获取作者名称，兼容两种字段
@@ -241,7 +244,9 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	var req struct {
 		Videos          []BatchTask `json:"videos"`
 		ForceRedownload bool        `json:"forceRedownload"`
-		PageSource      string      `json:"pageSource,omitempty"` // 页面来源
+		// 前端「同时下载商品主图」勾选框
+		DownloadProductImages bool   `json:"downloadProductImages"`
+		PageSource            string `json:"pageSource,omitempty"` // 页面来源
 	}
 
 	utils.Info("📥 [批量下载] 开始解析 JSON...")
@@ -332,20 +337,22 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			FileFormat:      v.FileFormat,
 			Status:          "pending",
 			// 保留额外字段
-			Duration:     v.Duration,
-			SizeMB:       v.SizeMB,
-			Cover:        v.Cover,
-			Resolution:   v.Resolution,
-			PageSource:   pageSource, // 保存页面来源
-			PlayCount:    v.PlayCount,
-			LikeCount:    v.LikeCount,
-			CommentCount: v.CommentCount,
-			FavCount:     v.FavCount,
-			ForwardCount: v.ForwardCount,
-			CreateTime:   v.CreateTime,
-			IPRegion:     v.IPRegion,
-			DurationMs:   v.DurationMs,
-			Size:         v.Size,
+			Duration:   v.Duration,
+			SizeMB:     v.SizeMB,
+			Cover:      v.Cover,
+			Resolution: v.Resolution,
+			// 批次级开关下发到每个任务
+			DownloadProductImages: req.DownloadProductImages,
+			PageSource:            pageSource, // 保存页面来源
+			PlayCount:             v.PlayCount,
+			LikeCount:             v.LikeCount,
+			CommentCount:          v.CommentCount,
+			FavCount:              v.FavCount,
+			ForwardCount:          v.ForwardCount,
+			CreateTime:            v.CreateTime,
+			IPRegion:              v.IPRegion,
+			DurationMs:            v.DurationMs,
+			Size:                  v.Size,
 		}
 	}
 	h.running = true
@@ -528,6 +535,8 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 			if _, statErr := os.Stat(exists.FilePath); statErr == nil {
 				utils.Info("⏭️ [批量下载] 视频已存在，跳过: ID=%s", task.ID)
 				h.saveDownloadRecord(task, exists.FilePath, "completed")
+				// 视频已存在时也补下商品图（重复下载/断点续跑场景）
+				h.downloadProductImages(ctx, task, exists.FilePath)
 				return nil
 			}
 		}
@@ -611,6 +620,8 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 		if err == nil {
 			// 下载成功，保存到下载记录数据库
 			h.saveDownloadRecord(task, actualPath, "completed")
+			// 顺带下商品图（内部吞错，不影响视频任务状态）
+			h.downloadProductImages(ctx, task, actualPath)
 			return nil
 		}
 		if errors.Is(err, errBatchPaused) || errors.Is(err, context.Canceled) {
