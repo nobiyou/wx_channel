@@ -1,11 +1,11 @@
 package app
 
-const releaseHighlightsVersion = "5.7.13"
+const releaseHighlightsVersion = "5.7.14"
 
 var releaseHighlights = [...]string{
-	"视频回放分栏 - 个人主页批量下载分为视频和直播回放，默认显示视频",
-	"分类操作独立 - 分页、全选、下载、导出和清空仅作用于当前分类",
-	"下载状态保留 - 下载中关闭重开保留分类、勾选和进度，并补齐新采集数据",
-	"日志启动保护 - 文件日志不可用时继续输出控制台日志，避免空指针崩溃",
-	"自动化验证补齐 - CI 跟随 go.mod，覆盖 Windows 构建、Go 和 JavaScript 测试",
+	"下载目录安全校验 - 阻止 Windows Junction 和符号链接跳出下载目录",
+	"视频流句柄固定 - 校验与读取使用同一个受限文件句柄",
+	"路径兼容性完善 - 支持合法内部跳转、根目录别名、长路径和 UNC 路径",
+	"越界请求明确拒绝 - 解析失败不再回退词法路径继续访问",
+	"跨平台回归验证 - 覆盖 Windows Junction、WSL 符号链接和 Go 1.26",
 }
