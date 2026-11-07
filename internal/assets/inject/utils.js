@@ -438,3 +438,97 @@ var WXU = (() => {
     },
   };
 })();
+
+// 用居中的美化弹窗替换原生 alert（非阻塞，仅用于提示）
+(function () {
+  if (window.__wx_channels_alert_patched__) return;
+  window.__wx_channels_alert_patched__ = true;
+  var nativeAlert = window.alert;
+  var queue = [];
+  var showing = false;
+
+  function next() {
+    if (showing || !queue.length) return;
+    if (!document.body) return setTimeout(next, 50);
+    showing = true;
+    var msg = queue.shift();
+    var isErr = /失败|错误|无法|未找到|检测不到|为空/.test(msg);
+
+    var mask = document.createElement("div");
+    mask.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(0,0,0,0);backdrop-filter:blur(0px);-webkit-backdrop-filter:blur(0px);transition:all .2s ease;";
+
+    var box = document.createElement("div");
+    box.setAttribute("role", "alertdialog");
+    box.setAttribute("aria-modal", "true");
+    box.style.cssText =
+      "width:min(380px,calc(100vw - 32px));background:#fff;border-radius:16px;padding:28px 24px 20px;text-align:center;" +
+      "box-shadow:0 20px 60px rgba(0,0,0,.25);font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;" +
+      "transform:scale(.9);opacity:0;transition:all .2s cubic-bezier(.2,.9,.3,1.2);";
+
+    var icon = document.createElement("div");
+    icon.textContent = isErr ? "!" : "i";
+    icon.style.cssText =
+      "width:48px;height:48px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;" +
+      "font-size:26px;font-weight:700;color:#fff;background:" +
+      (isErr ? "linear-gradient(135deg,#ff6b6b,#e5484d)" : "linear-gradient(135deg,#34d399,#07c160)") + ";";
+
+    var text = document.createElement("div");
+    text.textContent = String(msg);
+    text.style.cssText =
+      "font-size:15px;line-height:1.6;color:#1f2329;white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto;margin-bottom:20px;";
+
+    var btn = document.createElement("button");
+    btn.textContent = "知道了";
+    btn.style.cssText =
+      "width:100%;height:40px;border:none;border-radius:10px;font-size:15px;font-weight:600;color:#fff;cursor:pointer;background:#07c160;";
+
+    box.appendChild(icon);
+    box.appendChild(text);
+    box.appendChild(btn);
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+
+    function close() {
+      document.removeEventListener("keydown", onKey, true);
+      mask.style.background = "rgba(0,0,0,0)";
+      box.style.opacity = "0";
+      box.style.transform = "scale(.9)";
+      setTimeout(function () {
+        mask.remove();
+        showing = false;
+        next();
+      }, 200);
+    }
+    function onKey(e) {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }
+    }
+    btn.onclick = close;
+    mask.onclick = function (e) {
+      if (e.target === mask) close();
+    };
+    document.addEventListener("keydown", onKey, true);
+
+    requestAnimationFrame(function () {
+      mask.style.background = "rgba(0,0,0,.45)";
+      mask.style.backdropFilter = mask.style.webkitBackdropFilter = "blur(4px)";
+      box.style.opacity = "1";
+      box.style.transform = "scale(1)";
+      btn.focus();
+    });
+  }
+
+  window.alert = function (msg) {
+    try {
+      queue.push(msg === undefined ? "" : msg);
+      next();
+    } catch (e) {
+      nativeAlert.call(window, msg);
+    }
+  };
+})();
