@@ -512,7 +512,7 @@ function clearDownloadSelection() {
 
 // Delete single download record
 async function deleteDownloadRecord(id) {
-    const deleteFiles = confirm('是否同时删除已下载的视频文件？\n\n点击"确定"删除记录和文件\n点击"取消"仅删除记录');
+    const deleteFiles = await confirmDialog('是否同时删除已下载的视频文件？\n\n点击"确定"删除记录和文件\n点击"取消"仅删除记录');
 
     try {
         await ApiClient.deleteDownloadRecords([id], deleteFiles);
@@ -563,7 +563,7 @@ async function deleteSelectedDownloads() {
         return;
     }
 
-    const deleteFiles = confirm(`确定要删除选中的 ${downloadState.selectedIds.size} 条记录吗？\n\n点击"确定"同时删除记录和文件\n点击"取消"仅删除记录`);
+    const deleteFiles = await confirmDialog(`确定要删除选中的 ${downloadState.selectedIds.size} 条记录吗？\n\n点击"确定"同时删除记录和文件\n点击"取消"仅删除记录`);
 
     try {
         const ids = Array.from(downloadState.selectedIds);
@@ -1539,7 +1539,7 @@ async function resumeQueueItem(id) {
 
 // Remove item from queue - Requirements: 10.5
 async function removeQueueItem(id) {
-    if (!confirm('确定要从队列中移除此项吗？\n注意：部分下载的数据将被保留。')) return;
+    if (!await confirmDialog('确定要从队列中移除此项吗？\n注意：部分下载的数据将被保留。')) return;
 
     try {
         await ApiClient.removeFromQueue(id);
@@ -1824,7 +1824,7 @@ async function clearCompletedQueue() {
         return;
     }
 
-    if (!confirm(`确定要清除 ${completedItems.length} 个已完成的下载吗？`)) return;
+    if (!await confirmDialog(`确定要清除 ${completedItems.length} 个已完成的下载吗？`)) return;
 
     try {
         for (const item of completedItems) {
@@ -2516,7 +2516,7 @@ function clearBatchLog() {
 }
 
 async function cancelBatchDownload() {
-    if (!confirm('确定要取消当前的下载任务吗？')) return;
+    if (!await confirmDialog('确定要取消当前的下载任务吗？')) return;
 
     try {
         const result = await ApiClient.cancelBatchDownload();
@@ -2696,7 +2696,7 @@ async function resumeBatchDownload() {
 
 // 清除批量下载任务
 async function clearBatchTasks() {
-    if (!confirm('确定要清除所有批量下载任务吗？此操作不可恢复。')) return;
+    if (!await confirmDialog('确定要清除所有批量下载任务吗？此操作不可恢复。')) return;
 
     try {
         const result = await ApiClient.clearBatchTasks();
@@ -2852,7 +2852,7 @@ async function retryFailedTasks() {
         return;
     }
 
-    if (!confirm(`确定要重试 ${failedTasks.length} 个失败的任务吗？`)) {
+    if (!await confirmDialog(`确定要重试 ${failedTasks.length} 个失败的任务吗？`)) {
         return;
     }
 

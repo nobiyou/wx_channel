@@ -447,7 +447,7 @@ async function clearAllDownloadRecords() {
 
 // Reset settings to defaults
 async function resetSettings() {
-    if (!confirm('确定要重置所有设置为默认值吗？')) {
+    if (!await confirmDialog('确定要重置所有设置为默认值吗？')) {
         return;
     }
     

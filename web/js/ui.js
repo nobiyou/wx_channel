@@ -33,6 +33,55 @@ function showMessage(message, type = 'info') {
     }, 4000);
 }
 
+// 居中确认弹窗，替代原生 confirm()；返回 Promise<boolean>
+function confirmDialog(message, { title = '请确认', okText = '确定', cancelText = '取消' } = {}) {
+    return new Promise(resolve => {
+        const danger = /删除|清除|取消|重置|移除|不可恢复/.test(message);
+        const mask = document.createElement('div');
+        mask.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+            'background:rgba(0,0,0,0);backdrop-filter:blur(0);-webkit-backdrop-filter:blur(0);transition:all .2s ease;';
+        const box = document.createElement('div');
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        box.style.cssText = 'width:min(400px,calc(100vw - 32px));background:var(--bg-card,#fff);border-radius:16px;padding:24px;' +
+            'box-shadow:0 20px 60px rgba(0,0,0,.25);transform:scale(.92);opacity:0;transition:all .2s cubic-bezier(.2,.9,.3,1.2);';
+        const color = danger ? 'var(--danger-color,#fa5151)' : 'var(--primary-color,#07c160)';
+        box.innerHTML =
+            `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">` +
+            `<div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;background:${color};">${danger ? '!' : '?'}</div>` +
+            `<div style="font-size:16px;font-weight:600;color:var(--text-primary,#191919);">${escapeHtml(title)}</div></div>` +
+            `<div style="font-size:14px;line-height:1.6;color:var(--text-primary,#191919);white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto;margin-bottom:20px;">${escapeHtml(message)}</div>` +
+            `<div style="display:flex;gap:10px;justify-content:flex-end;">` +
+            `<button class="btn btn-secondary" data-act="cancel">${escapeHtml(cancelText)}</button>` +
+            `<button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${escapeHtml(okText)}</button></div>`;
+        mask.appendChild(box);
+        document.body.appendChild(mask);
+
+        const finish = (result) => {
+            document.removeEventListener('keydown', onKey, true);
+            mask.style.background = 'rgba(0,0,0,0)';
+            box.style.opacity = '0';
+            box.style.transform = 'scale(.92)';
+            setTimeout(() => { mask.remove(); resolve(result); }, 200);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+            else if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        };
+        box.querySelector('[data-act="ok"]').onclick = () => finish(true);
+        box.querySelector('[data-act="cancel"]').onclick = () => finish(false);
+        mask.onclick = (e) => { if (e.target === mask) finish(false); };
+        document.addEventListener('keydown', onKey, true);
+        requestAnimationFrame(() => {
+            mask.style.background = 'rgba(0,0,0,.45)';
+            mask.style.backdropFilter = mask.style.webkitBackdropFilter = 'blur(4px)';
+            box.style.opacity = '1';
+            box.style.transform = 'scale(1)';
+            box.querySelector('[data-act="ok"]').focus();
+        });
+    });
+}
+
 function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;

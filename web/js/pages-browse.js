@@ -501,7 +501,7 @@ function parseResolutionFromUrl(url) {
 
 // Delete single record
 async function deleteBrowseRecord(id) {
-    if (!confirm('确定要删除这条浏览记录吗？')) return;
+    if (!await confirmDialog('确定要删除这条浏览记录吗？')) return;
 
     try {
         await ApiClient.deleteBrowseRecords([id]);
@@ -1041,7 +1041,7 @@ async function deleteSelectedBrowse() {
         return;
     }
 
-    if (!confirm(`确定要删除选中的 ${browseState.selectedIds.size} 条记录吗？`)) return;
+    if (!await confirmDialog(`确定要删除选中的 ${browseState.selectedIds.size} 条记录吗？`)) return;
 
     try {
         const ids = Array.from(browseState.selectedIds);
