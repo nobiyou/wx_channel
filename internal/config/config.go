@@ -83,6 +83,11 @@ type Config struct {
 
 	// 功能开关
 	RadarEnabled bool `mapstructure:"radar_enabled"`
+
+	// 本地 MCP 数据访问
+	MCPEnabled bool   `mapstructure:"mcp_enabled"`
+	MCPPort    int    `mapstructure:"mcp_port"`
+	MCPToken   string `mapstructure:"mcp_token"`
 }
 
 var globalConfig *Config
@@ -246,6 +251,11 @@ func setDefaults() {
 
 	// 功能默认值
 	viper.SetDefault("radar_enabled", false)
+
+	// 本地 MCP 默认只绑定回环地址，由应用运行时按 Port+2 选择端口。
+	viper.SetDefault("mcp_enabled", true)
+	viper.SetDefault("mcp_port", 0)
+	viper.SetDefault("mcp_token", "")
 }
 
 // GetMachineID 获取或生成唯一的机器 ID (稳定硬件特征码)

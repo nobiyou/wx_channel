@@ -59,6 +59,7 @@ async function __wx_channels_decrypt(seed) {
 
 var WXU = (() => {
   var defaultRandomAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  var feed_metrics_observations = new WeakMap();
 
   // API 对象
   var WXAPI = {};
@@ -117,6 +118,17 @@ var WXU = (() => {
     tempDiv.innerHTML = text;
     var cleaned = tempDiv.textContent || tempDiv.innerText || '';
     return cleaned.trim();
+  }
+
+  function parse_dom_metric_count(value) {
+    if (typeof value === 'number') {
+      return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    }
+    if (typeof value !== 'string') return null;
+    var text = value.trim();
+    if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(text)) return null;
+    var count = Number(text.replace(/,/g, ''));
+    return Number.isSafeInteger(count) ? count : null;
   }
 
   function format_feed(feed) {
@@ -190,6 +202,19 @@ var WXU = (() => {
         duration = media.videoPlayLen * 1000;
       }
 
+      var metricsSignature = JSON.stringify({
+        playCount: feed.playCount,
+        likeCount: feed.likeCount,
+        commentCount: feed.commentCount,
+        favCount: feed.favCount,
+        forwardCount: feed.forwardCount
+      });
+      var metricsObservation = feed_metrics_observations.get(feed);
+      if (!metricsObservation || metricsObservation.signature !== metricsSignature) {
+        metricsObservation = { signature: metricsSignature, observedAt: new Date().toISOString() };
+        feed_metrics_observations.set(feed, metricsObservation);
+      }
+
       return {
         ...feed,
         type: "media",
@@ -213,6 +238,9 @@ var WXU = (() => {
         media: media,
         contact: contact,
         nickname: contact ? contact.nickname : "",
+        metricsSource: feed.metricsSource === 'wechat_dom' ? 'wechat_dom' : 'wechat_api',
+        metricsObservedAt: metricsObservation.observedAt,
+        playCount: feed.playCount,
         readCount: feed.readCount,
         likeCount: feed.likeCount,
         commentCount: feed.commentCount,
@@ -305,6 +333,7 @@ var WXU = (() => {
       return window.WSServerProtocol || "wss";
     },
     format_feed,
+    parse_dom_metric_count,
     build_decrypt_arr: __wx_channels_decrypt,
     video_decrypt: __wx_channels_video_decrypt,
     async decrypt_video(buf, key) {

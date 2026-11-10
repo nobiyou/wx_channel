@@ -6,49 +6,51 @@ import (
 
 // BrowseRecord 表示视频浏览历史记录
 type BrowseRecord struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Author       string    `json:"author"`
-	AuthorID     string    `json:"authorId"`
-	Duration     int64     `json:"duration"`
-	Size         int64     `json:"size"`
-	Resolution   string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
-	FileFormat   string    `json:"fileFormat"` // 视频格式标识（例如 "xWT128", "xWT111"）
-	CoverURL     string    `json:"coverUrl"`
-	VideoURL     string    `json:"videoUrl"`
-	DecryptKey   string    `json:"decryptKey"` // 加密视频的解密密钥
-	BrowseTime   time.Time `json:"browseTime"`
-	LikeCount    int64     `json:"likeCount"`
-	CommentCount int64     `json:"commentCount"`
-	FavCount     int64     `json:"favCount"`
-	ForwardCount int64     `json:"forwardCount"`
-	PageURL      string    `json:"pageUrl"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	MetricsSnapshot string    `json:"-"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	Author          string    `json:"author"`
+	AuthorID        string    `json:"authorId"`
+	Duration        int64     `json:"duration"`
+	Size            int64     `json:"size"`
+	Resolution      string    `json:"resolution"` // 视频分辨率（例如 "1080p"）
+	FileFormat      string    `json:"fileFormat"` // 视频格式标识（例如 "xWT128", "xWT111"）
+	CoverURL        string    `json:"coverUrl"`
+	VideoURL        string    `json:"videoUrl"`
+	DecryptKey      string    `json:"decryptKey"` // 加密视频的解密密钥
+	BrowseTime      time.Time `json:"browseTime"`
+	LikeCount       int64     `json:"likeCount"`
+	CommentCount    int64     `json:"commentCount"`
+	FavCount        int64     `json:"favCount"`
+	ForwardCount    int64     `json:"forwardCount"`
+	PageURL         string    `json:"pageUrl"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // DownloadRecord 表示视频下载记录
 type DownloadRecord struct {
-	ID           string    `json:"id"`
-	VideoID      string    `json:"videoId"`
-	Title        string    `json:"title"`
-	Author       string    `json:"author"`
-	CoverURL     string    `json:"coverUrl"` // 封面图片 URL
-	Duration     int64     `json:"duration"`
-	FileSize     int64     `json:"fileSize"`
-	FilePath     string    `json:"filePath"`
-	RelativePath string    `json:"relativePath,omitempty"`
-	Format       string    `json:"format"`
-	Resolution   string    `json:"resolution"`
-	Status       string    `json:"status"` // pending, in_progress, completed, failed
-	DownloadTime time.Time `json:"downloadTime"`
-	ErrorMessage string    `json:"errorMessage"`
-	LikeCount    int64     `json:"likeCount"`
-	CommentCount int64     `json:"commentCount"`
-	ForwardCount int64     `json:"forwardCount"`
-	FavCount     int64     `json:"favCount"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	MetricsSnapshot string    `json:"-"`
+	ID              string    `json:"id"`
+	VideoID         string    `json:"videoId"`
+	Title           string    `json:"title"`
+	Author          string    `json:"author"`
+	CoverURL        string    `json:"coverUrl"` // 封面图片 URL
+	Duration        int64     `json:"duration"`
+	FileSize        int64     `json:"fileSize"`
+	FilePath        string    `json:"filePath"`
+	RelativePath    string    `json:"relativePath,omitempty"`
+	Format          string    `json:"format"`
+	Resolution      string    `json:"resolution"`
+	Status          string    `json:"status"` // pending, in_progress, completed, failed
+	DownloadTime    time.Time `json:"downloadTime"`
+	ErrorMessage    string    `json:"errorMessage"`
+	LikeCount       int64     `json:"likeCount"`
+	CommentCount    int64     `json:"commentCount"`
+	ForwardCount    int64     `json:"forwardCount"`
+	FavCount        int64     `json:"favCount"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // DownloadStatus 常量

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type pathValidationError struct {
@@ -75,6 +76,19 @@ func validatePathInBase(baseDir, targetPath string, allowDir bool) (string, erro
 	return realPath, nil
 }
 
+// ValidateFilePathInBase validates and resolves a file inside the configured
+// base directory. MCP and other local read-only integrations use the same
+// junction/symlink-aware path policy as the file-serving handlers.
+func ValidateFilePathInBase(baseDir, targetPath string) (string, error) {
+	return validatePathInBase(baseDir, targetPath, false)
+}
+
+// OpenFileInBase returns the same confined handle used by file-serving
+// handlers, so local integrations do not re-open a validated path by name.
+func OpenFileInBase(baseDir, targetPath string) (*os.File, string, error) {
+	return openFileInBase(baseDir, targetPath)
+}
+
 func openFileInBase(baseDir, targetPath string) (*os.File, string, error) {
 	// Match the lexical normalization used by path validation before opening a
 	// root: on Unix, a raw symlink/../ component can name a different directory.
@@ -97,9 +111,23 @@ func openFileInBase(baseDir, targetPath string) (*os.File, string, error) {
 	if err != nil {
 		return nil, "", &pathValidationError{status: http.StatusForbidden, msg: "access to path outside downloads directory is forbidden"}
 	}
-	file, err := root.Open(rel)
+	info, err := os.Stat(realPath)
 	if err != nil {
 		return nil, "", pathAccessError(err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, "", &pathValidationError{status: http.StatusBadRequest, msg: "path is not a regular file"}
+	}
+	// Nonblocking open avoids waiting on a FIFO if a regular file is replaced
+	// between Stat and Open. Check the opened handle before returning it.
+	file, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, "", pathAccessError(err)
+	}
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, "", &pathValidationError{status: http.StatusBadRequest, msg: "path is not a regular file"}
 	}
 	return file, realPath, nil
 }

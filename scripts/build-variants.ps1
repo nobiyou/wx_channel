@@ -1,5 +1,6 @@
 param(
-    [string]$PackageReleaseDir = ''
+    [string]$PackageReleaseDir = '',
+    [switch]$IncludeVideoAnalysisPackage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -152,7 +153,8 @@ function New-ZipPackage {
         [Parameter(Mandatory = $true)]
         [string]$PackageExeName,
         [Parameter(Mandatory = $true)]
-        [string]$ZipPath
+        [string]$ZipPath,
+        [bool]$IncludeFFmpeg = $false
     )
 
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("wx_channel_pkg_" + [System.Guid]::NewGuid().ToString('N'))
@@ -162,6 +164,25 @@ function New-ZipPackage {
         Copy-Item (Join-Path $repoRoot 'README.md') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.example') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.full') $tempDir -Force
+        Copy-Item (Join-Path $repoRoot 'mcp.json.example') $tempDir -Force
+        foreach ($skillName in @('wechat-channel-insight', 'wechat-channel-video-analysis')) {
+            $skillSource = Join-Path $repoRoot ('.agents\skills\' + $skillName)
+            if (Test-Path $skillSource) {
+                $skillDestination = Join-Path $tempDir ('.agents\skills\' + $skillName)
+                New-Item -ItemType Directory -Force -Path $skillDestination | Out-Null
+                Copy-Item (Join-Path $skillSource '*') $skillDestination -Recurse -Force
+            }
+        }
+        if ($IncludeFFmpeg) {
+            $ffmpegSource = Join-Path $repoRoot 'tools\ffmpeg'
+            $ffmpegExecutable = Join-Path $ffmpegSource 'bin\ffmpeg.exe'
+            if (-not (Test-Path -LiteralPath $ffmpegExecutable -PathType Leaf)) {
+                throw "Video analysis package requires $ffmpegExecutable. Put a Windows FFmpeg build there and retry."
+            }
+            $toolsDestination = Join-Path $tempDir 'tools'
+            New-Item -ItemType Directory -Force -Path $toolsDestination | Out-Null
+            Copy-Item -LiteralPath $ffmpegSource -Destination $toolsDestination -Recurse -Force
+        }
         Copy-Item (Join-Path $repoRoot 'web') (Join-Path $tempDir 'web') -Recurse -Force
         Copy-Item $ReleaseExe (Join-Path $tempDir $PackageExeName) -Force
 
@@ -224,7 +245,8 @@ try {
         "wx_channel_cloud_v$version.exe",
         "wx_channel_cloud_v$version.zip",
         "wx_channel_radar_v$version.exe",
-        "wx_channel_radar_v$version.zip"
+        "wx_channel_radar_v$version.zip",
+        "wx_channel_video_analysis_v$version.zip"
     )) {
         $stalePath = Join-Path $releaseDir $staleItem
         if (Test-Path $stalePath) {
@@ -251,7 +273,12 @@ try {
         $releaseZip = Join-Path $releaseDir $variant.ReleaseZip
 
         Copy-Item (Join-Path $repoRoot $variant.RootExe) $releaseExe -Force
-        New-ZipPackage -ReleaseExe $releaseExe -PackageExeName $variant.PackageExeName -ZipPath $releaseZip
+        New-ZipPackage -ReleaseExe $releaseExe -PackageExeName $variant.PackageExeName -ZipPath $releaseZip -IncludeFFmpeg:$false
+
+        if ($IncludeVideoAnalysisPackage -and $variant.Label -eq 'standard') {
+            $videoAnalysisZip = Join-Path $releaseDir "wx_channel_video_analysis_v$version.zip"
+            New-ZipPackage -ReleaseExe $releaseExe -PackageExeName $variant.PackageExeName -ZipPath $videoAnalysisZip -IncludeFFmpeg:$true
+        }
     }
 }
 finally {

@@ -41,24 +41,28 @@ type UploadHandler struct {
 }
 
 type DownloadVideoRequest struct {
-	VideoURL     string            `json:"videoUrl"`
-	VideoID      string            `json:"videoId"`
-	Title        string            `json:"title"`
-	Author       string            `json:"author"`
-	SourceURL    string            `json:"sourceUrl"`
-	UserAgent    string            `json:"userAgent"`
-	Headers      map[string]string `json:"headers"`
-	Key          string            `json:"key"`          // 解密key（可选）
-	ForceSave    bool              `json:"forceSave"`    // 是否强制保存（即使文件已存在）
-	Resolution   string            `json:"resolution"`   // 分辨率字符串（如 "1080x1920" 或 "1080p"）
-	Width        int               `json:"width"`        // 视频宽度（可选）
-	Height       int               `json:"height"`       // 视频高度（可选）
-	FileFormat   string            `json:"fileFormat"`   // 文件格式（如 "hd", "sd" 等）
-	ExpectedSize int64             `json:"expectedSize"` // 原始视频大小提示（字节，可选）
-	LikeCount    int64             `json:"likeCount"`
-	CommentCount int64             `json:"commentCount"`
-	ForwardCount int64             `json:"forwardCount"`
-	FavCount     int64             `json:"favCount"`
+	MetricsSource     string         `json:"metricsSource"`
+	MetricsObservedAt string         `json:"metricsObservedAt"`
+	MetricValues      map[string]any `json:"metricValues"`
+	metricsSnapshot   string
+	VideoURL          string            `json:"videoUrl"`
+	VideoID           string            `json:"videoId"`
+	Title             string            `json:"title"`
+	Author            string            `json:"author"`
+	SourceURL         string            `json:"sourceUrl"`
+	UserAgent         string            `json:"userAgent"`
+	Headers           map[string]string `json:"headers"`
+	Key               string            `json:"key"`          // 解密key（可选）
+	ForceSave         bool              `json:"forceSave"`    // 是否强制保存（即使文件已存在）
+	Resolution        string            `json:"resolution"`   // 分辨率字符串（如 "1080x1920" 或 "1080p"）
+	Width             int               `json:"width"`        // 视频宽度（可选）
+	Height            int               `json:"height"`       // 视频高度（可选）
+	FileFormat        string            `json:"fileFormat"`   // 文件格式（如 "hd", "sd" 等）
+	ExpectedSize      int64             `json:"expectedSize"` // 原始视频大小提示（字节，可选）
+	LikeCount         int64             `json:"likeCount"`
+	CommentCount      int64             `json:"commentCount"`
+	ForwardCount      int64             `json:"forwardCount"`
+	FavCount          int64             `json:"favCount"`
 }
 
 type downloadVideoMode string
@@ -942,6 +946,10 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	commentCount, _ := strconv.ParseInt(Conn.Request.FormValue("commentCount"), 10, 64)
 	forwardCount, _ := strconv.ParseInt(Conn.Request.FormValue("forwardCount"), 10, 64)
 	favCount, _ := strconv.ParseInt(Conn.Request.FormValue("favCount"), 10, 64)
+	var metricValues map[string]any
+	// Provenance is optional: malformed/old uploads keep legacy unknown counts.
+	_ = json.Unmarshal([]byte(Conn.Request.FormValue("metricValues")), &metricValues)
+	metricsSnapshot := database.CaptureReportedVideoMetrics(metricValues, Conn.Request.FormValue("metricsSource"), Conn.Request.FormValue("metricsObservedAt"), time.Now())
 
 	// 创建作者文件夹路径
 	authorFolder := utils.CleanFolderName(authorName)
@@ -1002,20 +1010,21 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 
 	if h.downloadService != nil {
 		record := &database.DownloadRecord{
-			ID:           videoID,
-			VideoID:      videoID,
-			Title:        title,
-			Author:       authorName,
-			FileSize:     written,
-			FilePath:     filePath,
-			Format:       "mp4",
-			Resolution:   resolution,
-			Status:       database.DownloadStatusCompleted,
-			DownloadTime: time.Now(),
-			LikeCount:    likeCount,
-			CommentCount: commentCount,
-			ForwardCount: forwardCount,
-			FavCount:     favCount,
+			ID:              videoID,
+			VideoID:         videoID,
+			Title:           title,
+			Author:          authorName,
+			FileSize:        written,
+			FilePath:        filePath,
+			Format:          "mp4",
+			Resolution:      resolution,
+			Status:          database.DownloadStatusCompleted,
+			DownloadTime:    time.Now(),
+			LikeCount:       likeCount,
+			CommentCount:    commentCount,
+			ForwardCount:    forwardCount,
+			FavCount:        favCount,
+			MetricsSnapshot: metricsSnapshot,
 		}
 		if record.Title == "" {
 			record.Title = filename
@@ -1278,6 +1287,8 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
+	// Preserve the page capture time; a cached profile is not a fresh query.
+	req.metricsSnapshot = database.CaptureReportedVideoMetrics(req.MetricValues, req.MetricsSource, req.MetricsObservedAt, time.Now())
 
 	if req.VideoURL == "" {
 		h.sendErrorResponse(Conn, fmt.Errorf("视频URL不能为空"))
@@ -1633,21 +1644,22 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 
 		if h.downloadService != nil {
 			record := &database.DownloadRecord{
-				ID:           req.VideoID,
-				VideoID:      req.VideoID,
-				Title:        req.Title,
-				Author:       req.Author,
-				Duration:     0,
-				FileSize:     int64(stat.Size()),
-				FilePath:     finalPath,
-				Format:       "mp4",
-				Resolution:   req.Resolution,
-				Status:       database.DownloadStatusCompleted,
-				DownloadTime: time.Now(),
-				LikeCount:    req.LikeCount,
-				CommentCount: req.CommentCount,
-				ForwardCount: req.ForwardCount,
-				FavCount:     req.FavCount,
+				ID:              req.VideoID,
+				VideoID:         req.VideoID,
+				Title:           req.Title,
+				Author:          req.Author,
+				Duration:        0,
+				FileSize:        int64(stat.Size()),
+				FilePath:        finalPath,
+				Format:          "mp4",
+				Resolution:      req.Resolution,
+				Status:          database.DownloadStatusCompleted,
+				DownloadTime:    time.Now(),
+				LikeCount:       req.LikeCount,
+				CommentCount:    req.CommentCount,
+				ForwardCount:    req.ForwardCount,
+				FavCount:        req.FavCount,
+				MetricsSnapshot: req.metricsSnapshot,
 			}
 			if err := h.downloadService.Create(record); err != nil {
 				utils.Error("保存下载记录失败: %v", err)
