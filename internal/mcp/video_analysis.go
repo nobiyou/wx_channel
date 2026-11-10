@@ -143,7 +143,6 @@ type videoAnalysisDetails struct {
 	Resolution          string            `json:"resolution,omitempty"`
 	AudioStreamPresent  *bool             `json:"audio_stream_present,omitempty"`
 	AudioStatus         string            `json:"audio_status,omitempty"`
-	PlayCount           *int64            `json:"play_count"`
 	LikeCount           *int64            `json:"like_count"`
 	CommentCount        *int64            `json:"comment_count"`
 	FavoriteCount       *int64            `json:"favorite_count"`

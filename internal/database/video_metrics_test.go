@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,7 +66,7 @@ func TestVideoMetricsSnapshotPreservesPresence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.LikeCount == nil || *snapshot.LikeCount != 0 || snapshot.PlayCount == nil || *snapshot.PlayCount != math.MaxInt64 {
+	if snapshot.LikeCount == nil || *snapshot.LikeCount != 0 {
 		t.Fatalf("observed values lost: %+v", snapshot)
 	}
 	if snapshot.CommentCount != nil || snapshot.FavoriteCount != nil || snapshot.ForwardCount != nil || !snapshot.ObservedAt.Equal(at) || snapshot.Source != "wechat_api" {
@@ -81,8 +82,15 @@ func TestVideoMetricsSnapshotPreservesPresence(t *testing.T) {
 		t.Fatalf("untagged legacy input acquired provenance: %s", got)
 	}
 	readOnly, err := ParseVideoMetrics(CaptureVideoMetrics(map[string]any{"readCount": float64(99)}, "wechat_api", at))
-	if err != nil || readOnly.PlayCount != nil {
-		t.Fatalf("readCount was assumed to be playCount: %+v, %v", readOnly, err)
+	if err != nil || readOnly.LikeCount != nil {
+		t.Fatalf("readCount acquired a metric value: %+v, %v", readOnly, err)
+	}
+	if strings.Contains(raw, `"play_count"`) {
+		t.Fatal("retired play_count was written to the snapshot")
+	}
+	legacy, err := ParseVideoMetrics(`{"source":"wechat_api","observed_at":"2026-11-06T00:00:00Z","play_count":100,"like_count":1}`)
+	if err != nil || legacy.LikeCount == nil || *legacy.LikeCount != 1 {
+		t.Fatalf("legacy play_count snapshot was not read compatibly: %+v, %v", legacy, err)
 	}
 	for _, raw := range []string{"", "{}", `{"source":"secret","observed_at":"2026-11-06T00:00:00Z"}`, `{"source":"wechat_api","observed_at":"2026-11-06T00:00:00Z","like_count":-1}`} {
 		if _, err := ParseVideoMetrics(raw); err == nil {

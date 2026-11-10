@@ -217,7 +217,7 @@ func projectVideoFields(video map[string]any, warnings *[]string) map[string]any
 		"title": boundedText(text(desc, "description"), warnings), "author": boundedText(author, warnings), "author_id": authorID,
 		"published_at": unixTimestamp(video, "createtime", "createTime"), "cover_url": safePublicURL(text(media, "thumbUrl", "coverUrl")),
 		"duration_seconds": mediaDuration(media), "resolution": text(media, "videoResolution"), "width": number(media, "width"), "height": number(media, "height"), "size_bytes": number(media, "fileSize", "cdnFileSize"),
-		"play_count": number(video, "playCount"), "like_count": number(video, "likeCount"), "comment_count": number(video, "commentCount"), "favorite_count": number(video, "favCount"), "forward_count": number(video, "forwardCount"),
+		"like_count": number(video, "likeCount"), "comment_count": number(video, "commentCount"), "favorite_count": number(video, "favCount"), "forward_count": number(video, "forwardCount"),
 	}
 }
 

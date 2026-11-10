@@ -30,8 +30,11 @@ func TestLocalMetricProvenanceAndObservedZero(t *testing.T) {
 			t.Fatal(err)
 		}
 		data := result["data"].(map[string]any)
-		if data["like_count"] != int64(0) || data["play_count"] != int64(18) || data["comment_count"] != nil || data["metrics_source"] != "wechat_api" || data["metrics_observed_at"] != at.Format(time.RFC3339) {
+		if data["like_count"] != int64(0) || data["comment_count"] != nil || data["metrics_source"] != "wechat_api" || data["metrics_observed_at"] != at.Format(time.RFC3339) {
 			t.Fatalf("snapshot projection incorrect: %v", data)
+		}
+		if _, exists := data["play_count"]; exists {
+			t.Fatalf("retired play_count leaked: %v", data)
 		}
 		availability := data["metrics_availability"].(map[string]any)
 		if data["metrics_source_verification"] != "client_reported" {
@@ -56,8 +59,11 @@ func TestLocalMetricProvenanceAndObservedZero(t *testing.T) {
 func TestLocalInvalidSnapshotStaysSafeAndUnknown(t *testing.T) {
 	s := &Server{}
 	data := s.recordMap(storedRecord{MetricsSnapshot: `{"source":"C:\\private\\token=secret"}`, LikeCount: 4})
-	if data["play_count"] != nil || data["comment_count"] != nil || data["metrics_observed_at"] != nil || data["metrics_source"] != "legacy_unknown" {
+	if data["comment_count"] != nil || data["metrics_observed_at"] != nil || data["metrics_source"] != "legacy_unknown" {
 		t.Fatalf("invalid snapshot acquired provenance: %v", data)
+	}
+	if _, exists := data["play_count"]; exists {
+		t.Fatalf("retired play_count leaked: %v", data)
 	}
 	if strings.Contains(string(localContractJSON(t, data)), "secret") {
 		t.Fatal("raw snapshot leaked")

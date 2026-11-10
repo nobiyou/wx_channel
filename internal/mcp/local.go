@@ -296,7 +296,6 @@ func (s *Server) recordMap(record storedRecord) map[string]any {
 		"resolution":       record.Resolution,
 		"status":           record.Status,
 		"observed_at":      record.ObservedAt.UTC().Format(time.RFC3339),
-		"play_count":       nil,
 	}
 	warnings := projectStoredMetrics(data, record)
 	cover, redacted := sanitizeURL(record.CoverURL)

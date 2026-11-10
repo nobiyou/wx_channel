@@ -8,13 +8,14 @@ import (
 	"time"
 )
 
-// VideoMetricsSnapshot records presence separately from the legacy GUI counters.
-// A nil count means the capture did not return a usable value, including when
-// a DOM label was abbreviated. Never infer a count from a missing field.
+// VideoMetricsSnapshot records supported MCP interaction metrics separately
+// from the legacy GUI counters. Play count is intentionally outside this
+// snapshot because the page does not return it consistently. A nil count means
+// the capture did not return a usable value, including when a DOM label was
+// abbreviated. Never infer a count from a missing field.
 type VideoMetricsSnapshot struct {
 	Source        string    `json:"source"`
 	ObservedAt    time.Time `json:"observed_at"`
-	PlayCount     *int64    `json:"play_count"`
 	LikeCount     *int64    `json:"like_count"`
 	CommentCount  *int64    `json:"comment_count"`
 	FavoriteCount *int64    `json:"favorite_count"`
@@ -37,6 +38,7 @@ func CaptureReportedVideoMetrics(values map[string]any, source, observedAt strin
 }
 
 // CaptureVideoMetrics accepts only tagged producers that preserve absence.
+// Unsupported fields, including the retired play count, are ignored.
 // Old clients defaulted missing counters to zero and cannot supply provenance.
 func CaptureVideoMetrics(values map[string]any, source string, observedAt time.Time) string {
 	if !validVideoMetricsSource(source) || observedAt.IsZero() {
@@ -44,7 +46,7 @@ func CaptureVideoMetrics(values map[string]any, source string, observedAt time.T
 	}
 	snapshot := VideoMetricsSnapshot{
 		Source: source, ObservedAt: observedAt.UTC(),
-		PlayCount: videoMetricCount(values["playCount"]), LikeCount: videoMetricCount(values["likeCount"]),
+		LikeCount:    videoMetricCount(values["likeCount"]),
 		CommentCount: videoMetricCount(values["commentCount"]), FavoriteCount: videoMetricCount(values["favCount"]),
 		ForwardCount: videoMetricCount(values["forwardCount"]),
 	}
@@ -104,7 +106,7 @@ func ParseVideoMetrics(raw string) (*VideoMetricsSnapshot, error) {
 	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil || !validVideoMetricsSource(snapshot.Source) || snapshot.ObservedAt.IsZero() {
 		return nil, errors.New("invalid video metric snapshot")
 	}
-	for _, count := range []*int64{snapshot.PlayCount, snapshot.LikeCount, snapshot.CommentCount, snapshot.FavoriteCount, snapshot.ForwardCount} {
+	for _, count := range []*int64{snapshot.LikeCount, snapshot.CommentCount, snapshot.FavoriteCount, snapshot.ForwardCount} {
 		if count != nil && *count < 0 {
 			return nil, errors.New("invalid video metric snapshot")
 		}

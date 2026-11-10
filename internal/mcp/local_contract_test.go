@@ -110,11 +110,14 @@ func TestLocalContractMetricsAndSharedProjection(t *testing.T) {
 	}
 	for _, item := range items {
 		t.Run(item["source"].(string), func(t *testing.T) {
-			for _, key := range []string{"play_count", "comment_count", "favorite_count"} {
+			for _, key := range []string{"comment_count", "favorite_count"} {
 				value, exists := item[key]
 				if !exists || value != nil {
 					t.Errorf("%s = %#v (present %v), want explicit null", key, value, exists)
 				}
+			}
+			if _, exists := item["play_count"]; exists {
+				t.Errorf("retired play_count leaked: %#v", item["play_count"])
 			}
 			if !strings.Contains(string(localContractJSON(t, result["warnings"])), "stored_zero_metrics_unknown") {
 				t.Error("missing ambiguous-zero warning")

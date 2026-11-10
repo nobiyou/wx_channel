@@ -7,7 +7,6 @@ import (
 )
 
 type storedMetricsProjection struct {
-	PlayCount     *int64
 	LikeCount     *int64
 	CommentCount  *int64
 	FavoriteCount *int64
@@ -32,7 +31,6 @@ func projectStoredMetricValues(record storedRecord) storedMetricsProjection {
 		projection.Source = snapshot.Source
 		projection.ObservedAt = &observedAt
 		projection.Verification = "client_reported"
-		projection.PlayCount = snapshot.PlayCount
 		projection.LikeCount = snapshot.LikeCount
 		projection.CommentCount = snapshot.CommentCount
 		projection.FavoriteCount = snapshot.FavoriteCount
@@ -42,7 +40,7 @@ func projectStoredMetricValues(record storedRecord) storedMetricsProjection {
 			key   string
 			value *int64
 		}{
-			{"play_count", projection.PlayCount}, {"like_count", projection.LikeCount},
+			{"like_count", projection.LikeCount},
 			{"comment_count", projection.CommentCount}, {"favorite_count", projection.FavoriteCount}, {"forward_count", projection.ForwardCount},
 		} {
 			if metric.value == nil {
@@ -56,19 +54,14 @@ func projectStoredMetricValues(record storedRecord) storedMetricsProjection {
 		switch {
 		case observed == 0:
 			projection.Status = "not_returned"
-		case observed < 5:
+		case observed < 4:
 			projection.Status = "partial"
 		default:
 			projection.Status = "observed"
 		}
-		if projection.PlayCount == nil {
-			projection.Warnings = appendLocalWarnings(projection.Warnings, "play_count_unavailable")
-		}
 		return projection
 	}
 
-	projection.Availability["play_count"] = "unknown"
-	projection.Warnings = appendLocalWarnings(projection.Warnings, "play_count_unavailable")
 	for _, metric := range []struct {
 		key   string
 		value int64
@@ -108,13 +101,12 @@ func applyStoredMetricsToAnalysisDetails(details *videoAnalysisDetails, record *
 	if record == nil {
 		details.MetricsStatus = "unassociated"
 		details.MetricsAvailability = map[string]string{}
-		for _, key := range []string{"play_count", "like_count", "comment_count", "favorite_count", "forward_count"} {
+		for _, key := range []string{"like_count", "comment_count", "favorite_count", "forward_count"} {
 			details.MetricsAvailability[key] = "unavailable"
 		}
 		return
 	}
 	projection := projectStoredMetricValues(*record)
-	details.PlayCount = projection.PlayCount
 	details.LikeCount = projection.LikeCount
 	details.CommentCount = projection.CommentCount
 	details.FavoriteCount = projection.FavoriteCount
@@ -145,7 +137,7 @@ func projectStoredMetrics(data map[string]any, record storedRecord) []string {
 		key   string
 		value *int64
 	}{
-		{"play_count", projection.PlayCount}, {"like_count", projection.LikeCount},
+		{"like_count", projection.LikeCount},
 		{"comment_count", projection.CommentCount}, {"favorite_count", projection.FavoriteCount}, {"forward_count", projection.ForwardCount},
 	} {
 		data[metric.key] = nil

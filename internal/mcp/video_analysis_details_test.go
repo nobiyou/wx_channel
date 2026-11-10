@@ -24,7 +24,7 @@ func TestAnalysisDetailsProjectsMetricSnapshot(t *testing.T) {
 		t.Fatalf("observed at = %#v", details.MetricsObservedAt)
 	}
 	for name, value := range map[string]*int64{
-		"play": details.PlayCount, "like": details.LikeCount, "comment": details.CommentCount,
+		"like": details.LikeCount, "comment": details.CommentCount,
 		"favorite": details.FavoriteCount, "forward": details.ForwardCount,
 	} {
 		if value == nil {

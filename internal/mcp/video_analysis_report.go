@@ -178,7 +178,6 @@ func writeVideoDetailsTable(b *strings.Builder, details videoAnalysisDetails) {
 		{"分辨率", firstNonEmpty(details.Resolution, "待确认")},
 		{"宽 × 高", formatAnalysisDimensions(details.Width, details.Height)},
 		{"音频流", analysisAudioPresence(details.AudioStreamPresent, details.AudioStatus)},
-		{"播放量", formatAnalysisMetric(details.PlayCount, details.MetricsAvailability["play_count"])},
 		{"点赞量", formatAnalysisMetric(details.LikeCount, details.MetricsAvailability["like_count"])},
 		{"评论量", formatAnalysisMetric(details.CommentCount, details.MetricsAvailability["comment_count"])},
 		{"收藏量", formatAnalysisMetric(details.FavoriteCount, details.MetricsAvailability["favorite_count"])},

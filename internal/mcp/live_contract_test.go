@@ -33,8 +33,11 @@ func TestLiveProjectionPreservesIDsMetricsAndPagination(t *testing.T) {
 	if item["object_id"] != "18446744073709551615" || item["nonce_id"] != "nonce-1" {
 		t.Fatalf("identity corrupted: %s", encoded)
 	}
-	if item["like_count"] != float64(0) || item["comment_count"] != float64(5) || item["play_count"] != nil {
+	if item["like_count"] != float64(0) || item["comment_count"] != float64(5) {
 		t.Fatalf("metric presence lost: %s", encoded)
+	}
+	if _, exists := item["play_count"]; exists {
+		t.Fatalf("retired play_count leaked: %s", encoded)
 	}
 	if strings.Contains(string(encoded), "secret") || data["result"] != nil {
 		t.Fatalf("raw data leaked: %s", encoded)
@@ -132,7 +135,7 @@ func TestLiveProfileAndCommentsProjection(t *testing.T) {
 			t.Fatalf("profile: %v %v", result, err)
 		}
 		encoded, _ := json.Marshal(result.StructuredContent)
-		if !strings.Contains(string(encoded), `"object_id":"video"`) || !strings.Contains(string(encoded), `"play_count":0`) {
+		if !strings.Contains(string(encoded), `"object_id":"video"`) || strings.Contains(string(encoded), `"play_count"`) {
 			t.Fatalf("profile projection: %s", encoded)
 		}
 	}
