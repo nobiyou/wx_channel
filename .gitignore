@@ -16,6 +16,7 @@ logs/
 .codegraph/
 .codex-cache/
 .tmp_runtime/
+tools/python/
 # ==================== 压缩文件 ====================
 # 所有压缩文件
 *.zip

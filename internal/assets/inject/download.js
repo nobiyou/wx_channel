@@ -467,6 +467,15 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
     height: normalized.height,
     fileFormat: normalized.fileFormat,
     expectedSize: expectedSize,
+    metricsSource: profile.metricsSource || '',
+    metricsObservedAt: profile.metricsObservedAt || '',
+    metricValues: {
+      playCount: profile.playCount,
+      likeCount: profile.likeCount,
+      commentCount: profile.commentCount,
+      favCount: profile.favCount,
+      forwardCount: profile.forwardCount
+    },
     likeCount: profile.likeCount || 0,
     commentCount: profile.commentCount || 0,
     forwardCount: profile.forwardCount || 0,

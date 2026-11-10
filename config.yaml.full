@@ -97,6 +97,24 @@ show_log_button: false
 # true: 启用后台自动监控，修改后需重启程序
 radar_enabled: false
 
+# ==================== 本地 MCP 数据访问 ====================
+
+# 是否启用本地只读 MCP 服务
+mcp_enabled: true
+
+# MCP 端口，0 表示使用 port + 2（默认 2027）
+mcp_port: 0
+
+# MCP bearer token。留空时自动在下载目录生成 .wx_channel_mcp_token
+mcp_token: ""
+
+# 视频分析默认由当前 Codex 会话模型完成，无需额外配置模型 API 密钥。
+# 可选第三方 API：仅 start_video_analysis(use_external_model: true) 时调用。
+# WX_CHANNEL_VIDEO_ANALYSIS_PROVIDER：gemini 或 openai_compatible（第三方接口默认值）
+# WX_CHANNEL_VIDEO_ANALYSIS_BASE_URL / WX_CHANNEL_VIDEO_ANALYSIS_API_KEY / WX_CHANNEL_VIDEO_ANALYSIS_MODEL
+# gemini 不填 BASE_URL 时使用 https://generativelanguage.googleapis.com/v1beta/openai
+# MODEL 请填写账号可用的视觉模型；仅配置 API 不会切换默认 Codex 分析方式。
+
 # ==================== 性能优化配置 ====================
 
 # 负载均衡策略

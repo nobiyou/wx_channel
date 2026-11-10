@@ -28,8 +28,8 @@ func (r *DownloadRecordRepository) Create(record *DownloadRecord) error {
 			id, video_id, title, author, cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			created_at, updated_at, metrics_snapshot
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.Exec(query,
 		record.ID, record.VideoID, record.Title, record.Author, record.CoverURL,
@@ -37,7 +37,7 @@ func (r *DownloadRecordRepository) Create(record *DownloadRecord) error {
 		record.Resolution, record.Status, record.DownloadTime,
 		record.ErrorMessage,
 		record.LikeCount, record.CommentCount, record.ForwardCount, record.FavCount,
-		record.CreatedAt, record.UpdatedAt,
+		record.CreatedAt, record.UpdatedAt, record.MetricsSnapshot,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create download record: %w", err)
@@ -51,7 +51,7 @@ func (r *DownloadRecordRepository) GetByID(id string) (*DownloadRecord, error) {
 		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
-			created_at, updated_at
+			created_at, updated_at, metrics_snapshot
 		FROM download_records WHERE id = ?
 	`
 	record := &DownloadRecord{}
@@ -62,7 +62,7 @@ func (r *DownloadRecordRepository) GetByID(id string) (*DownloadRecord, error) {
 		&resolution, &record.Status, &record.DownloadTime,
 		&errorMessage,
 		&record.LikeCount, &record.CommentCount, &record.ForwardCount, &record.FavCount,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.MetricsSnapshot,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -84,7 +84,7 @@ func (r *DownloadRecordRepository) GetByVideoID(videoID string) (*DownloadRecord
 		SELECT id, video_id, title, author, COALESCE(cover_url, '') as cover_url, duration, file_size, file_path,
 			format, resolution, status, download_time, error_message,
 			like_count, comment_count, forward_count, fav_count,
-			created_at, updated_at
+			created_at, updated_at, metrics_snapshot
 		FROM download_records WHERE video_id = ? LIMIT 1
 	`
 	record := &DownloadRecord{}
@@ -95,7 +95,7 @@ func (r *DownloadRecordRepository) GetByVideoID(videoID string) (*DownloadRecord
 		&resolution, &record.Status, &record.DownloadTime,
 		&errorMessage,
 		&record.LikeCount, &record.CommentCount, &record.ForwardCount, &record.FavCount,
-		&record.CreatedAt, &record.UpdatedAt,
+		&record.CreatedAt, &record.UpdatedAt, &record.MetricsSnapshot,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

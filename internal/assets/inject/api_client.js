@@ -901,7 +901,7 @@ window.__wx_api_client = {
           lastBuff: body.next_marker ? decodeURIComponent(body.next_marker) : '', // Try alias
         };
         var r = await window.WXU.API2.finderSearch(payload);
-        console.log('[API客户端] finderSearch 结果:', r);
+        console.log('[API客户端] finderSearch 查询完成');
         resp({
           ...r,
           payload: payload
@@ -919,7 +919,7 @@ window.__wx_api_client = {
           objectId: '0'
         };
         var r = await window.WXU.API.finderUserPage(payload);
-        console.log('[API客户端] finderUserPage 结果:', r);
+        console.log('[API客户端] finderUserPage 查询完成');
         resp({
           ...r,
           payload: payload
@@ -929,20 +929,20 @@ window.__wx_api_client = {
 
       // 获取视频详情
       if (key === 'key:channels:feed_profile' || key === 'key:channels:shared_feed_profile' || key === 'key:channels:shared_feed_resolve') {
-        console.log('[API客户端] 获取视频详情:', body);
+        console.log('[API客户端] 获取视频详情');
 
         try {
           var profileResult = key === 'key:channels:shared_feed_resolve'
             ? await this.resolveSharedFeedProfile(body)
             : await this.fetchFeedProfile(body);
-          console.log('[API客户端] finderGetCommentDetail 结果:', profileResult.response);
+          console.log('[API客户端] finderGetCommentDetail 查询完成');
           resp({
             ...profileResult.response,
             payload: profileResult.payload
           });
           return;
         } catch (err) {
-          console.error('[API客户端] 获取视频详情失败:', err);
+          console.error('[API客户端] 获取视频详情失败，请检查页面状态');
           resp({
             errCode: 1011,
             errMsg: err.message,
@@ -995,13 +995,13 @@ window.__wx_api_client = {
 
         try {
           var commentResp = await window.WXU.API.finderGetCommentList(payload);
-          console.log('[API客户端] finderGetCommentList 结果:', commentResp);
+          console.log('[API客户端] finderGetCommentList 查询完成');
           resp({
             ...commentResp,
             payload: payload
           });
         } catch (err) {
-          console.error('[API客户端] 获取评论列表失败:', err);
+          console.error('[API客户端] 获取评论列表失败，请检查页面状态');
           resp({
             errCode: 1011,
             errMsg: err.message,
@@ -1019,7 +1019,7 @@ window.__wx_api_client = {
       });
 
     } catch (err) {
-      console.error('[API客户端] API 调用失败:', err);
+      console.error('[API客户端] API 调用失败，请检查页面状态');
       resp({
         errCode: 1,
         errMsg: err.message || 'API 调用失败',

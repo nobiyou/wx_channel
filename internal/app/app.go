@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ import (
 	"wx_channel/internal/database"
 	"wx_channel/internal/handlers"
 	"wx_channel/internal/lifecycle"
+	mcpserver "wx_channel/internal/mcp"
 	"wx_channel/internal/officialaccount"
 	"wx_channel/internal/router"
 	"wx_channel/internal/services"
@@ -68,6 +70,7 @@ type App struct {
 	OfficialAccountService *officialaccount.Service
 	RuntimeDiagnostics     *api.RuntimeDiagnostics
 	Lifecycle              *lifecycle.Manager
+	MCPGateway             *mcpserver.Server
 
 	// 路由器
 	APIRouter *router.APIRouter
@@ -233,6 +236,39 @@ func (app *App) Run() {
 	app.RuntimeDiagnostics = api.NewRuntimeDiagnostics(app.Cfg)
 	app.Lifecycle = lifecycle.NewDefaultManagerWithAutoOpen(app.WSHub, app.Cfg.AutoOpenChannels)
 	app.RuntimeDiagnostics.SetLifecycleProvider(app.Lifecycle.Snapshot)
+	if app.Cfg.MCPEnabled {
+		downloadsDir, err := app.Cfg.GetResolvedDownloadsDir()
+		if err != nil {
+			utils.Warn("MCP 服务未启动：解析下载目录失败: %v", err)
+		} else {
+			videoDownloader := mcpserver.NewLocalVideoDownloader(mcpserver.VideoDownloaderDependencies{
+				Config:       app.Cfg,
+				DownloadsDir: downloadsDir,
+				Engine:       app.GopeedService,
+			})
+			gateway, err := mcpserver.NewServer(mcpserver.Dependencies{
+				Config:             app.Cfg,
+				DownloadsDir:       downloadsDir,
+				VideoDownload:      videoDownloader.Download,
+				Hub:                app.WSHub,
+				RuntimeDiagnostics: app.RuntimeDiagnostics,
+				Version:            app.Cfg.Version,
+			})
+			if err != nil {
+				utils.Warn("MCP 服务未启动: %v", err)
+			} else {
+				app.MCPGateway = gateway
+				go func() {
+					if err := gateway.Start(lifecycleCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+						utils.Warn("MCP 服务停止或启动失败: %v", err)
+					}
+				}()
+				utils.Info("✓ 本地 MCP 服务已启用: %s", gateway.Endpoint())
+			}
+		}
+	} else {
+		utils.Info("本地 MCP 服务未启用 (mcp_enabled: false)")
+	}
 	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
 	if app.OfficialAccountService != nil {
 		app.APIRouter.SetOfficialAccountService(app.OfficialAccountService)

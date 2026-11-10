@@ -518,6 +518,14 @@ ALTER TABLE mp_articles ADD COLUMN malicious_content_type INTEGER NOT NULL DEFAU
 ALTER TABLE mp_articles ADD COLUMN video_id TEXT NOT NULL DEFAULT '';
 `,
 	},
+	{
+		Version:     21,
+		Description: "Preserve video metric presence and capture provenance",
+		Up: `
+ALTER TABLE browse_history ADD COLUMN metrics_snapshot TEXT NOT NULL DEFAULT '';
+ALTER TABLE download_records ADD COLUMN metrics_snapshot TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // runMigrations 执行所有待处理的迁移

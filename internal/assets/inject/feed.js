@@ -365,10 +365,14 @@ function __extract_profile_from_feed_dom_fallback(activeFeedId) {
     coverUrl: thumbUrl,
     url: mediaUrl,
     spec: [],
-    likeCount: counts[0] ? parseInt(counts[0].textContent.replace(/[^\d]/g, ''), 10) || 0 : 0,
-    forwardCount: counts[1] ? parseInt(counts[1].textContent.replace(/[^\d]/g, ''), 10) || 0 : 0,
-    favCount: counts[2] ? parseInt(counts[2].textContent.replace(/[^\d]/g, ''), 10) || 0 : 0,
-    commentCount: counts[3] ? parseInt(counts[3].textContent.replace(/[^\d]/g, ''), 10) || 0 : 0
+    metricsSource: 'wechat_dom',
+    metricsObservedAt: new Date().toISOString(),
+    playCount: null,
+    readCount: null,
+    likeCount: WXU.parse_dom_metric_count(counts[0] && counts[0].textContent),
+    forwardCount: WXU.parse_dom_metric_count(counts[1] && counts[1].textContent),
+    favCount: WXU.parse_dom_metric_count(counts[2] && counts[2].textContent),
+    commentCount: WXU.parse_dom_metric_count(counts[3] && counts[3].textContent)
   };
 }
 

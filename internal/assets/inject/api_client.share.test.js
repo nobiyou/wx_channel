@@ -95,6 +95,7 @@ function loadAPIClientModule(overrides = {}) {
 
   return {
     api: sandbox.window.__wx_api_client,
+    sandbox,
     fetchCalls,
     finderCalls,
   };
@@ -355,6 +356,32 @@ async function main() {
   });
 
   assertEqual(sharedResolveEnv.finderCalls.length, 0, 'shared_feed_resolve should use direct share resolver flow');
+
+  const logs = [];
+  const safeLoggingEnv = loadAPIClientModule({ console: {
+    log(...args) { logs.push(args); },
+    error(...args) { logs.push(args.map(arg => arg instanceof Error ? arg.message : arg)); },
+    warn(...args) { logs.push(args); },
+  } });
+  const responses = [];
+  safeLoggingEnv.api.sendResponse = (_id, value) => responses.push(value);
+  safeLoggingEnv.api.fetchFeedProfile = async () => ({
+    response: { errCode: 0, data: { object: { id: 'feed', decodeKey: 'fixture-secret' } } }, payload: {},
+  });
+  await safeLoggingEnv.api.handleAPICall({ id: 'safe-log', key: 'key:channels:feed_profile', body: { url: 'https://channels.weixin.qq.com/web/pages/feed?pass_ticket=fixture-secret' } });
+  assertEqual(responses[0].data.object.id, 'feed', 'logging changes must preserve bridge response');
+  safeLoggingEnv.api.fetchFeedProfile = async () => { throw new Error('token=fixture-secret'); };
+  await safeLoggingEnv.api.handleAPICall({ id: 'safe-error-log', key: 'key:channels:feed_profile', body: { object_id: 'feed' } });
+  assertEqual(JSON.stringify(logs).includes('fixture-secret'), false, 'page query logs must not contain raw request, result or error credentials');
+
+  const rawMarker = 'raw%+/= buffer';
+  let receivedMarker;
+  safeLoggingEnv.sandbox.WXU.API2.finderSearch = async payload => {
+    receivedMarker = payload.lastBuffer;
+    return { errCode: 0, data: { objectList: [] } };
+  };
+  await safeLoggingEnv.api.handleAPICall({ id: 'marker', key: 'key:channels:contact_list', body: { keyword: 'test', type: 3, next_marker: encodeURIComponent(rawMarker) } });
+  assertEqual(receivedMarker, rawMarker, 'MCP continuation must survive one JS decode without changing plus or percent');
 }
 
 main().catch((err) => {

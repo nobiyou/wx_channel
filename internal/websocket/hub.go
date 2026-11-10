@@ -348,8 +348,9 @@ func (h *Hub) callAPIOnClient(ctx context.Context, client *Client, key string, b
 
 		duration := time.Since(startTime)
 		if resp.ErrCode != 0 {
-			utils.LogError("API 调用失败: ID=%s, Duration=%v, ErrCode=%d, ErrMsg=%s",
-				reqID, duration, resp.ErrCode, resp.ErrMsg)
+			// Page error messages may embed credentials or signed request URLs.
+			utils.LogError("API 调用失败: ID=%s, Duration=%v, ErrCode=%d",
+				reqID, duration, resp.ErrCode)
 			return nil, fmt.Errorf("API error (code=%d): %s", resp.ErrCode, resp.ErrMsg)
 		}
 

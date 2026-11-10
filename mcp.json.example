@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "wx-channel": {
+      "url": "http://127.0.0.1:2027/mcp",
+      "headers": {
+        "Authorization": "Bearer <read .wx_channel_mcp_token from the configured downloads directory>"
+      }
+    }
+  }
+}

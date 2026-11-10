@@ -27,14 +27,15 @@ func (r *BrowseHistoryRepository) Create(record *BrowseRecord) error {
 		INSERT INTO browse_history (
 			id, title, author, author_id, duration, size, resolution, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, fav_count, forward_count, page_url,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			created_at, updated_at, metrics_snapshot
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.Exec(query,
 		record.ID, record.Title, record.Author, record.AuthorID,
 		record.Duration, record.Size, record.Resolution, record.CoverURL, record.VideoURL,
 		record.DecryptKey, record.BrowseTime, record.LikeCount, record.CommentCount,
 		record.FavCount, record.ForwardCount, record.PageURL, record.CreatedAt, record.UpdatedAt,
+		record.MetricsSnapshot,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create browse record: %w", err)
@@ -48,7 +49,7 @@ func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 		SELECT id, title, author, author_id, duration, size, COALESCE(resolution, '') as resolution, cover_url, video_url,
 			decrypt_key, browse_time, like_count, comment_count, 
 			COALESCE(fav_count, 0) as fav_count, COALESCE(forward_count, 0) as forward_count, page_url,
-			created_at, updated_at
+			created_at, updated_at, metrics_snapshot
 		FROM browse_history WHERE id = ?
 	`
 	record := &BrowseRecord{}
@@ -57,6 +58,7 @@ func (r *BrowseHistoryRepository) GetByID(id string) (*BrowseRecord, error) {
 		&record.Duration, &record.Size, &record.Resolution, &record.CoverURL, &record.VideoURL,
 		&record.DecryptKey, &record.BrowseTime, &record.LikeCount, &record.CommentCount,
 		&record.FavCount, &record.ForwardCount, &record.PageURL, &record.CreatedAt, &record.UpdatedAt,
+		&record.MetricsSnapshot,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -75,14 +77,14 @@ func (r *BrowseHistoryRepository) Update(record *BrowseRecord) error {
 		UPDATE browse_history SET
 			title = ?, author = ?, author_id = ?, duration = ?, size = ?, resolution = ?,
 			cover_url = ?, video_url = ?, decrypt_key = ?, browse_time = ?, like_count = ?,
-			comment_count = ?, fav_count = ?, forward_count = ?, page_url = ?, updated_at = ?
+			comment_count = ?, fav_count = ?, forward_count = ?, page_url = ?, updated_at = ?, metrics_snapshot = ?
 		WHERE id = ?
 	`
 	result, err := r.db.Exec(query,
 		record.Title, record.Author, record.AuthorID, record.Duration,
 		record.Size, record.Resolution, record.CoverURL, record.VideoURL, record.DecryptKey, record.BrowseTime,
 		record.LikeCount, record.CommentCount, record.FavCount, record.ForwardCount,
-		record.PageURL, record.UpdatedAt, record.ID,
+		record.PageURL, record.UpdatedAt, record.MetricsSnapshot, record.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update browse record: %w", err)
