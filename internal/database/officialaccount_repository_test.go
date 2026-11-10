@@ -227,8 +227,8 @@ func TestOfficialAccountRepositoryMigrationVersionIncludesCatalog(t *testing.T) 
 	if err != nil {
 		t.Fatalf("get schema version: %v", err)
 	}
-	if version != 20 {
-		t.Fatalf("schema version = %d, want 20", version)
+	if version != 21 {
+		t.Fatalf("schema version = %d, want 21", version)
 	}
 	var videoColumnCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('mp_articles') WHERE name = 'video_id'").Scan(&videoColumnCount); err != nil {
