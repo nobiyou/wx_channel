@@ -1,11 +1,11 @@
 package app
 
-const releaseHighlightsVersion = "5.7.14"
+const releaseHighlightsVersion = "5.7.15"
 
 var releaseHighlights = [...]string{
-	"下载目录安全校验 - 阻止 Windows Junction 和符号链接跳出下载目录",
-	"视频流句柄固定 - 校验与读取使用同一个受限文件句柄",
-	"路径兼容性完善 - 支持合法内部跳转、根目录别名、长路径和 UNC 路径",
-	"越界请求明确拒绝 - 解析失败不再回退词法路径继续访问",
-	"跨平台回归验证 - 覆盖 Windows Junction、WSL 符号链接和 Go 1.26",
+	"Codex 视频号 MCP - 查询本地记录和已就绪微信页面的实时数据",
+	"视频内容分析 - 下载、抽帧、画面拆解和分镜复盘工作流",
+	"账号与视频查询 - 支持账号搜索、视频详情、评论和分享链接解析",
+	"播放量字段退休 - 不展示未返回播放量，不把缺失值补成 0",
+	"安全报告产出 - 生成受控 JSON/HTML 分析报告并保留数据来源",
 }
