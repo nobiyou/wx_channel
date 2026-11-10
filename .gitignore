@@ -31,6 +31,7 @@ tools/python/
 *.exe
 !wx_channel_cloud.exe
 !wx_channel_radar.exe
+wx_channel_mac
 *.exe~
 *.dll
 *.so
@@ -160,6 +161,8 @@ scripts/*
 !scripts/switch-insight-data-plane-admin.ps1
 !scripts/switch-insight-data-plane-admin.cmd
 !scripts/insight_data_plane_script_test.go
+!scripts/wx_video_mac_download.sh
+!scripts/wx_video_mac_stop.sh
 
 # 测试文件应纳入版本控制（单元测试是源码的一部分）
 

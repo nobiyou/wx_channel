@@ -800,7 +800,7 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 	upDir := filepath.Join(uploadsRoot, req.UploadId)
 
 	// 目标作者目录
-	authorFolder := utils.CleanFolderName(req.AuthorName)
+	authorFolder := config.AuthorFolder(req.AuthorName, "")
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
 	if err := utils.EnsureDir(savePath); err != nil {
@@ -952,7 +952,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	metricsSnapshot := database.CaptureReportedVideoMetrics(metricValues, Conn.Request.FormValue("metricsSource"), Conn.Request.FormValue("metricsObservedAt"), time.Now())
 
 	// 创建作者文件夹路径
-	authorFolder := utils.CleanFolderName(authorName)
+	authorFolder := config.AuthorFolder(authorName, "")
 
 	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
@@ -1118,10 +1118,7 @@ func (h *UploadHandler) HandleSaveCover(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(req.Author)
-	if authorFolder == "" {
-		authorFolder = "未知作者"
-	}
+	authorFolder := config.AuthorFolder(req.Author, "未知作者")
 
 	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {
@@ -1296,10 +1293,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(req.Author)
-	if authorFolder == "" {
-		authorFolder = "未知作者"
-	}
+	authorFolder := config.AuthorFolder(req.Author, "未知作者")
 
 	downloadsDir, err := h.getDownloadsDir()
 	if err != nil {

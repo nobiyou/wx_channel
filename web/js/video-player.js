@@ -707,6 +707,16 @@ WebSocketClient.onQueueChange((change) => {
             queueState.items = queueState.items.filter(i => i.id !== change.item.id);
             renderQueueList();
             updateQueueStats();
+        } else if (change.action === 'update' && change.item) {
+            // 单项更新：就地替换，避免每个任务完成都整页重新加载队列
+            const idx = queueState.items.findIndex(i => i.id === change.item.id);
+            if (idx === -1) {
+                loadDownloadQueue();
+                return;
+            }
+            queueState.items[idx] = change.item;
+            renderQueueList();
+            updateQueueStats();
         } else if (change.queue) {
             // Full queue update
             queueState.items = change.queue;

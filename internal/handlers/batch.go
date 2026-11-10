@@ -32,6 +32,7 @@ type BatchHandler struct {
 	downloadService *services.DownloadRecordService
 	settingsRepo    *database.SettingsRepository
 	gopeedService   *services.GopeedService // Injected Gopeed Service
+	queueService    *services.QueueService  // 用于把批量任务结果回写到 download_queue
 	mu              sync.RWMutex
 	tasks           []BatchTask
 	running         bool
@@ -154,7 +155,37 @@ func NewBatchHandler(cfg *config.Config, gopeedService *services.GopeedService) 
 		downloadService: services.NewDownloadRecordService(),
 		settingsRepo:    database.NewSettingsRepository(),
 		gopeedService:   gopeedService,
+		queueService:    services.NewQueueService(),
 		tasks:           make([]BatchTask, 0),
+	}
+}
+
+// syncQueueItem 把批量任务的状态回写到 download_queue（按 videoId 匹配）并广播给前端。
+// 没有对应队列项时静默跳过；回写失败只记日志，不影响批量下载本身。
+func (h *BatchHandler) syncQueueItem(videoID, status, errMsg string) {
+	if h.queueService == nil || videoID == "" {
+		return
+	}
+	item, err := h.queueService.GetByVideoID(videoID)
+	if err != nil || item == nil {
+		return
+	}
+	switch status {
+	case "downloading":
+		err = h.queueService.StartDownload(item.ID)
+	case "completed":
+		err = h.queueService.CompleteDownload(item.ID)
+	case "failed":
+		err = h.queueService.FailDownload(item.ID, errMsg)
+	default:
+		err = h.queueService.UpdateStatus(item.ID, status)
+	}
+	if err != nil {
+		utils.Warn("⚠️ [批量下载] 回写队列状态失败 (%s -> %s): %v", videoID, status, err)
+		return
+	}
+	if updated, _ := h.queueService.GetByID(item.ID); updated != nil {
+		GetWebSocketHub().BroadcastQueueUpdate(updated)
 	}
 }
 
@@ -422,6 +453,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 				task := &h.tasks[taskIdx]
 				task.Status = "downloading"
 				h.mu.Unlock()
+				h.syncQueueItem(task.ID, "downloading", "")
 
 				utils.Info("📥 [Worker %d] 开始下载: %s", workerID, task.Title)
 
@@ -435,6 +467,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 					}
 					task.Error = ""
 					h.mu.Unlock()
+					h.syncQueueItem(task.ID, "pending", "")
 					utils.Info("⏸️ [Worker %d] 已暂停: %s", workerID, task.Title)
 					continue
 				}
@@ -449,6 +482,11 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 					utils.Info("✅ [Worker %d] 完成: %s", workerID, task.Title)
 				}
 				h.mu.Unlock()
+				if err != nil {
+					h.syncQueueItem(task.ID, "failed", err.Error())
+				} else {
+					h.syncQueueItem(task.ID, "completed", "")
+				}
 			}
 		}(w)
 	}
@@ -504,7 +542,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 // downloadVideo 下载单个视频（带重试和断点续传）
 func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downloadsDir string, forceRedownload bool, taskIdx int) error {
 	// 创建作者目录
-	authorFolder := utils.CleanFolderName(task.GetAuthor())
+	authorFolder := config.AuthorFolder(task.GetAuthor(), "")
 	savePath := filepath.Join(downloadsDir, authorFolder)
 	if err := utils.EnsureDir(savePath); err != nil {
 		return fmt.Errorf("创建作者目录失败: %v", err)

@@ -566,8 +566,9 @@ func LegitimateRequestBAK(s []byte) (bool, bool, int, int, bool) {
 			b.Reset()
 			return islet, false, v, ContentLength, isHttpRequest
 		}
-		Method := GetMethod(s)
-		if (Method == HttpMethodGET || Method == HttpMethodOPTIONS || Method == HttpMethodHEAD) && len(s) > 4 && CopyString(string(s[len(s)-4:])) == CRLF+CRLF {
+		// 无 Content-Length 且非 chunked 的请求没有 Body（RFC 9112 §6），头部结束即完整，
+		// 与方法无关；否则 DELETE/PUT 等无 Body 请求会一直等到读超时才放行。
+		if len(s) > 4 && CopyString(string(s[len(s)-4:])) == CRLF+CRLF {
 			return false, true, 0, 0, isHttpRequest
 		}
 		//没有长度  读取验证失败
@@ -670,7 +671,9 @@ func LegitimateRequest(s []byte) (bool, bool, int, int, bool) {
 			}
 			return islet, false, int(bLen), int(bLen), isHttpRequest
 		}
-		if (Method == HttpMethodGET || Method == HttpMethodOPTIONS || Method == HttpMethodHEAD) && len(s) > 4 && CopyString(string(s[len(s)-4:])) == CRLF+CRLF {
+		// 无 Content-Length 且非 chunked 的请求没有 Body（RFC 9112 §6），头部结束即完整，
+		// 与方法无关；否则 DELETE/PUT 等无 Body 请求会一直等到读超时才放行。
+		if len(s) > 4 && CopyString(string(s[len(s)-4:])) == CRLF+CRLF {
 			return false, true, 0, 0, isHttpRequest
 		}
 		//没有长度  读取验证失败

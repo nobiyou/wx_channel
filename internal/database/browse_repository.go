@@ -149,8 +149,8 @@ func (r *BrowseHistoryRepository) List(params *PaginationParams) (*PagedResult[B
 	if params.PageSize < 1 {
 		params.PageSize = 20
 	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
+	if params.PageSize > PageSizeAll {
+		params.PageSize = PageSizeAll
 	}
 	if params.SortBy == "" {
 		params.SortBy = "browse_time"
@@ -226,8 +226,8 @@ func (r *BrowseHistoryRepository) Search(query string, params *PaginationParams)
 	if params.PageSize < 1 {
 		params.PageSize = 20
 	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
+	if params.PageSize > PageSizeAll {
+		params.PageSize = PageSizeAll
 	}
 
 	searchPattern := "%" + query + "%"

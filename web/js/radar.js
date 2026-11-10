@@ -241,7 +241,7 @@ async function toggleRadarStatus(id, newStatus) {
 
 // 删除监控目标
 async function deleteRadarTarget(id) {
-    if (!confirm('确定要删除该监控目标吗？')) return;
+    if (!await confirmDialog('确定要删除该监控目标吗？')) return;
 
     try {
         const response = await fetch(`/api/v1/radar/targets/${id}`, {
