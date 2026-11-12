@@ -164,3 +164,34 @@ func TestVideoMetricsRepositoryRoundTrip(t *testing.T) {
 		t.Fatal("internal provenance leaked into GUI contract")
 	}
 }
+
+func TestMergeBrowseMetricsIntoDownloadPreservesExplicitDownloadObservation(t *testing.T) {
+	at := time.Date(2026, 11, 6, 1, 2, 3, 0, time.UTC)
+	browseSnapshot := CaptureVideoMetrics(map[string]any{
+		"likeCount": float64(12), "commentCount": float64(3), "favCount": float64(4), "forwardCount": float64(5),
+	}, "wechat_dom", at)
+	browse := &BrowseRecord{
+		ID: "video-1", LikeCount: 12, CommentCount: 3, FavCount: 4, ForwardCount: 5,
+		MetricsSnapshot: browseSnapshot,
+	}
+
+	download := &DownloadRecord{VideoID: "video-1"}
+	if !MergeBrowseMetricsIntoDownload(download, browse) {
+		t.Fatal("expected browse metrics to fill a legacy download record")
+	}
+	if download.LikeCount != 12 || download.CommentCount != 3 || download.FavCount != 4 || download.ForwardCount != 5 {
+		t.Fatalf("download metrics = %+v, want browse metrics", download)
+	}
+	if download.MetricsSnapshot != browseSnapshot {
+		t.Fatalf("download snapshot = %q, want %q", download.MetricsSnapshot, browseSnapshot)
+	}
+
+	explicitZero := CaptureVideoMetrics(map[string]any{"likeCount": float64(0)}, "wechat_api", at.Add(time.Hour))
+	download = &DownloadRecord{VideoID: "video-1", MetricsSnapshot: explicitZero}
+	if MergeBrowseMetricsIntoDownload(download, browse) {
+		t.Fatal("explicit download observation should remain authoritative")
+	}
+	if download.LikeCount != 0 || download.MetricsSnapshot != explicitZero {
+		t.Fatalf("explicit download observation changed: %+v", download)
+	}
+}

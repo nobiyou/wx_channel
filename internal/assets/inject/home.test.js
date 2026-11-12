@@ -7,7 +7,6 @@ const assert = require('node:assert/strict');
 function loadHome() {
   const source = fs.readFileSync(path.resolve(__dirname, 'home.js'), 'utf8');
   const createdElements = [];
-  const openedWindows = [];
   const logMessages = [];
 
   function createElement() {
@@ -110,44 +109,30 @@ function loadHome() {
       set_feed() {},
       set_cur_video() {},
     },
-    open(url, target) {
-      openedWindows.push({ url, target });
-      return {};
-    },
   };
 
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: 'home.js' });
-  return { sandbox, body, createdElements, openedWindows, logMessages };
+  return { sandbox, body, createdElements, logMessages };
 }
 
-test('adds a non-download management console icon beside the home download icon', async () => {
+test('injects only the home download icon', async () => {
   const env = loadHome();
   await env.sandbox.__ensure_home_download_button(false);
 
   const downloadButton = env.sandbox.document.getElementById('wx-home-download-icon');
   const consoleButton = env.sandbox.document.getElementById('wx-home-console-icon');
   assert.ok(downloadButton);
-  assert.ok(consoleButton);
-  assert.equal(consoleButton.attributes['aria-label'], '管理控制台');
-  assert.equal(consoleButton.title, '管理控制台');
-  assert.equal(consoleButton.style.left, '844px');
+  assert.equal(consoleButton, null);
   assert.equal(downloadButton.style.left, '872px');
-  assert.match(consoleButton.innerHTML, /<rect x="3" y="4"/);
-  assert.doesNotMatch(consoleButton.innerHTML, /M12 3v12/);
-
-  consoleButton.onclick({ preventDefault() {}, stopPropagation() {} });
-  assert.deepEqual(env.openedWindows, [{ url: 'http://127.0.0.1:2025/console', target: '_blank' }]);
-  assert.equal(env.logMessages.length, 1);
-  assert.equal(env.logMessages[0].msg, '已打开管理控制台');
 });
 
-test('does not duplicate the home console icon during reinjection', async () => {
+test('does not duplicate the home download icon during reinjection', async () => {
   const env = loadHome();
   await env.sandbox.__ensure_home_download_button(false);
   await env.sandbox.__ensure_home_download_button(false);
 
   assert.equal(env.body.children.filter((element) => element.id === 'wx-home-download-icon').length, 1);
-  assert.equal(env.body.children.filter((element) => element.id === 'wx-home-console-icon').length, 1);
+  assert.equal(env.body.children.filter((element) => element.id === 'wx-home-console-icon').length, 0);
 });

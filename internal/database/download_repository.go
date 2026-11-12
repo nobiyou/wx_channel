@@ -119,14 +119,16 @@ func (r *DownloadRecordRepository) Update(record *DownloadRecord) error {
 		UPDATE download_records SET
 			video_id = ?, title = ?, author = ?, cover_url = ?, duration = ?, file_size = ?,
 			file_path = ?, format = ?, resolution = ?, status = ?,
-			download_time = ?, error_message = ?, updated_at = ?
+			download_time = ?, error_message = ?, like_count = ?, comment_count = ?,
+			forward_count = ?, fav_count = ?, updated_at = ?, metrics_snapshot = ?
 		WHERE id = ?
 	`
 	result, err := r.db.Exec(query,
 		record.VideoID, record.Title, record.Author, record.CoverURL, record.Duration,
 		record.FileSize, record.FilePath, record.Format, record.Resolution,
-		record.Status, record.DownloadTime, record.ErrorMessage,
-		record.UpdatedAt, record.ID,
+		record.Status, record.DownloadTime, record.ErrorMessage, record.LikeCount,
+		record.CommentCount, record.ForwardCount, record.FavCount, record.UpdatedAt,
+		record.MetricsSnapshot, record.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update download record: %w", err)

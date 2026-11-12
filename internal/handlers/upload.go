@@ -372,6 +372,9 @@ func (h *UploadHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	if h.HandleCancelDownload(Conn) {
 		return true
 	}
+	if h.HandleDownloadLive(Conn) {
+		return true
+	}
 	if h.HandleDownloadVideo(Conn) {
 		return true
 	}
@@ -1660,6 +1663,9 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 				ForwardCount:    req.ForwardCount,
 				FavCount:        req.FavCount,
 				MetricsSnapshot: req.metricsSnapshot,
+			}
+			if browseRecord, browseErr := database.NewBrowseHistoryRepository().GetByID(req.VideoID); browseErr == nil && browseRecord != nil {
+				database.MergeBrowseMetricsIntoDownload(record, browseRecord)
 			}
 			if err := h.downloadService.Create(record); err != nil {
 				utils.Error("保存下载记录失败: %v", err)

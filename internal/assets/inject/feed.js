@@ -466,9 +466,25 @@ function __start_feed_slide_monitor() {
 async function __insert_download_btn_to_feed_toolbar() {
   // 查找顶部工具栏容器
   var findToolbarContainer = function () {
-    return document.querySelector('header.home-header > .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 > .flex.items-center') ||
-      document.querySelector('header.home-header .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 .flex.items-center') ||
-      document.querySelector('.home-header .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 .flex.items-center');
+    var selectors = [
+      'header.home-header > .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 > .flex.items-center',
+      'header.home-header .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 .flex.items-center',
+      '.home-header .pointer-events-auto.flex-initial.flex-shrink-0.pl-4 .flex.items-center',
+      'header.home-header [class*="pointer-events-auto"] [class*="items-center"]',
+      'header.home-header [class*="justify-end"] [class*="items-center"]'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var matched = document.querySelector(selectors[i]);
+      if (matched) return matched;
+    }
+
+    // Tailwind class hashes and the right-side padding changed several times
+    // across WeChat releases. Keep a structural fallback for the header.
+    var header = document.querySelector('header.home-header') || document.querySelector('header[class*="home-header"]');
+    if (!header) return null;
+    var groups = header.querySelectorAll ? header.querySelectorAll('[class*="items-center"]') : [];
+    if (groups && groups.length) return groups[groups.length - 1];
+    return header;
   };
 
   var tryInject = function () {
@@ -541,12 +557,12 @@ async function __insert_download_btn_to_feed_toolbar() {
       subtree: true
     });
 
-    // 5秒后超时
+    // 页面结构可能在路由切换后较晚出现，给 WebView 留出完整渲染周期。
     setTimeout(function () {
       observer.disconnect();
       console.log('[feed.js] 工具栏按钮注入超时');
       resolve(false);
-    }, 5000);
+    }, 15000);
   });
 }
 

@@ -218,102 +218,6 @@ function __handle_home_download_click() {
   });
 }
 
-function __get_home_console_url__() {
-  var config = window.__wx_channels_mp_config__ || {};
-  var configured = config.console_origin || config.consoleOrigin || config.web_origin || config.webOrigin;
-  if (configured) {
-    return String(configured).replace(/\/+$/, '') + '/console';
-  }
-
-  try {
-    var origin = new URL(String(config.origin || 'http://127.0.0.1:2026'), window.location.href);
-    var port = Number(origin.port || 0);
-    origin.port = port > 1 ? String(port - 1) : '2025';
-    origin.pathname = '/console';
-    origin.search = '';
-    origin.hash = '';
-    return origin.toString().replace(/\/+$/, '');
-  } catch (error) {
-    return 'http://127.0.0.1:2025/console';
-  }
-}
-
-function __open_home_console__() {
-  var url = __get_home_console_url__();
-  try {
-    if (typeof window.open === 'function') {
-      var opened = window.open(url, '_blank');
-      if (opened === null) {
-        __wx_log({ msg: '管理控制台被浏览器拦截，请允许打开新窗口' });
-      } else {
-        __wx_log({ msg: '已打开管理控制台' });
-      }
-      return url;
-    }
-  } catch (error) {
-    __wx_log({ msg: '管理控制台打开失败: ' + error.message });
-    return '';
-  }
-
-  __wx_log({ msg: '当前浏览器不支持打开管理控制台' });
-  return '';
-}
-
-function __ensure_home_console_button(forceReinject) {
-  if (!window.location.pathname.includes('/pages/home')) return false;
-
-  var existing = document.getElementById('wx-home-console-icon');
-  if (existing && !forceReinject) {
-    __position_home_console_button(existing);
-    return true;
-  }
-
-  if (existing) existing.remove();
-
-  var button = document.createElement('div');
-  button.id = 'wx-home-console-icon';
-  button.setAttribute('role', 'button');
-  button.setAttribute('tabindex', '0');
-  button.setAttribute('aria-label', '管理控制台');
-  button.title = '管理控制台';
-  button.style.cssText = [
-    'position:fixed',
-    'z-index:99997',
-    'display:flex',
-    'align-items:center',
-    'justify-content:center',
-    'width:20px',
-    'height:20px',
-    'color:rgba(255,255,255,0.64)',
-    'cursor:pointer',
-    'transition:color 0.2s, opacity 0.2s, transform 0.2s',
-    'user-select:none'
-  ].join(';');
-  button.innerHTML = '<svg class="h-full w-full wx-home-console-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8"></rect><path d="M7 8h10M7 12h4M7 16h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><circle cx="17" cy="12" r="1" fill="currentColor"></circle></svg>';
-  button.onclick = function (event) {
-    if (event && typeof event.preventDefault === 'function') event.preventDefault();
-    if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-    __open_home_console__();
-  };
-  button.onkeydown = function (event) {
-    if (!event || (event.key !== 'Enter' && event.key !== ' ')) return;
-    if (typeof event.preventDefault === 'function') event.preventDefault();
-    button.onclick(event);
-  };
-  button.onmouseenter = function () {
-    button.style.color = 'rgba(255,255,255,0.96)';
-    button.style.transform = 'translateY(-1px)';
-  };
-  button.onmouseleave = function () {
-    button.style.color = 'rgba(255,255,255,0.64)';
-    button.style.transform = 'translateY(0)';
-  };
-
-  document.body.appendChild(button);
-  __position_home_console_button(button);
-  return true;
-}
-
 // ==================== 下载按钮注入 ====================
 async function __ensure_home_download_button(forceReinject) {
   if (!window.location.pathname.includes('/pages/home')) return false;
@@ -321,7 +225,6 @@ async function __ensure_home_download_button(forceReinject) {
   var existing = document.getElementById('wx-home-download-icon');
   if (existing && !forceReinject) {
     __position_home_download_button(existing);
-    __ensure_home_console_button(false);
     __update_download_button_state();
     return true;
   }
@@ -361,7 +264,6 @@ async function __ensure_home_download_button(forceReinject) {
 
   document.body.appendChild(button);
   __position_home_download_button(button);
-  __ensure_home_console_button(forceReinject);
   __update_download_button_state();
   return true;
 }
@@ -448,25 +350,6 @@ function __position_home_download_button(button) {
   button.style.left = Math.max(16, left) + 'px';
   button.style.top = Math.max(8, searchRect.top) + 'px';
   button.style.right = 'auto';
-}
-
-function __position_home_console_button(button) {
-  if (!button) return;
-
-  var downloadButton = document.getElementById('wx-home-download-icon');
-  if (downloadButton && typeof downloadButton.getBoundingClientRect === 'function') {
-    var downloadRect = downloadButton.getBoundingClientRect();
-    if (downloadRect && typeof downloadRect.left === 'number' && typeof downloadRect.top === 'number') {
-      button.style.left = Math.max(16, downloadRect.left - 28) + 'px';
-      button.style.top = Math.max(8, downloadRect.top) + 'px';
-      button.style.right = 'auto';
-      return;
-    }
-  }
-
-  button.style.left = 'auto';
-  button.style.top = '16px';
-  button.style.right = '92px';
 }
 
 function __get_active_home_feed_element() {
@@ -937,8 +820,64 @@ async function insert_download_btn() {
     }
   }
 
+  // Profile and likes pages use the list toolbar rather than the home/feed
+  // header. Route this through the same lifecycle so an early HTML response
+  // does not produce a misleading "找不到操作栏" failure.
+  if (pathname.includes('/pages/profile') || pathname.includes('/pages/account/like')) {
+    var collector = window.__wx_channels_profile_collector;
+    if (collector && typeof collector.injectToolbarDownloadIcon === 'function') {
+      collector.injectToolbarDownloadIcon();
+      return true;
+    }
+  }
+
+  // The standalone live page has no downloadable video toolbar. It is a
+  // supported page with no injection work, so do not report a false failure.
+  if (pathname.includes('/pages/live')) {
+    return true;
+  }
+
   // 其他页面尝试通用注入
   __wx_log({ msg: "没有找到操作栏，注入下载按钮失败" });
+  return false;
+}
+
+// ==================== 页面路由注入生命周期 ====================
+function __wx_start_page_injection_lifecycle__() {
+  if (window.__wx_page_injection_lifecycle__) return;
+
+  var state = window.__wx_page_injection_lifecycle__ = {
+    route: '',
+    pending: false,
+    timerIds: []
+  };
+
+  function currentRoute() {
+    return String(window.location.pathname || '') + String(window.location.search || '');
+  }
+
+  function attempt(route) {
+    if (route !== currentRoute() || state.pending) return;
+    state.pending = true;
+    Promise.resolve(insert_download_btn()).catch(function (error) {
+      console.error('[init] 页面注入失败:', error);
+    }).then(function () {
+      state.pending = false;
+    });
+  }
+
+  function schedule() {
+    var route = currentRoute();
+    if (!route || route === state.route) return;
+    state.route = route;
+    state.timerIds.forEach(function (timerId) { clearTimeout(timerId); });
+    state.timerIds = [120, 600, 1600, 3500, 7000].map(function (delay) {
+      return setTimeout(function () { attempt(route); }, delay);
+    });
+  }
+
+  schedule();
+  setInterval(schedule, 500);
 }
 
 console.log('[home.js] Home页面模块加载完成');

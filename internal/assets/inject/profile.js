@@ -309,11 +309,14 @@ window.__wx_channels_profile_collector = {
       if (__wx_is_profile_page__()) {
         return document.querySelector('.profile-info .opr-area') ||
           document.querySelector('.opr-area.mb-6.mt-6') ||
-          document.querySelector('[class*="profile-info"] [class*="opr-area"]');
+          document.querySelector('[class*="profile-info"] [class*="opr-area"]') ||
+          document.querySelector('[class*="profile-info"] [class*="items-center"] [class*="flex"]');
       }
       if (__wx_is_account_like_page__()) {
+        var likeTabs = document.querySelector('[class*="sub-tab"]');
         return document.querySelector('[data-v-3a10b0ca].flex.flex-initial.flex-shrink-0.items-center.space-x-3.pb-5') ||
-          document.querySelector('.flex.flex-initial.flex-shrink-0.items-center.space-x-3.pb-5');
+          document.querySelector('.flex.flex-initial.flex-shrink-0.items-center.space-x-3.pb-5') ||
+          (likeTabs && likeTabs.parentElement);
       }
       return null;
     };
@@ -404,7 +407,7 @@ window.__wx_channels_profile_collector = {
       if (tryInject()) { obs.disconnect(); }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(function () { observer.disconnect(); }, 5000);
+    setTimeout(function () { observer.disconnect(); }, 15000);
   },
 
   // 过滤掉正在直播的图片类型数据

@@ -137,6 +137,9 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 			record.Format = "mp4"
 		}
 	}
+	if browseRecord, browseErr := database.NewBrowseHistoryRepository().GetByID(record.VideoID); browseErr == nil && browseRecord != nil {
+		database.MergeBrowseMetricsIntoDownload(record, browseRecord)
+	}
 
 	// 保存记录到数据库
 	if h.downloadService != nil {

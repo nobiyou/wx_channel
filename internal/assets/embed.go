@@ -49,5 +49,8 @@ var APIClientJS []byte
 //go:embed inject/keep_alive.js
 var KeepAliveJS []byte
 
+//go:embed inject/live.js
+var LiveJS []byte
+
 //go:embed inject/officialaccount.js
 var OfficialAccountJS []byte

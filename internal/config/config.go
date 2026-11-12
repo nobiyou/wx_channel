@@ -63,10 +63,6 @@ type Config struct {
 	SavePageSnapshot bool `mapstructure:"save_page_snapshot"`
 	SavePageJS       bool `mapstructure:"save_page_js"`
 
-	// UI 功能开关
-	ShowLogButton         bool `mapstructure:"show_log_button"`
-	EnableLogInterception bool `mapstructure:"enable_log_interception"` // 是否拦截console日志（禁用可节省内存）
-
 	// 云端管理配置
 	CloudEnabled bool   `mapstructure:"cloud_enabled"` // 是否启用 Insight Edge 连接
 	CloudHubURL  string `mapstructure:"cloud_hub_url"` // Insight Edge WebSocket 地址（保留旧配置键名）
@@ -235,9 +231,6 @@ func setDefaults() {
 
 	viper.SetDefault("save_page_snapshot", false)
 	viper.SetDefault("save_page_js", false)
-	viper.SetDefault("show_log_button", false)
-	viper.SetDefault("enable_log_interception", false) // 默认禁用日志拦截以节省内存
-
 	viper.SetDefault("cloud_enabled", true) // 云端版默认启用，普通版由构建配置关闭
 	viper.SetDefault("cloud_hub_url", DefaultCloudHubURL)
 	viper.SetDefault("cloud_secret", "")
@@ -478,13 +471,6 @@ func loadFromDatabase(config *Config) {
 	if val, err := dbLoader.GetBool("save_page_js", config.SavePageJS); err == nil {
 		config.SavePageJS = val
 	}
-	if val, err := dbLoader.GetBool("show_log_button", config.ShowLogButton); err == nil {
-		config.ShowLogButton = val
-	}
-	if val, err := dbLoader.GetBool("enable_log_interception", config.EnableLogInterception); err == nil {
-		config.EnableLogInterception = val
-	}
-
 	// 云端配置
 	if val, err := dbLoader.GetBool("cloud_enabled", config.CloudEnabled); err == nil {
 		config.CloudEnabled = val

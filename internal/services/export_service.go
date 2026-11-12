@@ -109,6 +109,9 @@ func (s *ExportService) ExportDownloadRecords(format ExportFormat, ids []string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get download records: %w", err)
 	}
+	if err := s.enrichDownloadRecordsFromBrowse(records); err != nil {
+		return nil, err
+	}
 
 	var data []byte
 	var contentType string
@@ -135,6 +138,40 @@ func (s *ExportService) ExportDownloadRecords(format ExportFormat, ids []string)
 		RecordCount: len(records),
 		ExportTime:  time.Now(),
 	}, nil
+}
+
+// enrichDownloadRecordsFromBrowse repairs legacy download rows whose download
+// path did not persist interaction metrics. The repaired row is also written
+// back so subsequent exports and the download history use the same values.
+func (s *ExportService) enrichDownloadRecordsFromBrowse(records []database.DownloadRecord) error {
+	for i := range records {
+		fullRecord, err := s.downloadRepo.GetByID(records[i].ID)
+		if err != nil {
+			return fmt.Errorf("failed to reload download record %q: %w", records[i].ID, err)
+		}
+		if fullRecord == nil {
+			continue
+		}
+		records[i] = *fullRecord
+
+		browse, err := s.browseRepo.GetByID(records[i].VideoID)
+		if err != nil {
+			return fmt.Errorf("failed to read browse metrics for download %q: %w", records[i].ID, err)
+		}
+		if browse == nil && records[i].ID != records[i].VideoID {
+			browse, err = s.browseRepo.GetByID(records[i].ID)
+			if err != nil {
+				return fmt.Errorf("failed to read browse metrics for download %q: %w", records[i].ID, err)
+			}
+		}
+		if browse == nil || !database.MergeBrowseMetricsIntoDownload(&records[i], browse) {
+			continue
+		}
+		if err := s.downloadRepo.Update(&records[i]); err != nil {
+			return fmt.Errorf("failed to persist metrics for download %q: %w", records[i].ID, err)
+		}
+	}
+	return nil
 }
 
 // exportBrowseRecordsToJSON 将浏览记录导出为 JSON 格式

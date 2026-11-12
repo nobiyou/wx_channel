@@ -254,9 +254,15 @@ func (s *QueueService) CompleteDownload(id string) error {
 	filePath := calculateDownloadFilePath(item)
 
 	downloadRepo := database.NewDownloadRecordRepository()
+	browseRecord, _ := database.NewBrowseHistoryRepository().GetByID(item.VideoID)
 
 	// 检查是否已经存在该视频的下载记录 (由 batch.go 等其他流程创建)
 	if existingRecord, _ := downloadRepo.GetByVideoID(item.VideoID); existingRecord != nil {
+		if browseRecord != nil && database.MergeBrowseMetricsIntoDownload(existingRecord, browseRecord) {
+			if err := downloadRepo.Update(existingRecord); err != nil {
+				return err
+			}
+		}
 		// 已存在记录，仅需确保状态为完成，不需要新建
 		if existingRecord.Status != database.DownloadStatusCompleted {
 			existingRecord.Status = database.DownloadStatusCompleted
@@ -286,6 +292,9 @@ func (s *QueueService) CompleteDownload(id string) error {
 		Resolution:   item.Resolution, // 使用队列项目中的分辨率
 		Status:       database.DownloadStatusCompleted,
 		DownloadTime: time.Now(),
+	}
+	if browseRecord != nil {
+		database.MergeBrowseMetricsIntoDownload(downloadRecord, browseRecord)
 	}
 
 	if err := downloadRepo.Create(downloadRecord); err != nil {

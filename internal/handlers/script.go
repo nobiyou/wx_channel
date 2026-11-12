@@ -2,15 +2,21 @@ package handlers
 
 import (
 	"bytes"
+	"compress/gzip"
+	"compress/zlib"
 	"encoding/json"
 	"fmt"
 	htmlstd "html"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"wx_channel/internal/config"
 	"wx_channel/internal/officialaccount"
@@ -18,6 +24,7 @@ import (
 
 	"wx_channel/pkg/util"
 
+	"github.com/andybalholm/brotli"
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 	sunnyPublic "github.com/qtgolang/SunnyNet/public"
 )
@@ -38,13 +45,23 @@ type ScriptHandler struct {
 	utilsJS               []byte
 	apiClientJS           []byte
 	keepAliveJS           []byte
+	liveJS                []byte
 	officialAccountJS     []byte
 	officialAccountOrigin string
 	officialAccountToken  string
 	version               string
+	liveContextMu         sync.Mutex
+	liveContexts          map[string]time.Time
+	lastLivePageAt        time.Time
 }
 
 var officialAccountCSPNoncePattern = regexp.MustCompile(`(?i)(?:'nonce-|nonce-)([^'";\s]+)`)
+
+// livePageContextUntil is process-wide because SunnyNet can deliver the live
+// HTML and its shared JS assets through different callback instances and
+// connection identifiers. The marker only covers the short asset-loading
+// window and is refreshed by each live HTML navigation.
+var livePageContextUntil atomic.Int64
 
 // SetOfficialAccountScript enables the isolated public-account page injection.
 func (h *ScriptHandler) SetOfficialAccountScript(script []byte, origin, token string) {
@@ -54,6 +71,14 @@ func (h *ScriptHandler) SetOfficialAccountScript(script []byte, origin, token st
 	h.officialAccountJS = script
 	h.officialAccountOrigin = strings.TrimRight(strings.TrimSpace(origin), "/")
 	h.officialAccountToken = strings.TrimSpace(token)
+}
+
+// SetLiveScript enables the isolated live-page capture and download UI.
+func (h *ScriptHandler) SetLiveScript(script []byte) {
+	if h == nil {
+		return
+	}
+	h.liveJS = script
 }
 
 // NewScriptHandler 创建脚本处理器
@@ -74,6 +99,7 @@ func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS,
 		apiClientJS:     apiClientJS,
 		keepAliveJS:     keepAliveJS,
 		version:         version,
+		liveContexts:    make(map[string]time.Time),
 	}
 }
 
@@ -107,6 +133,25 @@ func (h *ScriptHandler) Handle(Conn *SunnyNet.HttpConn) bool {
 	}
 	_ = Conn.Response.Body.Close()
 
+	decodedBody, decoded, decodeErr := decodeHTTPResponseBody(Conn.Response.Header, body)
+	if decodeErr != nil {
+		// Do not send a malformed or partially decoded response. Returning the
+		// original bytes lets SunnyNet forward the upstream response with its
+		// original Content-Encoding header intact.
+		utils.LogFileInfo("[响应解压] 跳过响应改写: Content-Encoding=%q | error=%v", Conn.Response.Header.Get("Content-Encoding"), decodeErr)
+		Conn.Response.Body = io.NopCloser(bytes.NewBuffer(body))
+		return false
+	}
+	if decoded {
+		encodingHeader := Conn.Response.Header.Get("Content-Encoding")
+		body = decodedBody
+		Conn.Response.Header.Del("Content-Encoding")
+		Conn.Response.Header.Del("Content-Length")
+		Conn.Response.ContentLength = int64(len(body))
+		Conn.Response.Uncompressed = true
+		utils.LogFileInfo("[响应解压] 已解压上游响应: Content-Encoding=%q | bytes=%d", encodingHeader, len(body))
+	}
+
 	host := Conn.Request.URL.Hostname()
 	path := Conn.Request.URL.Path
 
@@ -137,6 +182,11 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 	}
 
 	html := string(body)
+	originalHTML := html
+	pagePath := strings.TrimRight(path, "/")
+	if pagePath == "" {
+		pagePath = "/"
+	}
 
 	// 添加版本号到JS引用
 	scriptReg1 := regexp.MustCompile(`src="([^"]{1,})\.js"`)
@@ -145,10 +195,26 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 	html = scriptReg2.ReplaceAllString(html, `href="$1.js`+h.version+`"`)
 	Conn.Response.Header.Set("__debug", "append_script")
 
-	if host == "channels.weixin.qq.com" && (path == "/web/pages/feed" || path == "/web/pages/home" || path == "/web/pages/profile" || path == "/web/pages/account/like") {
+	// The proxy has already consumed the upstream body. Once script URLs or
+	// inline injection change its size, stale compression and length headers can
+	// make the WebView render a blank page. This is especially visible on the
+	// standalone live page, which does not receive the download UI injection.
+	isLivePage := host == "channels.weixin.qq.com" && pagePath == "/web/pages/live"
+	if host == "channels.weixin.qq.com" {
+		h.rememberLivePageContext(Conn, pagePath)
+	}
+	if host == "channels.weixin.qq.com" && (html != originalHTML || isLivePage) {
+		resetModifiedResponseHeaders(Conn.Response.Header)
+	}
+
+	if host == "channels.weixin.qq.com" && (pagePath == "/web/pages/feed" || pagePath == "/web/pages/home" || pagePath == "/web/pages/profile" || pagePath == "/web/pages/account/like" || pagePath == "/web/pages/live") {
 		// 根据页面路径注入不同的脚本
-		injectedScripts := h.buildInjectedScripts(path)
-		html = strings.Replace(html, "<head>", "<head>\n"+injectedScripts, 1)
+		injectedScripts := h.buildInjectedScripts(pagePath)
+		var injected bool
+		html, injected = injectScriptsIntoHTMLHead(html, injectedScripts)
+		if !injected {
+			utils.LogFileInfo("[脚本注入] ⚠️ 未找到可用 HTML 注入点 | Host=%s | Path=%s", host, path)
+		}
 		utils.LogFileInfo("页面已成功加载！")
 		utils.LogFileInfo("已添加视频缓存监控和提醒功能")
 		utils.LogFileInfo("[页面加载] 视频号页面已加载 | Host=%s | Path=%s", host, path)
@@ -180,11 +246,7 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 		// The body and its byte length changed. Prevent the WebView from
 		// reusing an uninstrumented cached article or truncating the injected
 		// script because of upstream compression/length headers.
-		Conn.Response.Header.Del("Content-Encoding")
-		Conn.Response.Header.Del("Content-Length")
-		Conn.Response.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		Conn.Response.Header.Set("Pragma", "no-cache")
-		Conn.Response.Header.Set("Expires", "0")
+		resetModifiedResponseHeaders(Conn.Response.Header)
 		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(html)))
 		return true
 	}
@@ -239,6 +301,12 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 	h.saveJavaScriptFile(path, body)
 
 	content := string(body)
+	originalContent := content
+	resetHeaders := func() {
+		if content != originalContent {
+			resetModifiedResponseHeaders(Conn.Response.Header)
+		}
+	}
 
 	// 添加版本号到JS引用
 	depReg := regexp.MustCompile(`"js/([^"]{1,})\.js"`)
@@ -251,36 +319,61 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 	content = importReg.ReplaceAllString(content, `import"$1.js`+h.version+`"`)
 	Conn.Response.Header.Set("__debug", "replace_script")
 
-	// 处理不同的JS文件
-	content, handled := h.handleIndexPublish(path, content)
-	if handled {
-		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
-		return true
-	}
-	content, handled = h.handleVirtualSvgIcons(path, content)
-	if handled {
-		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
-		return true
+	// The standalone live page shares common bundles with Home/Profile. Keep
+	// dependency versioning above, but skip the page-specific source rewrites:
+	// those rewrites assume the Home/Profile runtime and can break live-page
+	// initialization before the detail view is rendered.
+	if h.shouldSkipPageSpecificRewrites(Conn, host) {
+		var handled bool
+		content, handled = h.handleLivePageApis(path, content)
+		if handled {
+			resetHeaders()
+		}
+		mode := "直播页"
+		if !isLivePageRequest(Conn) {
+			mode = "来源未知页"
+		}
+		utils.LogFileInfo("[直播页注入] ✅ %s保留原始页面运行时并跳过主页专用 JS 改写 | Host=%s | Path=%s | Referer=%s", mode, host, path, requestReferer(Conn))
+	} else {
+		// 处理不同的JS文件
+		content, handled := h.handleIndexPublish(path, content)
+		if handled {
+			resetHeaders()
+			Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
+			return true
+		}
+		content, handled = h.handleVirtualSvgIcons(path, content)
+		if handled {
+			resetHeaders()
+			Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
+			return true
+		}
+
+		content, handled = h.handleWorkerRelease(path, content)
+		if handled {
+			resetHeaders()
+			Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
+			return true
+		}
+		content, handled = h.handleConnectPublish(Conn, path, content)
+		if handled {
+			resetHeaders()
+			return true
+		}
 	}
 
-	content, handled = h.handleWorkerRelease(path, content)
-	if handled {
-		Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
-		return true
-	}
-	content, handled = h.handleConnectPublish(Conn, path, content)
-	if handled {
-		return true
-	}
-
+	resetHeaders()
 	Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
 	return true
 }
 
 // buildInjectedScripts 构建所有需要注入的脚本（根据页面路径注入不同脚本）
 func (h *ScriptHandler) buildInjectedScripts(path string) string {
-	// 日志面板脚本（必须在最前面，以便拦截所有console输出）- 所有页面都需要
-	logPanelScript := h.getLogPanelScript()
+	if path == "/web/pages/live" {
+		// 直播页使用隔离运行时，不能加载 Home/Profile 的基础脚本；但仍
+		// 需要页面快照脚本，否则直播页无法通过“保存页面”进入后端保存接口。
+		return fmt.Sprintf(`<script>%s</script>%s`, string(h.liveJS), h.getSavePageContentScript())
+	}
 
 	// 事件系统脚本（mitt + eventbus + utils）- 必须在主脚本之前加载
 	mittScript := fmt.Sprintf(`<script>%s</script>`, string(h.mittJS))
@@ -316,7 +409,7 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 	savePageContentScript := h.getSavePageContentScript()
 
 	// 基础脚本（所有页面都需要）
-	baseScripts := logPanelScript + mittScript + eventbusScript + utilsScript + apiClientScript + keepAliveScript + fileSaverInlineScript + coreScript + decryptScript + downloadScript + batchDownloadScript + feedScript + profileScript + homeScript + preloadScript + downloadTrackerScript + captureUrlScript + savePageContentScript
+	baseScripts := mittScript + eventbusScript + utilsScript + apiClientScript + keepAliveScript + fileSaverInlineScript + coreScript + decryptScript + downloadScript + batchDownloadScript + feedScript + profileScript + homeScript + preloadScript + downloadTrackerScript + captureUrlScript + savePageContentScript
 
 	// 根据页面路径决定是否注入特定脚本
 	var pageSpecificScripts string
@@ -340,6 +433,10 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 		pageSpecificScripts = h.getVideoCacheNotificationScript()
 		utils.LogFileInfo("[脚本注入] Feed页面 - 注入视频缓存监控脚本")
 
+	case "/web/pages/live":
+		// 保留分支文档；实际脚本在函数开头以隔离模式直接返回。
+		pageSpecificScripts = ""
+
 	default:
 		// 其他页面：不注入页面特定脚本
 		pageSpecificScripts = ""
@@ -350,16 +447,41 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 	initScript := `<script>
 console.log('[init] 开始初始化...');
 setTimeout(function() {
-	console.log('[init] 执行 insert_download_btn');
-	if (typeof insert_download_btn === 'function') {
+	console.log('[init] 启动页面注入生命周期');
+	if (typeof __wx_start_page_injection_lifecycle__ === 'function') {
+		__wx_start_page_injection_lifecycle__();
+	} else if (typeof insert_download_btn === 'function') {
 		insert_download_btn();
 	} else {
-		console.error('[init] insert_download_btn 函数未定义');
+		console.error('[init] 页面注入入口未定义');
 	}
 }, 800);
 </script>`
 
 	return baseScripts + pageSpecificScripts + initScript
+}
+
+// injectScriptsIntoHTMLHead inserts inline scripts after the opening head tag.
+// We cannot assume the upstream page uses the exact literal "<head>": the
+// live page has returned attributes and different casing across deployments.
+// If a response has no head element, fall back to the body or document start
+// so diagnostics and the isolated live runtime still become available.
+func injectScriptsIntoHTMLHead(html, scripts string) (string, bool) {
+	if strings.TrimSpace(scripts) == "" {
+		return html, false
+	}
+
+	headPattern := regexp.MustCompile(`(?is)<head\b[^>]*>`)
+	if loc := headPattern.FindStringIndex(html); loc != nil {
+		return html[:loc[1]] + "\n" + scripts + html[loc[1]:], true
+	}
+
+	bodyPattern := regexp.MustCompile(`(?is)<body\b[^>]*>`)
+	if loc := bodyPattern.FindStringIndex(html); loc != nil {
+		return html[:loc[1]] + "\n" + scripts + html[loc[1]:], true
+	}
+
+	return scripts + html, true
 }
 
 // getPreloadScript 获取预加载FileSaver.js库的脚本
@@ -1435,6 +1557,31 @@ func (h *ScriptHandler) handleVirtualSvgIcons(path string, content string) (stri
 	return content, true
 }
 
+// handleLivePageApis captures only the two APIs needed by the standalone live
+// page. The upstream application owns the rest of this shared bundle; adding
+// the Home/Profile event wrappers here can break live-page initialization.
+func (h *ScriptHandler) handleLivePageApis(path, content string) (string, bool) {
+	if !strings.Contains(strings.ToLower(path), "virtual_svg-icons-register") {
+		return content, false
+	}
+
+	changed := false
+	wrap := func(label string, re *regexp.Regexp, valueExpression string) {
+		if !re.MatchString(content) {
+			return
+		}
+		replacement := `async ` + label + `($1){var __wx_live_result__=await(async()=>{$2})();try{if(typeof window.__wx_channels_capture_live_data__==="function"){window.__wx_channels_capture_live_data__("` + label + `",` + valueExpression + `);}}catch(__wx_live_capture_error__){}return __wx_live_result__;}async`
+		content = re.ReplaceAllString(content, replacement)
+		changed = true
+		utils.LogFileInfo("[直播页注入] ✅ 捕获 %s API", label)
+	}
+
+	wrap("finderGetCommentDetail", regexp.MustCompile(`(?s)async\s+finderGetCommentDetail\s*\(([^)]+)\)\s*\{(.*?)\}\s*async`), `__wx_live_result__&&__wx_live_result__.data`)
+	wrap("finderGetLiveInfo", regexp.MustCompile(`(?s)async\s+finderGetLiveInfo\s*\(([^)]+)\)\s*\{(.*?)\}\s*async`), `__wx_live_result__&&__wx_live_result__.data`)
+	wrap("joinLive", regexp.MustCompile(`(?s)async\s+joinLive\s*\(([^)]+)\)\s*\{(.*?)\}\s*async`), `__wx_live_result__&&__wx_live_result__.data`)
+	return content, changed
+}
+
 // min 返回两个整数中的较小值
 func min(a, b int) int {
 	if a < b {
@@ -1465,6 +1612,191 @@ func isJavaScriptContentType(contentType string) bool {
 	return strings.Contains(lower, "javascript") || strings.Contains(lower, "ecmascript") || strings.Contains(lower, "text/js")
 }
 
+func isLivePageRequest(conn *SunnyNet.HttpConn) bool {
+	refererURL, ok := requestRefererURL(conn)
+	if !ok {
+		return false
+	}
+	pagePath := strings.TrimRight(refererURL.Path, "/")
+	return strings.EqualFold(refererURL.Hostname(), "channels.weixin.qq.com") && pagePath == "/web/pages/live"
+}
+
+// shouldSkipPageSpecificRewrites keeps the upstream page runtime intact for
+// live pages. Some Windows WebView requests omit Referer on shared bundles;
+// those requests are deliberately treated as unknown rather than being sent
+// through Home/Profile source rewrites, which can blank the live page.
+func (h *ScriptHandler) shouldSkipPageSpecificRewrites(conn *SunnyNet.HttpConn, host string) bool {
+	if isLivePageRequest(conn) {
+		return true
+	}
+	// Shared bundles are commonly served from res.wx.qq.com rather than
+	// channels.weixin.qq.com. Check the active live navigation before the host
+	// filter, otherwise those cross-host assets still receive Home rewrites.
+	if h.hasRecentLivePageContext(conn) {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(host), "channels.weixin.qq.com") {
+		return false
+	}
+	if strings.TrimSpace(requestReferer(conn)) == "" {
+		return true
+	}
+	_, ok := requestRefererURL(conn)
+	return !ok
+}
+
+// rememberLivePageContext handles WebView requests whose Referer remains the
+// Home route while the browser is loading the standalone live route. Without
+// this context, shared bundles are incorrectly sent through Home/Profile
+// rewrites and the live page can render blank.
+func (h *ScriptHandler) rememberLivePageContext(conn *SunnyNet.HttpConn, pagePath string) {
+	if h == nil || conn == nil {
+		return
+	}
+	key := requestContextKey(conn)
+	h.liveContextMu.Lock()
+	defer h.liveContextMu.Unlock()
+	if pagePath == "/web/pages/live" {
+		if h.liveContexts == nil {
+			h.liveContexts = make(map[string]time.Time)
+		}
+		now := time.Now()
+		h.liveContexts[key] = now
+		livePageContextUntil.Store(now.Add(45 * time.Second).UnixNano())
+		utils.LogFileInfo("[直播上下文] 已记录直播导航，后续公共 JS 进入直播保护窗口 | Path=%s", pagePath)
+		// SunnyNet may expose different PID/client values for the HTML request
+		// and the following shared-script requests. Keep a short fallback window
+		// so the live route is still recognized across those connections.
+		h.lastLivePageAt = now
+		return
+	}
+	delete(h.liveContexts, key)
+}
+
+func (h *ScriptHandler) hasRecentLivePageContext(conn *SunnyNet.HttpConn) bool {
+	if h == nil || conn == nil {
+		return false
+	}
+	key := requestContextKey(conn)
+	h.liveContextMu.Lock()
+	defer h.liveContextMu.Unlock()
+	when, ok := h.liveContexts[key]
+	if ok && time.Since(when) <= 2*time.Minute {
+		return true
+	}
+	if ok {
+		delete(h.liveContexts, key)
+	}
+	if !h.lastLivePageAt.IsZero() && time.Since(h.lastLivePageAt) <= 45*time.Second {
+		return true
+	}
+	return livePageContextUntil.Load() > time.Now().UnixNano()
+}
+
+func requestContextKey(conn *SunnyNet.HttpConn) string {
+	if conn == nil {
+		return "unknown"
+	}
+	if conn.PID != 0 {
+		return fmt.Sprintf("pid:%d", conn.PID)
+	}
+	if strings.TrimSpace(conn.ClientIP) != "" {
+		return "client:" + strings.TrimSpace(conn.ClientIP)
+	}
+	return "unknown"
+}
+
+func requestReferer(conn *SunnyNet.HttpConn) string {
+	if conn == nil || conn.Request == nil || conn.Request.Header == nil {
+		return ""
+	}
+	return strings.TrimSpace(conn.Request.Header.Get("Referer"))
+}
+
+func requestRefererURL(conn *SunnyNet.HttpConn) (*url.URL, bool) {
+	referer := requestReferer(conn)
+	if referer == "" {
+		return nil, false
+	}
+	refererURL, err := url.Parse(referer)
+	if err != nil || refererURL == nil || refererURL.Hostname() == "" {
+		return nil, false
+	}
+	return refererURL, true
+}
+
+// decodeHTTPResponseBody decodes the response before any HTML/JavaScript
+// rewrite. SunnyNet uses a custom HTTP reader and does not transparently
+// decompress upstream gzip/br responses like net/http.Transport does.
+func decodeHTTPResponseBody(headers http.Header, body []byte) ([]byte, bool, error) {
+	if headers == nil || len(body) == 0 {
+		return body, false, nil
+	}
+	encodingHeader := strings.TrimSpace(strings.ToLower(headers.Get("Content-Encoding")))
+	if encodingHeader == "" || encodingHeader == "identity" {
+		return body, false, nil
+	}
+
+	encodings := strings.Split(encodingHeader, ",")
+	decoded := body
+	for i := len(encodings) - 1; i >= 0; i-- {
+		encodingName := strings.TrimSpace(encodings[i])
+		var reader io.Reader
+		switch encodingName {
+		case "gzip", "x-gzip":
+			gzipReader, err := gzip.NewReader(bytes.NewReader(decoded))
+			if err != nil {
+				return body, false, err
+			}
+			reader = gzipReader
+			decoded, err = io.ReadAll(reader)
+			closeErr := gzipReader.Close()
+			if err != nil {
+				return body, false, err
+			}
+			if closeErr != nil {
+				return body, false, closeErr
+			}
+		case "deflate":
+			zlibReader, err := zlib.NewReader(bytes.NewReader(decoded))
+			if err != nil {
+				return body, false, err
+			}
+			decoded, err = io.ReadAll(zlibReader)
+			closeErr := zlibReader.Close()
+			if err != nil {
+				return body, false, err
+			}
+			if closeErr != nil {
+				return body, false, closeErr
+			}
+		case "br":
+			brotliReader := brotli.NewReader(bytes.NewReader(decoded))
+			var err error
+			decoded, err = io.ReadAll(brotliReader)
+			if err != nil {
+				return body, false, err
+			}
+		case "":
+			continue
+		default:
+			return body, false, fmt.Errorf("unsupported content encoding %q", encodingName)
+		}
+	}
+	return decoded, true, nil
+}
+
+func resetModifiedResponseHeaders(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	headers.Del("Content-Encoding")
+	headers.Del("Content-Length")
+	headers.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	headers.Set("Pragma", "no-cache")
+	headers.Set("Expires", "0")
+}
+
 func logInjectPatternResult(label string, path string, matched bool) {
 	if matched {
 		utils.LogFileInfo("[注入检查] ✅ %s 命中: %s", label, path)
@@ -1489,699 +1821,6 @@ func (h *ScriptHandler) handleConnectPublish(Conn *SunnyNet.HttpConn, path strin
 
 	Conn.Response.Body = io.NopCloser(bytes.NewBuffer([]byte(content)))
 	return content, true
-}
-
-// getLogPanelScript 获取日志面板脚本，用于在页面上显示日志（替代控制台）
-func (h *ScriptHandler) getLogPanelScript() string {
-	// 根据配置决定是否显示日志按钮
-	showLogButton := "false"
-	if h.getConfig().ShowLogButton {
-		showLogButton = "true"
-	}
-
-	// 根据配置决定是否拦截日志（默认禁用以节省内存）
-	enableLogInterception := "false"
-	if h.getConfig().EnableLogInterception {
-		enableLogInterception = "true"
-	}
-
-	return `<script>
-// 日志按钮显示配置
-window.__wx_channels_show_log_button__ = ` + showLogButton + `;
-// 日志拦截配置（禁用可节省内存）
-window.__wx_channels_enable_log_interception__ = ` + enableLogInterception + `;
-</script>
-<script>
-(function() {
-	'use strict';
-	
-	// 防止重复初始化
-	if (window.__wx_channels_log_panel_initialized__) {
-		return;
-	}
-	window.__wx_channels_log_panel_initialized__ = true;
-	
-	// 日志存储（优化版 - 减少内存占用）
-	const logStore = {
-		logs: [],
-		maxLogs: 100, // 最多保存100条日志（从500降低）
-		updatePending: false,
-		lastCleanupTime: Date.now(),
-		cleanupInterval: 5 * 60 * 1000, // 每5分钟自动清理一次
-		
-		addLog: function(level, args) {
-			// 过滤掉过于频繁的日志（防止刷屏）
-			const message = Array.from(args).map(arg => {
-				if (typeof arg === 'object') {
-					try {
-						// 限制对象序列化深度，避免大对象占用过多内存
-						return JSON.stringify(arg, this.jsonReplacer, 2);
-					} catch (e) {
-						return String(arg);
-					}
-				}
-				return String(arg);
-			}).join(' ');
-			
-			// 跳过重复的日志（连续相同的日志只保留一条）
-			if (this.logs.length > 0) {
-				const lastLog = this.logs[this.logs.length - 1];
-				if (lastLog.level === level && lastLog.message === message) {
-					// 更新重复计数
-					lastLog.count = (lastLog.count || 1) + 1;
-					lastLog.timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-					this.scheduleUpdate();
-					return;
-				}
-			}
-			
-			const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-			this.logs.push({
-				level: level,
-				message: message,
-				timestamp: timestamp,
-				count: 1
-			});
-			
-			// 限制日志数量（移除最旧的日志）
-			if (this.logs.length > this.maxLogs) {
-				this.logs.shift();
-			}
-			
-			// 定期自动清理（防止内存累积）
-			const now = Date.now();
-			if (now - this.lastCleanupTime > this.cleanupInterval) {
-				this.autoCleanup();
-				this.lastCleanupTime = now;
-			}
-			
-			// 批量更新显示（防止频繁DOM操作）
-			this.scheduleUpdate();
-		},
-		
-		// JSON序列化限制器（防止大对象）
-		jsonReplacer: function(key, value) {
-			// 限制字符串长度
-			if (typeof value === 'string' && value.length > 500) {
-				return value.substring(0, 500) + '... (truncated)';
-			}
-			// 限制数组长度
-			if (Array.isArray(value) && value.length > 10) {
-				return value.slice(0, 10).concat(['... (' + (value.length - 10) + ' more items)']);
-			}
-			return value;
-		},
-		
-		// 自动清理旧日志（保留最近50条）
-		autoCleanup: function() {
-			if (this.logs.length > 50) {
-				const removed = this.logs.length - 50;
-				this.logs = this.logs.slice(-50);
-				console.log('[日志面板] 自动清理了 ' + removed + ' 条旧日志');
-			}
-		},
-		
-		// 批量更新显示（防抖）
-		scheduleUpdate: function() {
-			if (this.updatePending) return;
-			this.updatePending = true;
-			
-			// 使用 requestAnimationFrame 批量更新
-			requestAnimationFrame(() => {
-				this.updatePending = false;
-				if (window.__wx_channels_log_panel) {
-					window.__wx_channels_log_panel.updateDisplay();
-				}
-			});
-		},
-		
-		clear: function() {
-			this.logs = [];
-			if (window.__wx_channels_log_panel) {
-				window.__wx_channels_log_panel.updateDisplay();
-			}
-		}
-	};
-	
-	// 创建日志面板
-	function createLogPanel() {
-		const panel = document.createElement('div');
-		panel.id = '__wx_channels_log_panel';
-		// 检测是否为移动设备
-		const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-		
-		// 面板位置：在按钮旁边，向上展开
-		const btnBottom = isMobile ? 80 : 20;
-		const btnLeft = isMobile ? 15 : 20;
-		const btnSize = isMobile ? 56 : 50;
-		const panelWidth = isMobile ? 'calc(100% - 30px)' : '400px';
-		const panelMaxWidth = isMobile ? '100%' : '500px';
-		const panelMaxHeight = isMobile ? 'calc(100vh - ' + (btnBottom + btnSize + 20) + 'px)' : '500px';
-		const panelFontSize = isMobile ? '11px' : '12px';
-		const panelBottom = btnBottom + btnSize + 10; // 按钮上方10px
-		
-		panel.style.cssText = 'position: fixed;' +
-			'bottom: ' + panelBottom + 'px;' +
-			'left: ' + btnLeft + 'px;' +
-			'width: ' + panelWidth + ';' +
-			'max-width: ' + panelMaxWidth + ';' +
-			'max-height: ' + panelMaxHeight + ';' +
-			'height: 0;' +
-			'background: rgba(0, 0, 0, 0.95);' +
-			'border: 1px solid #333;' +
-			'border-radius: 8px 8px 0 0;' +
-			'box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);' +
-			'z-index: 999999;' +
-			'font-family: "Consolas", "Monaco", "Courier New", monospace;' +
-			'font-size: ' + panelFontSize + ';' +
-			'color: #fff;' +
-			'display: none;' +
-			'flex-direction: column;' +
-			'overflow: hidden;' +
-			'transition: height 0.3s ease, opacity 0.3s ease;' +
-			'opacity: 0;';
-		
-		// 标题栏
-		const header = document.createElement('div');
-		header.style.cssText = 'background: #1a1a1a;' +
-			'padding: 8px 12px;' +
-			'border-bottom: 1px solid #333;' +
-			'display: flex;' +
-			'justify-content: space-between;' +
-			'align-items: center;' +
-			'cursor: move;' +
-			'user-select: none;';
-		
-		const title = document.createElement('span');
-		title.textContent = '📋 日志面板';
-		title.style.cssText = 'font-weight: bold; color: #4CAF50;';
-		
-		const controls = document.createElement('div');
-		controls.style.cssText = 'display: flex; gap: 8px;';
-		
-		// 清空按钮
-		const clearBtn = document.createElement('button');
-		clearBtn.textContent = '清空';
-		clearBtn.style.cssText = 'background: #f44336;' +
-			'color: white;' +
-			'border: none;' +
-			'padding: 4px 12px;' +
-			'border-radius: 4px;' +
-			'cursor: pointer;' +
-			'font-size: 11px;';
-		clearBtn.onclick = function(e) {
-			e.stopPropagation();
-			logStore.clear();
-		};
-		
-		// 复制日志按钮
-		const copyBtn = document.createElement('button');
-		copyBtn.textContent = '复制';
-		copyBtn.style.cssText = 'background: #4CAF50;' +
-			'color: white;' +
-			'border: none;' +
-			'padding: 4px 12px;' +
-			'border-radius: 4px;' +
-			'cursor: pointer;' +
-			'font-size: 11px;';
-		copyBtn.onclick = function(e) {
-			e.stopPropagation();
-			try {
-				// 构建日志文本
-				var logText = '';
-				logStore.logs.forEach(function(log) {
-					var levelPrefix = '';
-					switch(log.level) {
-						case 'log': levelPrefix = '[LOG]'; break;
-						case 'info': levelPrefix = '[INFO]'; break;
-						case 'warn': levelPrefix = '[WARN]'; break;
-						case 'error': levelPrefix = '[ERROR]'; break;
-						default: levelPrefix = '[LOG]';
-					}
-					logText += '[' + log.timestamp + '] ' + levelPrefix + ' ' + log.message + '\n';
-				});
-				
-				if (logText === '') {
-					alert('日志为空，无需复制');
-					return;
-				}
-				
-				// 使用 Clipboard API 复制
-				if (navigator.clipboard && navigator.clipboard.writeText) {
-					navigator.clipboard.writeText(logText).then(function() {
-						copyBtn.textContent = '已复制';
-						setTimeout(function() {
-							copyBtn.textContent = '复制';
-						}, 2000);
-					}).catch(function(err) {
-						console.error('复制失败:', err);
-						// 降级方案：使用传统方法
-						copyToClipboardFallback(logText);
-					});
-				} else {
-					// 降级方案：使用传统方法
-					copyToClipboardFallback(logText);
-				}
-			} catch (error) {
-				console.error('复制日志失败:', error);
-				alert('复制失败: ' + error.message);
-			}
-		};
-		
-		// 复制到剪贴板的降级方案
-		function copyToClipboardFallback(text) {
-			var textArea = document.createElement('textarea');
-			textArea.value = text;
-			textArea.style.position = 'fixed';
-			textArea.style.top = '-999px';
-			textArea.style.left = '-999px';
-			document.body.appendChild(textArea);
-			textArea.select();
-			try {
-				var successful = document.execCommand('copy');
-				if (successful) {
-					copyBtn.textContent = '已复制';
-					setTimeout(function() {
-						copyBtn.textContent = '复制';
-					}, 2000);
-				} else {
-					alert('复制失败，请手动选择文本复制');
-				}
-			} catch (err) {
-				console.error('复制失败:', err);
-				alert('复制失败: ' + err.message);
-			}
-			document.body.removeChild(textArea);
-		}
-		
-		// 导出日志按钮
-		const exportBtn = document.createElement('button');
-		exportBtn.textContent = '导出';
-		exportBtn.style.cssText = 'background: #FF9800;' +
-			'color: white;' +
-			'border: none;' +
-			'padding: 4px 12px;' +
-			'border-radius: 4px;' +
-			'cursor: pointer;' +
-			'font-size: 11px;';
-		exportBtn.onclick = function(e) {
-			e.stopPropagation();
-			try {
-				// 构建日志文本
-				var logText = '';
-				logStore.logs.forEach(function(log) {
-					var levelPrefix = '';
-					switch(log.level) {
-						case 'log': levelPrefix = '[LOG]'; break;
-						case 'info': levelPrefix = '[INFO]'; break;
-						case 'warn': levelPrefix = '[WARN]'; break;
-						case 'error': levelPrefix = '[ERROR]'; break;
-						default: levelPrefix = '[LOG]';
-					}
-					logText += '[' + log.timestamp + '] ' + levelPrefix + ' ' + log.message + '\n';
-				});
-				
-				if (logText === '') {
-					alert('日志为空，无需导出');
-					return;
-				}
-				
-				// 创建 Blob 并下载
-				var blob = new Blob([logText], { type: 'text/plain;charset=utf-8' });
-				var url = URL.createObjectURL(blob);
-				var a = document.createElement('a');
-				var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-				a.href = url;
-				a.download = 'wx_channels_logs_' + timestamp + '.txt';
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				URL.revokeObjectURL(url);
-				
-				exportBtn.textContent = '已导出';
-				setTimeout(function() {
-					exportBtn.textContent = '导出';
-				}, 2000);
-			} catch (error) {
-				console.error('导出日志失败:', error);
-				alert('导出失败: ' + error.message);
-			}
-		};
-		
-		// 最小化/最大化按钮
-		const toggleBtn = document.createElement('button');
-		toggleBtn.textContent = '−';
-		toggleBtn.style.cssText = 'background: #2196F3;' +
-			'color: white;' +
-			'border: none;' +
-			'padding: 4px 12px;' +
-			'border-radius: 4px;' +
-			'cursor: pointer;' +
-			'font-size: 11px;';
-		toggleBtn.onclick = function(e) {
-			e.stopPropagation();
-			const content = panel.querySelector('.log-content');
-			if (content.style.display === 'none') {
-				content.style.display = 'flex';
-				toggleBtn.textContent = '−';
-			} else {
-				content.style.display = 'none';
-				toggleBtn.textContent = '+';
-			}
-		};
-		
-		// 关闭按钮
-		const closeBtn = document.createElement('button');
-		closeBtn.textContent = '×';
-		closeBtn.style.cssText = 'background: #666;' +
-			'color: white;' +
-			'border: none;' +
-			'padding: 4px 12px;' +
-			'border-radius: 4px;' +
-			'cursor: pointer;' +
-			'font-size: 14px;' +
-			'line-height: 1;';
-		closeBtn.onclick = function(e) {
-			e.stopPropagation();
-			panel.style.display = 'none';
-		};
-		
-		controls.appendChild(clearBtn);
-		controls.appendChild(copyBtn);
-		controls.appendChild(exportBtn);
-		controls.appendChild(toggleBtn);
-		controls.appendChild(closeBtn);
-		header.appendChild(title);
-		header.appendChild(controls);
-		
-		// 日志内容区域
-		const content = document.createElement('div');
-		content.className = 'log-content';
-		content.style.cssText = 'flex: 1;' +
-			'overflow-y: auto;' +
-			'padding: 8px;' +
-			'display: flex;' +
-			'flex-direction: column;' +
-			'gap: 2px;';
-		
-		// 滚动条样式
-		content.style.scrollbarWidth = 'thin';
-		content.style.scrollbarColor = '#555 #222';
-		
-		// 更新显示（优化版 - 减少DOM操作）
-		function updateDisplay() {
-			// 使用 DocumentFragment 批量更新DOM
-			const fragment = document.createDocumentFragment();
-			
-			logStore.logs.forEach(log => {
-				const logItem = document.createElement('div');
-				logItem.style.cssText = 'padding: 4px 8px;' +
-					'border-radius: 4px;' +
-					'word-break: break-all;' +
-					'line-height: 1.4;' +
-					'background: rgba(255, 255, 255, 0.05);';
-				
-				// 根据日志级别设置颜色
-				let levelColor = '#fff';
-				let levelPrefix = '';
-				switch(log.level) {
-					case 'log':
-						levelColor = '#4CAF50';
-						levelPrefix = '[LOG]';
-						break;
-					case 'info':
-						levelColor = '#2196F3';
-						levelPrefix = '[INFO]';
-						break;
-					case 'warn':
-						levelColor = '#FF9800';
-						levelPrefix = '[WARN]';
-						break;
-					case 'error':
-						levelColor = '#f44336';
-						levelPrefix = '[ERROR]';
-						logItem.style.background = 'rgba(244, 67, 54, 0.2)';
-						break;
-					default:
-						levelPrefix = '[LOG]';
-				}
-				
-				// 显示重复计数
-				const countBadge = log.count > 1 ? 
-					'<span style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px; font-size: 10px; margin-left: 4px;">×' + log.count + '</span>' : '';
-				
-				logItem.innerHTML = '<span style="color: #888; font-size: 10px;">[' + log.timestamp + ']</span>' +
-					'<span style="color: ' + levelColor + '; font-weight: bold; margin: 0 4px;">' + levelPrefix + '</span>' +
-					countBadge +
-					'<span style="color: #fff;">' + escapeHtml(log.message) + '</span>';
-				
-				fragment.appendChild(logItem);
-			});
-			
-			// 一次性更新DOM
-			content.innerHTML = '';
-			content.appendChild(fragment);
-			
-			// 自动滚动到底部
-			content.scrollTop = content.scrollHeight;
-		}
-		
-		// HTML转义
-		function escapeHtml(text) {
-			const div = document.createElement('div');
-			div.textContent = text;
-			return div.innerHTML;
-		}
-		
-		panel.appendChild(header);
-		panel.appendChild(content);
-		document.body.appendChild(panel);
-		
-		// 移除拖拽功能，面板位置固定在按钮旁边
-		
-		// 计算面板高度
-		function getPanelHeight() {
-			// 临时显示以计算高度
-			const wasHidden = panel.style.display === 'none';
-			if (wasHidden) {
-				panel.style.display = 'flex';
-				panel.style.height = 'auto';
-				panel.style.opacity = '0';
-			}
-			
-			const maxHeight = parseInt(panel.style.maxHeight) || 500;
-			const headerHeight = header.offsetHeight || 40;
-			const contentHeight = content.scrollHeight || 0;
-			const totalHeight = headerHeight + contentHeight + 16; // 16px padding
-			const finalHeight = Math.min(maxHeight, totalHeight);
-			
-			if (wasHidden) {
-				panel.style.display = 'none';
-				panel.style.height = '0';
-			}
-			
-			return finalHeight;
-		}
-		
-		// 暴露更新方法
-		window.__wx_channels_log_panel = {
-			panel: panel,
-			updateDisplay: updateDisplay,
-			show: function() {
-				panel.style.display = 'flex';
-				// 使用requestAnimationFrame确保DOM已更新
-				requestAnimationFrame(function() {
-					const targetHeight = getPanelHeight();
-					panel.style.height = targetHeight + 'px';
-					panel.style.opacity = '1';
-				});
-			},
-			hide: function() {
-				panel.style.height = '0';
-				panel.style.opacity = '0';
-				// 动画结束后隐藏
-				setTimeout(function() {
-					if (panel.style.opacity === '0') {
-						panel.style.display = 'none';
-					}
-				}, 300);
-			},
-			toggle: function() {
-				if (panel.style.display === 'none' || panel.style.opacity === '0') {
-					this.show();
-				} else {
-					this.hide();
-				}
-			}
-		};
-	}
-	
-	// 保存原始的console方法
-	const originalConsole = {
-		log: console.log.bind(console),
-		info: console.info.bind(console),
-		warn: console.warn.bind(console),
-		error: console.error.bind(console),
-		debug: console.debug.bind(console)
-	};
-	
-	// 重写console方法（可选 - 根据配置决定是否拦截）
-	// 如果不需要日志面板，可以完全禁用拦截以节省内存
-	const enableLogInterception = window.__wx_channels_enable_log_interception__ || false;
-	
-	if (enableLogInterception) {
-		console.log = function(...args) {
-			originalConsole.log.apply(console, args);
-			logStore.addLog('log', args);
-		};
-		
-		console.info = function(...args) {
-			originalConsole.info.apply(console, args);
-			logStore.addLog('info', args);
-		};
-		
-		console.warn = function(...args) {
-			originalConsole.warn.apply(console, args);
-			logStore.addLog('warn', args);
-		};
-		
-		console.error = function(...args) {
-			originalConsole.error.apply(console, args);
-			logStore.addLog('error', args);
-		};
-		
-		console.debug = function(...args) {
-			originalConsole.debug.apply(console, args);
-			logStore.addLog('log', args);
-		};
-		
-		console.log('[日志面板] 日志拦截已启用（可能占用内存）');
-	} else {
-		console.log('[日志面板] 日志拦截已禁用（节省内存模式）');
-	}
-	
-	// 创建浮动触发按钮（用于微信浏览器等无法使用快捷键的场景）
-	function createToggleButton() {
-		const btn = document.createElement('div');
-		btn.id = '__wx_channels_log_toggle_btn';
-		btn.innerHTML = '📋';
-		// 检测是否为移动设备
-		const isMobileBtn = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-		
-		const btnBottom = isMobileBtn ? '80px' : '20px';
-		const btnLeft = isMobileBtn ? '15px' : '20px';
-		const btnWidth = isMobileBtn ? '56px' : '50px';
-		const btnHeight = isMobileBtn ? '56px' : '50px';
-		const btnFontSize = isMobileBtn ? '28px' : '24px';
-		
-		btn.style.cssText = 'position: fixed;' +
-			'bottom: ' + btnBottom + ';' +
-			'left: ' + btnLeft + ';' +
-			'width: ' + btnWidth + ';' +
-			'height: ' + btnHeight + ';' +
-			'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);' +
-			'border-radius: 50%;' +
-			'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);' +
-			'z-index: 999998;' +
-			'cursor: pointer;' +
-			'display: flex;' +
-			'align-items: center;' +
-			'justify-content: center;' +
-			'font-size: ' + btnFontSize + ';' +
-			'user-select: none;' +
-			'transition: all 0.3s ease;' +
-			'border: 2px solid rgba(255, 255, 255, 0.3);' +
-			'touch-action: manipulation;' +
-			'-webkit-tap-highlight-color: transparent;';
-		
-		btn.addEventListener('mouseenter', function() {
-			btn.style.transform = 'scale(1.1)';
-			btn.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
-		});
-		
-		btn.addEventListener('mouseleave', function() {
-			btn.style.transform = 'scale(1)';
-			btn.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-		});
-		
-		// 切换面板显示的函数
-		function togglePanel() {
-			if (window.__wx_channels_log_panel) {
-				const isVisible = window.__wx_channels_log_panel.panel.style.display !== 'none' && 
-				                  window.__wx_channels_log_panel.panel.style.opacity !== '0';
-				window.__wx_channels_log_panel.toggle();
-				// 延迟更新按钮状态，等待动画完成
-				setTimeout(function() {
-					const nowVisible = window.__wx_channels_log_panel.panel.style.display !== 'none' && 
-					                  window.__wx_channels_log_panel.panel.style.opacity !== '0';
-					if (nowVisible) {
-						btn.style.opacity = '1';
-						btn.title = '点击隐藏日志面板';
-					} else {
-						btn.style.opacity = '0.6';
-						btn.title = '点击显示日志面板';
-					}
-				}, 100);
-			}
-		}
-		
-		// 支持点击和触摸事件
-		btn.addEventListener('click', togglePanel);
-		btn.addEventListener('touchend', function(e) {
-			e.preventDefault();
-			togglePanel();
-		});
-		
-		btn.title = '点击显示/隐藏日志面板';
-		document.body.appendChild(btn);
-		
-		// 初始状态：面板默认不显示，按钮半透明
-		btn.style.opacity = '0.6';
-	}
-	
-	// 页面加载完成后创建面板和按钮
-	if (document.readyState === 'loading') {
-		document.addEventListener('DOMContentLoaded', function() {
-			createLogPanel();
-			// 根据配置决定是否创建日志按钮
-			if (window.__wx_channels_show_log_button__) {
-				createToggleButton();
-			}
-		});
-	} else {
-		createLogPanel();
-		// 根据配置决定是否创建日志按钮
-		if (window.__wx_channels_show_log_button__) {
-			createToggleButton();
-		}
-	}
-	
-	// 添加快捷键：Ctrl+Shift+L 显示/隐藏日志面板（桌面浏览器可用）
-	document.addEventListener('keydown', function(e) {
-		if (e.ctrlKey && e.shiftKey && e.key === 'L') {
-			e.preventDefault();
-			if (window.__wx_channels_log_panel) {
-				window.__wx_channels_log_panel.toggle();
-				// 同步更新按钮状态
-				const btn = document.getElementById('__wx_channels_log_toggle_btn');
-				if (btn) {
-					setTimeout(function() {
-						const isVisible = window.__wx_channels_log_panel.panel.style.display !== 'none' && 
-						                  window.__wx_channels_log_panel.panel.style.opacity !== '0';
-						if (isVisible) {
-							btn.style.opacity = '1';
-						} else {
-							btn.style.opacity = '0.6';
-						}
-					}, 100);
-				}
-			}
-		}
-	});
-	
-	// 面板默认不显示，需要点击按钮才会显示
-})();
-</script>`
 }
 
 // saveJavaScriptFile 保存页面加载的 JavaScript 文件到本地以便分析

@@ -960,7 +960,15 @@ async function __batch_download_selected__() {
         durationMs: video.duration || 0,
         size: video.size || 0,
         sizeMB: __format_batch_size_mb__(video.size || 0),
-        createTime: __format_batch_create_time__(video.createtime || 0)
+        createTime: __format_batch_create_time__(video.createtime || 0),
+        metricsSource: video.metricsSource || '',
+        metricsObservedAt: video.metricsObservedAt || '',
+        metricValues: {
+          likeCount: video.likeCount,
+          commentCount: video.commentCount,
+          favCount: video.favCount,
+          forwardCount: video.forwardCount
+        }
       };
     });
 

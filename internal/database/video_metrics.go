@@ -113,3 +113,66 @@ func ParseVideoMetrics(raw string) (*VideoMetricsSnapshot, error) {
 	}
 	return &snapshot, nil
 }
+
+// MergeBrowseMetricsIntoDownload fills a download record from its matching
+// browse record when the download path did not receive interaction metrics.
+// A valid download snapshot remains authoritative, including explicit zeroes;
+// this keeps a later browse observation from being combined into a different
+// observation. Legacy records without a snapshot may use the browse counters
+// as a compatibility fallback.
+func MergeBrowseMetricsIntoDownload(download *DownloadRecord, browse *BrowseRecord) bool {
+	if download == nil || browse == nil {
+		return false
+	}
+
+	currentSnapshot, currentValid := parseVideoMetricsOrNil(download.MetricsSnapshot)
+	browseSnapshot, browseValid := parseVideoMetricsOrNil(browse.MetricsSnapshot)
+	changed := false
+
+	if currentValid {
+		changed = fillDownloadMetricFromSnapshot(&download.LikeCount, currentSnapshot.LikeCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.CommentCount, currentSnapshot.CommentCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.FavCount, currentSnapshot.FavoriteCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.ForwardCount, currentSnapshot.ForwardCount) || changed
+		return changed
+	}
+
+	if browseValid {
+		if download.MetricsSnapshot != browse.MetricsSnapshot {
+			download.MetricsSnapshot = browse.MetricsSnapshot
+			changed = true
+		}
+		changed = fillDownloadMetricFromSnapshot(&download.LikeCount, browseSnapshot.LikeCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.CommentCount, browseSnapshot.CommentCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.FavCount, browseSnapshot.FavoriteCount) || changed
+		changed = fillDownloadMetricFromSnapshot(&download.ForwardCount, browseSnapshot.ForwardCount) || changed
+		return changed
+	}
+
+	changed = fillDownloadMetricFromLegacy(&download.LikeCount, browse.LikeCount) || changed
+	changed = fillDownloadMetricFromLegacy(&download.CommentCount, browse.CommentCount) || changed
+	changed = fillDownloadMetricFromLegacy(&download.FavCount, browse.FavCount) || changed
+	changed = fillDownloadMetricFromLegacy(&download.ForwardCount, browse.ForwardCount) || changed
+	return changed
+}
+
+func parseVideoMetricsOrNil(raw string) (*VideoMetricsSnapshot, bool) {
+	snapshot, err := ParseVideoMetrics(raw)
+	return snapshot, err == nil
+}
+
+func fillDownloadMetricFromSnapshot(destination *int64, source *int64) bool {
+	if destination == nil || source == nil || *destination == *source {
+		return false
+	}
+	*destination = *source
+	return true
+}
+
+func fillDownloadMetricFromLegacy(destination *int64, source int64) bool {
+	if destination == nil || *destination != 0 || source == 0 {
+		return false
+	}
+	*destination = source
+	return true
+}

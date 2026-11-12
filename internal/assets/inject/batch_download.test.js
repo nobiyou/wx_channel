@@ -161,11 +161,25 @@ test('select-all skips entries that cannot be downloaded', () => {
 
 test('batch API receives only selections in the active tab', async () => {
   const { manager, sandbox, requests } = loadBatch();
-  manager.setVideos([video('v1'), video('r1', 'live_replay')]);
+  manager.setVideos([video('v1', 'media', {
+    metricsSource: 'wechat_dom',
+    metricsObservedAt: '2026-11-12T00:00:00.000Z',
+    likeCount: 7,
+    commentCount: 2,
+    favCount: 3,
+    forwardCount: 4
+  }), video('r1', 'live_replay')]);
   manager.toggleSelect('v1', true);
   manager.toggleSelect('r1', true);
   await sandbox.__batch_download_selected__();
   assert.deepEqual(ids(requests[0].videos), ['v1']);
+  assert.equal(requests[0].videos[0].metricsSource, 'wechat_dom');
+  assert.deepEqual(requests[0].videos[0].metricValues, {
+    likeCount: 7,
+    commentCount: 2,
+    favCount: 3,
+    forwardCount: 4
+  });
   assert.equal(manager.isDownloading, false);
   manager.setActiveTab('live_replay');
   await sandbox.__batch_download_selected__();

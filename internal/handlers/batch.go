@@ -64,13 +64,16 @@ type BatchTask struct {
 	Resolution string `json:"resolution,omitempty"` // 分辨率
 	PageSource string `json:"pageSource,omitempty"` // 页面来源（batch_console/batch_feed/batch_home等）
 	// 统计数据字段
-	PlayCount    string `json:"playCount,omitempty"`    // 播放量（字符串格式）
-	LikeCount    string `json:"likeCount,omitempty"`    // 点赞数（字符串格式）
-	CommentCount string `json:"commentCount,omitempty"` // 评论数（字符串格式）
-	FavCount     string `json:"favCount,omitempty"`     // 收藏数（字符串格式）
-	ForwardCount string `json:"forwardCount,omitempty"` // 转发数（字符串格式）
-	CreateTime   string `json:"createTime,omitempty"`   // 创建时间
-	IPRegion     string `json:"ipRegion,omitempty"`     // IP所在地
+	PlayCount         string         `json:"playCount,omitempty"`    // 播放量（字符串格式）
+	LikeCount         string         `json:"likeCount,omitempty"`    // 点赞数（字符串格式）
+	CommentCount      string         `json:"commentCount,omitempty"` // 评论数（字符串格式）
+	FavCount          string         `json:"favCount,omitempty"`     // 收藏数（字符串格式）
+	ForwardCount      string         `json:"forwardCount,omitempty"` // 转发数（字符串格式）
+	MetricsSource     string         `json:"metricsSource,omitempty"`
+	MetricsObservedAt string         `json:"metricsObservedAt,omitempty"`
+	MetricValues      map[string]any `json:"metricValues,omitempty"`
+	CreateTime        string         `json:"createTime,omitempty"` // 创建时间
+	IPRegion          string         `json:"ipRegion,omitempty"`   // IP所在地
 	// 兼容数据库导出格式
 	VideoURL     string `json:"videoUrl,omitempty"`   // 视频URL（数据库格式）
 	CoverURL     string `json:"coverUrl,omitempty"`   // 封面URL（数据库格式）
@@ -332,20 +335,23 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			FileFormat:      v.FileFormat,
 			Status:          "pending",
 			// 保留额外字段
-			Duration:     v.Duration,
-			SizeMB:       v.SizeMB,
-			Cover:        v.Cover,
-			Resolution:   v.Resolution,
-			PageSource:   pageSource, // 保存页面来源
-			PlayCount:    v.PlayCount,
-			LikeCount:    v.LikeCount,
-			CommentCount: v.CommentCount,
-			FavCount:     v.FavCount,
-			ForwardCount: v.ForwardCount,
-			CreateTime:   v.CreateTime,
-			IPRegion:     v.IPRegion,
-			DurationMs:   v.DurationMs,
-			Size:         v.Size,
+			Duration:          v.Duration,
+			SizeMB:            v.SizeMB,
+			Cover:             v.Cover,
+			Resolution:        v.Resolution,
+			PageSource:        pageSource, // 保存页面来源
+			PlayCount:         v.PlayCount,
+			LikeCount:         v.LikeCount,
+			CommentCount:      v.CommentCount,
+			FavCount:          v.FavCount,
+			ForwardCount:      v.ForwardCount,
+			MetricsSource:     v.MetricsSource,
+			MetricsObservedAt: v.MetricsObservedAt,
+			MetricValues:      v.MetricValues,
+			CreateTime:        v.CreateTime,
+			IPRegion:          v.IPRegion,
+			DurationMs:        v.DurationMs,
+			Size:              v.Size,
 		}
 	}
 	h.running = true
@@ -843,9 +849,28 @@ func firstNonEmpty(values ...string) string {
 
 // saveDownloadRecord 保存下载记录到数据库
 func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, status string) {
+	if task == nil {
+		return
+	}
+
+	browseRepo := database.NewBrowseHistoryRepository()
+	browseRecord, _ := browseRepo.GetByID(task.ID)
+	metricsSnapshot := database.CaptureReportedVideoMetrics(task.MetricValues, task.MetricsSource, task.MetricsObservedAt, time.Now())
+
 	// 检查DB中是否已存在记录
 	if h.downloadService != nil {
 		if existing, err := h.downloadService.GetByID(task.ID); err == nil && existing != nil {
+			if metricsSnapshot != "" {
+				database.MergeBrowseMetricsIntoDownload(existing, &database.BrowseRecord{MetricsSnapshot: metricsSnapshot})
+			}
+			if browseRecord != nil {
+				database.MergeBrowseMetricsIntoDownload(existing, browseRecord)
+			}
+			if existing.MetricsSnapshot != "" || existing.LikeCount != 0 || existing.CommentCount != 0 || existing.FavCount != 0 || existing.ForwardCount != 0 {
+				if updateErr := h.downloadService.Update(existing); updateErr != nil {
+					utils.Warn("更新下载记录互动数据失败: %v", updateErr)
+				}
+			}
 			utils.Info("📝 [下载记录] 记录已存在(DB)，跳过保存: %s - %s", task.Title, task.GetAuthor())
 			return
 		}
@@ -860,39 +885,42 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 	// 解析时长字符串为毫秒 (格式: "00:22" 或 "1:23:45")
 	duration := resolveBatchTaskDurationMs(task)
 
-	// 尝试从浏览记录获取更多信息（分辨率、封面等）
+	// 尝试从浏览记录获取更多信息（分辨率、封面和互动指标等）
 	resolution := task.Resolution
 	coverURL := task.Cover
-	if resolution == "" || coverURL == "" {
-		browseRepo := database.NewBrowseHistoryRepository()
-		if browseRecord, err := browseRepo.GetByID(task.ID); err == nil && browseRecord != nil {
-			if resolution == "" {
-				resolution = browseRecord.Resolution
-			}
-			if coverURL == "" {
-				coverURL = browseRecord.CoverURL
-			}
-			// 如果时长为0，也从浏览记录获取
-			if duration == 0 {
-				duration = browseRecord.Duration
-			}
+	if browseRecord != nil {
+		if resolution == "" {
+			resolution = browseRecord.Resolution
+		}
+		if coverURL == "" {
+			coverURL = browseRecord.CoverURL
+		}
+		if duration == 0 {
+			duration = browseRecord.Duration
 		}
 	}
 
 	// 数据库保留完整原始标题；文件名长度只约束实际落盘路径。
 	record := &database.DownloadRecord{
-		ID:           task.ID,
-		VideoID:      task.ID,
-		Title:        task.Title,
-		Author:       task.GetAuthor(),
-		CoverURL:     coverURL,
-		Duration:     duration,
-		FileSize:     fileSize,
-		FilePath:     filePath,
-		Format:       "mp4",
-		Resolution:   resolution,
-		Status:       status,
-		DownloadTime: time.Now(),
+		ID:              task.ID,
+		VideoID:         task.ID,
+		Title:           task.Title,
+		Author:          task.GetAuthor(),
+		CoverURL:        coverURL,
+		Duration:        duration,
+		FileSize:        fileSize,
+		FilePath:        filePath,
+		Format:          "mp4",
+		Resolution:      resolution,
+		Status:          status,
+		DownloadTime:    time.Now(),
+		MetricsSnapshot: metricsSnapshot,
+	}
+	if metricsSnapshot != "" {
+		database.MergeBrowseMetricsIntoDownload(record, &database.BrowseRecord{MetricsSnapshot: metricsSnapshot})
+	}
+	if browseRecord != nil {
+		database.MergeBrowseMetricsIntoDownload(record, browseRecord)
 	}
 
 	// 保存到数据库

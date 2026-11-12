@@ -320,6 +320,7 @@ func (app *App) Run() {
 		fmt.Sprintf("http://127.0.0.1:%d", app.Port+1),
 		app.Cfg.SecretToken,
 	)
+	app.ScriptHandler.SetLiveScript(assets.LiveJS)
 
 	// 初始化拦截器
 	app.requestInterceptors = []router.Interceptor{
@@ -515,7 +516,6 @@ func (app *App) printEnvConfig() {
 		os.Getenv("WX_CHANNEL_SAVE_PAGE_SNAPSHOT") != "" ||
 		os.Getenv("WX_CHANNEL_SAVE_SEARCH_DATA") != "" ||
 		os.Getenv("WX_CHANNEL_SAVE_PAGE_JS") != "" ||
-		os.Getenv("WX_CHANNEL_SHOW_LOG_BUTTON") != "" ||
 		os.Getenv("WX_CHANNEL_UPLOAD_CHUNK_CONCURRENCY") != "" ||
 		os.Getenv("WX_CHANNEL_UPLOAD_MERGE_CONCURRENCY") != "" ||
 		os.Getenv("WX_CHANNEL_DOWNLOAD_CONCURRENCY") != ""
@@ -539,7 +539,6 @@ func (app *App) printEnvConfig() {
 		}
 		utils.PrintLabelValue("💾", "保存页面快照", fmt.Sprintf("%v", app.Cfg.SavePageSnapshot))
 		utils.PrintLabelValue("📄", "保存JS文件", fmt.Sprintf("%v", app.Cfg.SavePageJS))
-		utils.PrintLabelValue("🖼️", "显示日志按钮", fmt.Sprintf("%v", app.Cfg.ShowLogButton))
 		utils.PrintLabelValue("📤", "分片上传并发", app.Cfg.UploadChunkConcurrency)
 		utils.PrintLabelValue("🔀", "分片合并并发", app.Cfg.UploadMergeConcurrency)
 		utils.PrintLabelValue("📥", "批量下载并发", app.Cfg.DownloadConcurrency)

@@ -1922,12 +1922,7 @@ function appendVideosToBatchInput(videos) {
     const text = input.value.trim();
     if (text) {
         try {
-            const parsed = JSON.parse(text);
-            if (Array.isArray(parsed)) {
-                current = parsed;
-            } else if (parsed && Array.isArray(parsed.videos)) {
-                current = parsed.videos;
-            }
+            current = parseBatchVideoJSON(text);
         } catch (e) {
             throw new Error('当前视频列表不是合法 JSON，请先修正后再导入分享链接');
         }
@@ -2007,14 +2002,7 @@ async function startBatchDownload() {
 
     let videos;
     try {
-        videos = JSON.parse(videoListText);
-        if (!Array.isArray(videos)) {
-            if (videos.videos && Array.isArray(videos.videos)) {
-                videos = videos.videos;
-            } else {
-                throw new Error('Invalid format');
-            }
-        }
+        videos = parseBatchVideoJSON(videoListText);
     } catch (e) {
         showMessage('JSON 格式错误: ' + e.message, 'error');
         return;
@@ -2861,8 +2849,7 @@ async function retryFailedTasks() {
     let originalVideos = [];
 
     try {
-        const parsed = JSON.parse(videoListText);
-        originalVideos = Array.isArray(parsed) ? parsed : (parsed.videos || []);
+        originalVideos = parseBatchVideoJSON(videoListText);
     } catch (e) {
         showMessage('无法解析原始视频列表，请手动重新提交', 'error');
         return;
