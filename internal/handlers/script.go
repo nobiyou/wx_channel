@@ -340,7 +340,10 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 
 	content := string(body)
 	originalContent := content
-	if referer, ok := requestRefererURL(Conn); ok &&
+	// Cross-origin scripts may carry only the channel origin as Referer. The
+	// explicit live cache marker must take priority over that ambiguous login
+	// path, or the capture hooks are skipped before live routing is reached.
+	if referer, ok := requestRefererURL(Conn); ok && !isLiveScriptRequest(Conn) &&
 		((strings.EqualFold(referer.Hostname(), "channels.weixin.qq.com") && isChannelLoginPagePath(referer.Path)) ||
 			(strings.EqualFold(referer.Hostname(), "open.weixin.qq.com") && strings.TrimRight(referer.Path, "/") == "/connect/qrconnect")) {
 		Conn.Response.Body = io.NopCloser(bytes.NewReader(body))

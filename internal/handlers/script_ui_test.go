@@ -70,19 +70,31 @@ func TestLoginHTMLKeepsOfficialScriptNamesAndNonce(t *testing.T) {
 }
 
 func TestLoginJavascriptIsForwardedWithoutRewritingDependencies(t *testing.T) {
-	handler := &ScriptHandler{version: "5.7.16"}
-	conn := &SunnyNet.HttpConn{
-		Request:  httptest.NewRequest(http.MethodGet, "https://res.wx.qq.com/shared.js", nil),
-		Response: &http.Response{Header: http.Header{"Content-Type": {"application/javascript"}}},
-	}
-	conn.Request.Header.Set("Referer", "https://channels.weixin.qq.com/platform/login")
-	original := `import "./dependency.js";`
-	handler.HandleJavaScriptResponse(conn, "res.wx.qq.com", "/shared.js", []byte(original))
-	body, err := io.ReadAll(conn.Response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != original {
-		t.Fatal("login JavaScript dependencies must remain unchanged")
+	for _, referer := range []string{
+		"https://channels.weixin.qq.com/",
+		"https://channels.weixin.qq.com",
+		"https://channels.weixin.qq.com/platform/login",
+		"https://channels.weixin.qq.com/login.html",
+		"https://open.weixin.qq.com/connect/qrconnect",
+	} {
+		t.Run(referer, func(t *testing.T) {
+			handler := liveCacheTestHandler()
+			pageScriptURL(t, handler, "/web/pages/live")
+			t.Cleanup(func() { livePageContextUntil.Store(0) })
+			conn := &SunnyNet.HttpConn{
+				Request:  httptest.NewRequest(http.MethodGet, "https://res.wx.qq.com/shared.js", nil),
+				Response: &http.Response{Header: http.Header{"Content-Type": {"application/javascript"}}},
+			}
+			conn.Request.Header.Set("Referer", referer)
+			original := `import "./dependency.js";`
+			handler.HandleJavaScriptResponse(conn, "res.wx.qq.com", "/shared.js", []byte(original))
+			body, err := io.ReadAll(conn.Response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != original {
+				t.Fatal("unmarked login JavaScript dependencies must remain unchanged even after live navigation")
+			}
+		})
 	}
 }

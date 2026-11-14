@@ -61,24 +61,38 @@ func TestLiveScriptCacheIsSeparateFromHomeAndPreviousRuntime(t *testing.T) {
 func TestMarkedLiveScriptKeepsCaptureAcrossStaleReferers(t *testing.T) {
 	livePageContextUntil.Store(0)
 	t.Cleanup(func() { livePageContextUntil.Store(0) })
-	handler := liveCacheTestHandler()
-	source := `import "chunk.js";class API{async finderGetLiveInfo(args){return this.post(args)}async next(){}}export{API};`
-	conn := &SunnyNet.HttpConn{
-		Request:  httptest.NewRequest(http.MethodGet, "https://res.wx.qq.com/virtual_svg-icons-register.js?t=5.7.16&wx_live=previous-navigation", nil),
-		Response: &http.Response{Header: http.Header{"Content-Type": {"application/javascript"}}},
-	}
-	conn.Request.Header.Set("Referer", "https://channels.weixin.qq.com/web/pages/home")
-	if !handler.HandleJavaScriptResponse(conn, "res.wx.qq.com", conn.Request.URL.Path, []byte(source)) {
-		t.Fatal("live bundle was not handled")
-	}
-	body, err := io.ReadAll(conn.Response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "__wx_channels_capture_live_data__") || strings.Contains(string(body), "WXU.emit") {
-		t.Fatalf("marked live bundle received the wrong page runtime: %s", body)
-	}
-	if !strings.Contains(string(body), "chunk.js?t=5.7.16&wx_live=") {
-		t.Fatalf("live context was lost from dependency imports: %s", body)
+	for _, referer := range []string{
+		"https://channels.weixin.qq.com/web/pages/home",
+		"https://channels.weixin.qq.com/",
+		"https://channels.weixin.qq.com",
+		"",
+	} {
+		t.Run(referer, func(t *testing.T) {
+			handler := liveCacheTestHandler()
+			source := `import "chunk.js";class API{async finderGetLiveInfo(args){return this.post(args)}async joinLive(args){return this.post(args)}async next(){}}export{API};`
+			conn := &SunnyNet.HttpConn{
+				Request:  httptest.NewRequest(http.MethodGet, "https://res.wx.qq.com/virtual_svg-icons-register.js?t=5.7.16&wx_live=previous-navigation", nil),
+				Response: &http.Response{Header: http.Header{"Content-Type": {"application/javascript"}}},
+			}
+			conn.Request.Header.Set("Referer", referer)
+			if !handler.HandleJavaScriptResponse(conn, "res.wx.qq.com", conn.Request.URL.Path, []byte(source)) {
+				t.Fatal("live bundle was not handled")
+			}
+			body, err := io.ReadAll(conn.Response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, api := range []string{"finderGetLiveInfo", "joinLive"} {
+				if !strings.Contains(string(body), `__wx_channels_capture_live_data__("`+api+`",`) {
+					t.Fatalf("marked live bundle did not capture %s: %s", api, body)
+				}
+			}
+			if strings.Contains(string(body), "WXU.emit") {
+				t.Fatalf("marked live bundle received the Home page runtime: %s", body)
+			}
+			if !strings.Contains(string(body), "chunk.js?t=5.7.16&wx_live=") {
+				t.Fatalf("live context was lost from dependency imports: %s", body)
+			}
+		})
 	}
 }
