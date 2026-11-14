@@ -139,7 +139,7 @@ function __wx_channels_export_current_raw_json__() {
   var rawProfile = store.rawProfile || profile || null;
 
   if (!rawFeed && !rawProfile) {
-    __wx_log({ msg: '❌ 当前没有可导出的原始视频数据' });
+    __wx_log({ level: 'error', msg: '❌ 当前没有可导出的原始视频数据' });
     alert('当前没有可导出的原始视频数据');
     return;
   }
@@ -199,7 +199,7 @@ function __wx_channels_build_original_video_url__(rawUrl) {
     try {
       parsed = new URL(decodeURIComponent(source), baseOrigin);
     } catch (decodeErr) {
-      __wx_log({ msg: '⚠️ 原始视频链接归一化失败<' + (decodeErr && decodeErr.message ? decodeErr.message : decodeErr) + '>' });
+      __wx_log({ level: 'warn', msg: '⚠️ 原始视频链接归一化失败<' + (decodeErr && decodeErr.message ? decodeErr.message : decodeErr) + '>' });
       return source;
     }
   }
@@ -280,7 +280,7 @@ function __wx_channels_remove_legacy_original_marker__(rawUrl) {
     parsed.searchParams.delete('X-snsvideoflag');
     return parsed.toString();
   } catch (err) {
-    __wx_log({ msg: '⚠️ 旧版原始视频标记清理失败<' + (err && err.message ? err.message : err) + '>' });
+    __wx_log({ level: 'warn', msg: '⚠️ 旧版原始视频标记清理失败<' + (err && err.message ? err.message : err) + '>' });
     return source;
   }
 }
@@ -487,7 +487,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
     headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
   }
 
-  __wx_log({ msg: '🚀 使用 Gopeed 后端下载: ' + filename.substring(0, 30) + '...' });
+  __wx_log({ level: 'debug', msg: '🚀 使用 Gopeed 后端下载: ' + filename.substring(0, 30) + '...' });
   var response = await fetch('/__wx_channels_api/download_video', {
     method: 'POST',
     headers: headers,
@@ -508,7 +508,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
   var msg = data.skipped
     ? '⏭️ 文件已存在，跳过下载'
     : (data.started ? '⏳ 后端下载任务已在后台启动' : (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载'));
-  __wx_log({ msg: msg });
+  __wx_log({ level: 'debug', msg: msg });
   return data;
 }
 
@@ -524,11 +524,11 @@ async function __wx_channels_handle_click_download__(spec) {
   if (!spec && !hasTrueOriginal) {
     spec = __wx_channels_get_best_available_spec__(profile);
     if (!spec) {
-      __wx_log({ msg: '❌ 微信当前未提供原始流或可用画质' });
+      __wx_log({ level: 'error', msg: '❌ 微信当前未提供原始流或可用画质' });
       alert('微信当前未提供原始视频流，无法下载');
       return;
     }
-    __wx_log({ msg: '⚠️ 微信未提供原始流，改用最高可用画质<' + spec.fileFormat + '>' });
+    __wx_log({ level: 'warn', msg: '⚠️ 微信未提供原始流，改用最高可用画质<' + spec.fileFormat + '>' });
   }
 
   var filename = profile.title || profile.id || String(new Date().valueOf());
@@ -542,18 +542,18 @@ async function __wx_channels_handle_click_download__(spec) {
     filename = filename + qualitySuffix;
   }
 
-  __wx_log({ msg: '下载模式<' + normalized.mode + '>' });
-  __wx_log({ msg: '视频链接<' + _profile.url + '>' });
+  __wx_log({ level: 'debug', msg: '下载模式<' + normalized.mode + '>' });
+  __wx_log({ level: 'debug', msg: '视频链接<' + _profile.url + '>' });
 
   if (_profile.type === "picture") {
     filename = __wx_channels_prepare_download_filename__(filename, '', '');
-    __wx_log({ msg: '下载文件名<' + filename + '>' });
+    __wx_log({ level: 'debug', msg: '下载文件名<' + filename + '>' });
     __wx_channels_download3(_profile, filename);
     return;
   }
 
   filename = __wx_channels_prepare_download_filename__(filename, qualitySuffix, '.mp4');
-  __wx_log({ msg: '下载文件名<' + filename + '>' });
+  __wx_log({ level: 'debug', msg: '下载文件名<' + filename + '>' });
 
   if (!_profile.url) {
     alert("视频URL为空，无法下载");
@@ -563,7 +563,7 @@ async function __wx_channels_handle_click_download__(spec) {
   try {
     await __wx_channels_download_via_backend__(_profile, filename, normalized);
   } catch (error) {
-    __wx_log({ msg: '❌ 下载视频失败: ' + (error && error.message ? error.message : error) });
+    __wx_log({ level: 'error', msg: '❌ 下载视频失败: ' + (error && error.message ? error.message : error) });
     alert('下载失败: ' + (error && error.message ? error.message : error));
   }
 }
@@ -582,7 +582,7 @@ async function __wx_channels_handle_download_cover() {
     return;
   }
 
-  __wx_log({ msg: '正在保存封面到服务器...' });
+  __wx_log({ level: 'debug', msg: '正在保存封面到服务器...' });
 
   var requestData = {
     coverUrl: coverUrl,
@@ -605,14 +605,14 @@ async function __wx_channels_handle_download_cover() {
     .then(function (response) { return response.json(); })
     .then(function (data) {
       if (data.success) {
-        __wx_log({ msg: '✓ ' + (data.message || '封面已保存') });
+        __wx_log({ level: 'debug', msg: '✓ ' + (data.message || '封面已保存') });
       } else {
-        __wx_log({ msg: '❌ ' + (data.error || '保存封面失败') });
+        __wx_log({ level: 'error', msg: '❌ ' + (data.error || '保存封面失败') });
         alert('保存封面失败: ' + (data.error || '未知错误'));
       }
     })
     .catch(function (error) {
-      __wx_log({ msg: '❌ 保存封面失败: ' + error.message });
+      __wx_log({ level: 'error', msg: '❌ 保存封面失败: ' + error.message });
       alert("保存封面失败: " + error.message);
     });
 }

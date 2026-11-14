@@ -186,7 +186,7 @@ func summarizeClientCapabilities(statuses []hubws.ClientStatus) localCapabilityS
 // Start 启动连接器
 func (c *Connector) Start() {
 	if c.cfg.CloudHubURL == "" {
-		utils.LogInfo("云端管理未启用 (未配置 cloud_hub_url)")
+		utils.LogFileInfo("云端管理未启用 (未配置 cloud_hub_url)")
 		return
 	}
 
@@ -295,7 +295,7 @@ func (c *Connector) handleConnection() {
 	go c.heartbeatLoop(ctx)
 
 	// 监听消息
-	utils.LogInfo("开始监听云端消息...")
+	utils.LogFileInfo("开始监听云端消息...")
 	for {
 		// 设置读取超时为 150 秒（比心跳间隔 10 秒长很多，给足够的缓冲）
 		ctx, cancel := context.WithTimeout(c.ctx, 150*time.Second)
@@ -306,7 +306,7 @@ func (c *Connector) handleConnection() {
 			// 检查是否是正常关闭
 			status := websocket.CloseStatus(err)
 			if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
-				utils.LogInfo("WebSocket 正常关闭")
+				utils.LogFileInfo("WebSocket 正常关闭")
 			} else if status == -1 {
 				// EOF 或连接断开
 				utils.LogError("WebSocket 连接断开: %v", err)
@@ -471,7 +471,7 @@ func (c *Connector) send(msg CloudMessage) error {
 			messageType = websocket.MessageBinary // 使用二进制消息类型标识压缩数据
 
 			compressionRate := float64(originalSize-len(compressed)) / float64(originalSize) * 100
-			utils.LogInfo("数据压缩: %d -> %d 字节 (压缩率: %.1f%%)",
+			utils.LogFileInfo("数据压缩: %d -> %d 字节 (压缩率: %.1f%%)",
 				originalSize, len(compressed), compressionRate)
 		}
 	}
@@ -515,7 +515,7 @@ func (c *Connector) processMessage(msg CloudMessage) {
 		return
 	}
 
-	utils.LogInfo("收到云端指令: %s", cmd.Action)
+	utils.LogFileInfo("收到云端指令: %s", cmd.Action)
 
 	if mappedData, mapped, err := mapCommandToAPICall(cmd.Action, cmd.Data); err != nil {
 		utils.LogError("指令参数转换失败: %v", err)
@@ -664,7 +664,7 @@ func (c *Connector) transformSearchResponse(requestBody, responseData json.RawMe
 		return responseData // 返回原始数据
 	}
 
-	utils.LogInfo("[DEBUG] 数据转换成功: type=%d, listSize=%d, hasMore=%v",
+	utils.LogFileInfo("[DEBUG] 数据转换成功: type=%d, listSize=%d, hasMore=%v",
 		reqBody.Type, len(list), rawResp.Data.Continue != 0)
 
 	return optimizedBytes

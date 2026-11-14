@@ -14,7 +14,6 @@ import (
 	"wx_channel/internal/response"
 	"wx_channel/internal/utils"
 
-	"github.com/fatih/color"
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
 
@@ -24,7 +23,7 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	if path != "/__wx_channels_api/profile" {
 		return false
 	}
-	utils.LogInfo("[Profile API] 收到视频信息请求")
+	utils.LogFileInfo("[Profile API] 收到视频信息请求")
 
 	// 授权与来源校验（可选）
 	if h.getConfig() != nil && h.getConfig().SecretToken != "" {
@@ -89,12 +88,8 @@ func (h *APIHandler) HandleProfile(Conn *SunnyNet.HttpConn) bool {
 	return true
 }
 
-// processVideoData 处理视频数据并显示
+// processVideoData 处理视频数据并保存浏览记录
 func (h *APIHandler) processVideoData(data map[string]interface{}) {
-	// 打印提醒
-	utils.Info("💡 [提醒] 视频已成功播放")
-	utils.Info("💡 [提醒] 可以在「更多」菜单中下载视频啦！")
-
 	// 记录视频信息到日志文件
 	videoID := ""
 	if id, ok := data["id"].(string); ok {
@@ -174,7 +169,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 		}
 		if width > 0 && height > 0 {
 			resolution = fmt.Sprintf("%dx%d", width, height)
-			utils.LogInfo("[分辨率] 从media获取: %s", resolution)
+			utils.LogFileInfo("[分辨率] 从media获取: %s", resolution)
 		}
 
 		// 从spec中提取fileFormat和分辨率
@@ -185,7 +180,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 					// 提取fileFormat（如 xWT128, xWT111）
 					if format, ok := specItem["fileFormat"].(string); ok && format != "" {
 						fileFormat = format
-						utils.LogInfo("[视频格式] 从spec获取: %s", fileFormat)
+						utils.LogFileInfo("[视频格式] 从spec获取: %s", fileFormat)
 					}
 
 					// 如果还没有分辨率，从spec中提取
@@ -193,7 +188,7 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 						if w, ok := specItem["width"].(float64); ok {
 							if h, ok := specItem["height"].(float64); ok {
 								resolution = fmt.Sprintf("%dx%d", int64(w), int64(h))
-								utils.LogInfo("[分辨率] 从spec获取: %s", resolution)
+								utils.LogFileInfo("[分辨率] 从spec获取: %s", resolution)
 							}
 						}
 					}
@@ -208,104 +203,22 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	}
 
 	if resolution == "" {
-		utils.LogInfo("[分辨率] 未能获取分辨率信息")
+		utils.LogFileInfo("[分辨率] 未能获取分辨率信息")
 	}
 	if fileFormat == "" {
-		utils.LogInfo("[视频格式] 未能获取格式标识")
+		utils.LogFileInfo("[视频格式] 未能获取格式标识")
 	}
 
 	pageUrl := h.currentURL
 
-	utils.LogInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s | Key=%s | 分辨率=%s",
-		videoID, title, author, sizeMB, url, decryptKey, resolution)
+	utils.LogFileInfo("[视频信息] ID=%s | 标题=%s | 作者=%s | 大小=%.2fMB | URL=%s | 加密=%t | 分辨率=%s",
+		videoID, title, author, sizeMB, url, decryptKey != "", resolution)
 
 	// 保存浏览记录到数据库
 	metricsSource, _ := data["metricsSource"].(string)
 	metricsObservedAt, _ := data["metricsObservedAt"].(string)
 	metricsSnapshot := database.CaptureReportedVideoMetrics(data, metricsSource, metricsObservedAt, time.Now())
 	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, fileFormat, likeCount, commentCount, favCount, forwardCount, pageUrl, metricsSnapshot)
-
-	color.Yellow("\n")
-
-	// 打印视频详细信息
-	utils.PrintSeparator()
-	color.Blue("📊 视频详细信息")
-	utils.PrintSeparator()
-
-	if nickname, ok := data["nickname"].(string); ok {
-		utils.PrintLabelValue("👤", "视频号名称", nickname)
-	}
-	if title, ok := data["title"].(string); ok {
-		utils.PrintLabelValue("📝", "视频标题", title)
-	}
-
-	if duration, ok := data["duration"].(float64); ok {
-		utils.PrintLabelValue("⏱️", "视频时长", utils.FormatDuration(duration))
-	}
-	if size, ok := data["size"].(float64); ok {
-		sizeMB := size / (1024 * 1024)
-		utils.PrintLabelValue("📦", "视频大小", fmt.Sprintf("%.2f MB", sizeMB))
-	}
-
-	// 添加互动数据显示（显示所有数据，包括0）
-	if likeCount, ok := data["likeCount"].(float64); ok {
-		utils.PrintLabelValue("👍", "点赞量", utils.FormatNumber(likeCount))
-	}
-	if commentCount, ok := data["commentCount"].(float64); ok {
-		utils.PrintLabelValue("💬", "评论量", utils.FormatNumber(commentCount))
-	}
-	if favCount, ok := data["favCount"].(float64); ok {
-		utils.PrintLabelValue("🔖", "收藏数", utils.FormatNumber(favCount))
-	}
-	if forwardCount, ok := data["forwardCount"].(float64); ok {
-		utils.PrintLabelValue("🔄", "转发数", utils.FormatNumber(forwardCount))
-	}
-
-	// 添加创建时间
-	if createtime, ok := data["createtime"].(float64); ok {
-		t := time.Unix(int64(createtime), 0)
-		utils.PrintLabelValue("📅", "创建时间", t.Format("2006-01-02 15:04:05"))
-	}
-
-	// 添加IP所在地（从多个来源获取）
-	locationFound := false
-
-	// 方法1：从 ipRegionInfo 获取
-	if ipRegionInfo, ok := data["ipRegionInfo"].(map[string]interface{}); ok {
-		if regionText, ok := ipRegionInfo["regionText"].(string); ok && regionText != "" {
-			utils.PrintLabelValue("🌍", "IP所在地", regionText)
-			locationFound = true
-		}
-	}
-
-	// 方法2：从 contact.extInfo 获取
-	if !locationFound {
-		if contact, ok := data["contact"].(map[string]interface{}); ok {
-			if extInfo, ok := contact["extInfo"].(map[string]interface{}); ok {
-				var location string
-				if province, ok := extInfo["province"].(string); ok && province != "" {
-					location = province
-					if city, ok := extInfo["city"].(string); ok && city != "" {
-						location += " " + city
-					}
-					utils.PrintLabelValue("🌍", "地理位置", location)
-					locationFound = true
-				}
-			}
-		}
-	}
-
-	if fileFormat, ok := data["fileFormat"].([]interface{}); ok && len(fileFormat) > 0 {
-		utils.PrintLabelValue("🎞️", "视频格式", fileFormat)
-	}
-	if coverUrl, ok := data["coverUrl"].(string); ok {
-		utils.PrintLabelValue("🖼️", "视频封面", coverUrl)
-	}
-	if url, ok := data["url"].(string); ok {
-		utils.PrintLabelValue("🔗", "原始链接", url)
-	}
-	utils.PrintSeparator()
-	color.Yellow("\n\n")
 }
 
 // saveBrowseRecord 保存浏览记录到数据库
@@ -368,7 +281,7 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 		if err != nil {
 			utils.Warn("更新浏览记录失败: %v", err)
 		} else {
-			utils.Info("✓ 浏览记录已更新: %s", title)
+			utils.LogFileInfo("✓ 浏览记录已更新: %s", title)
 		}
 	} else {
 		// 创建新记录
@@ -376,7 +289,7 @@ func (h *APIHandler) saveBrowseRecord(videoID, title, author, authorID string, d
 		if err != nil {
 			utils.Warn("保存浏览记录失败: %v", err)
 		} else {
-			utils.Info("✓ 浏览记录已保存: %s", title)
+			utils.LogFileInfo("✓ 浏览记录已保存: %s", title)
 		}
 	}
 }
@@ -418,7 +331,8 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	var data struct {
-		Msg string `json:"msg"`
+		Msg   string `json:"msg"`
+		Level string `json:"level"`
 	}
 
 	body, err := io.ReadAll(Conn.Request.Body)
@@ -447,114 +361,7 @@ func (h *APIHandler) HandleTip(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.PrintLabelValue("💡", "[提醒]", data.Msg)
-
-	// 记录关键操作到日志文件
-	msg := data.Msg
-	if strings.Contains(msg, "下载封面") {
-		// 提取封面URL
-		lines := strings.Split(msg, "\n")
-		if len(lines) > 1 {
-			coverURL := lines[1]
-			utils.LogInfo("[下载封面] URL=%s", coverURL)
-		}
-	} else if strings.Contains(msg, "下载文件名") {
-		// 提取文件名，判断是否为不同格式
-		filename := strings.TrimPrefix(msg, "下载文件名<")
-		filename = strings.TrimSuffix(filename, ">")
-
-		// 检查是否包含格式标识（如 xWT111_1280x720）
-		if strings.Contains(filename, "xWT") || strings.Contains(filename, "_") {
-			parts := strings.Split(filename, "_")
-			if len(parts) > 1 {
-				format := parts[len(parts)-2] // 格式标识
-				resolution := ""
-				if len(parts) > 2 {
-					resolution = parts[len(parts)-1] // 分辨率
-				}
-				utils.LogInfo("[格式下载] 文件名=%s | 格式=%s | 分辨率=%s", filename, format, resolution)
-			} else {
-				utils.LogInfo("[视频下载] 文件名=%s", filename)
-			}
-		} else {
-			utils.LogInfo("[视频下载] 文件名=%s", filename)
-		}
-	} else if strings.Contains(msg, "视频链接") {
-		// 提取视频链接
-		videoURL := strings.TrimPrefix(msg, "视频链接<")
-		videoURL = strings.TrimSuffix(videoURL, ">")
-		utils.LogInfo("[视频链接] URL=%s", videoURL)
-	} else if strings.Contains(msg, "页面链接") {
-		// 提取页面链接
-		pageURL := strings.TrimPrefix(msg, "页面链接<")
-		pageURL = strings.TrimSuffix(pageURL, ">")
-		utils.LogInfo("[页面链接] URL=%s", pageURL)
-	} else if strings.Contains(msg, "导出动态:") {
-		// 提取导出信息
-		// 格式: "导出动态: 格式=JSON, 视频数=10"
-		parts := strings.Split(msg, ",")
-		format := ""
-		count := ""
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if strings.Contains(part, "格式=") {
-				format = strings.TrimPrefix(part, "格式=")
-				format = strings.TrimPrefix(format, "导出动态: 格式=")
-			} else if strings.Contains(part, "视频数=") {
-				count = strings.TrimPrefix(part, "视频数=")
-			}
-		}
-		utils.LogInfo("[导出动态] 格式=%s | 视频数=%s", format, count)
-	} else if strings.Contains(msg, "[Profile自动下载]") {
-		// Profile 页面批量下载日志
-		if strings.Contains(msg, "开始自动下载") {
-			// 提取视频数量
-			// 格式: "🚀 [Profile自动下载] 开始自动下载 10 个视频"
-			parts := strings.Split(msg, " ")
-			for i, part := range parts {
-				if part == "个视频" && i > 0 {
-					count := parts[i-1]
-					utils.LogInfo("[Profile批量下载] 开始 | 视频数=%s", count)
-					break
-				}
-			}
-		} else if strings.Contains(msg, "完成") {
-			// 提取统计信息
-			// 格式: "✅ [Profile自动下载] 完成！共处理 10 个视频，成功 8 个，失败 2 个"
-			var total, success, failed string
-			parts := strings.Split(msg, " ")
-			for i, part := range parts {
-				if part == "个视频，成功" && i > 0 {
-					total = parts[i-1]
-				} else if part == "个，失败" && i > 0 {
-					success = parts[i-1]
-				} else if part == "个" && i > 0 && strings.Contains(parts[i-1], "失败") {
-					// 已经在上面处理了
-				} else if strings.HasSuffix(part, "个") && i > 0 && success != "" {
-					failed = strings.TrimSuffix(part, "个")
-				}
-			}
-			if total != "" {
-				utils.LogInfo("[Profile批量下载] 完成 | 总数=%s | 成功=%s | 失败=%s", total, success, failed)
-			}
-		} else if strings.Contains(msg, "进度:") {
-			// 进度日志
-			// 格式: "📥 [Profile自动下载] 进度: 5/10"
-			progress := strings.TrimSpace(strings.Split(msg, "进度:")[1])
-			utils.LogInfo("[Profile批量下载] 进度=%s", progress)
-		}
-	} else if strings.Contains(msg, "Profile视频采集:") {
-		// Profile 页面视频采集日志
-		// 格式: "Profile视频采集: 采集到 10 个视频"
-		parts := strings.Split(msg, " ")
-		for i, part := range parts {
-			if part == "个视频" && i > 0 {
-				count := parts[i-1]
-				utils.LogInfo("[Profile视频采集] 采集数=%s", count)
-				break
-			}
-		}
-	}
+	utils.LogTip(data.Level, data.Msg)
 
 	h.sendEmptyResponse(Conn)
 	return true

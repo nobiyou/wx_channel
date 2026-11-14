@@ -71,7 +71,7 @@ async function __wait_for_feed_comment_export__(jobId, headers) {
     var progressText = [job.status, progress.top_level_count || 0, progress.reply_count || 0].join(':');
     if (progressText !== lastProgress) {
       lastProgress = progressText;
-      __wx_log({ msg: '💬 评论导出进行中：一级' + (progress.top_level_count || 0) + '，回复' + (progress.reply_count || 0) });
+      __wx_log({ level: 'debug', msg: '💬 评论导出进行中：一级' + (progress.top_level_count || 0) + '，回复' + (progress.reply_count || 0) });
     }
   }
 
@@ -90,7 +90,7 @@ async function __fetch_feed_comments__() {
     if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
       window.__wx_keep_alive.unlockRefresh(refreshLockKey);
     }
-    __wx_log({ msg: '❌ 当前视频信息未就绪，无法获取评论' });
+    __wx_log({ level: 'error', msg: '❌ 当前视频信息未就绪，无法获取评论' });
     return;
   }
 
@@ -103,7 +103,7 @@ async function __fetch_feed_comments__() {
     if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
       window.__wx_keep_alive.unlockRefresh(refreshLockKey);
     }
-    __wx_log({ msg: '❌ 缺少 nonce_id，无法获取评论列表' });
+    __wx_log({ level: 'error', msg: '❌ 缺少 nonce_id，无法获取评论列表' });
     return;
   }
 
@@ -128,19 +128,19 @@ async function __fetch_feed_comments__() {
 
     if (!response.ok) {
       var httpMessage = (result && result.message) ? result.message : ('HTTP ' + response.status);
-      __wx_log({ msg: '❌ 获取评论列表失败：' + httpMessage });
+      __wx_log({ level: 'error', msg: '❌ 获取评论列表失败：' + httpMessage });
       return;
     }
 
     if (!result || result.code !== 0 || !result.data) {
-      __wx_log({ msg: '❌ 获取评论列表失败' + (result && result.message ? '：' + result.message : '') });
+      __wx_log({ level: 'error', msg: '❌ 获取评论列表失败' + (result && result.message ? '：' + result.message : '') });
       return;
     }
 
     try {
       var exported = result.data;
       if (exported.job_id) {
-        __wx_log({ msg: '💬 评论导出任务已创建，正在后台获取...' });
+        __wx_log({ level: 'debug', msg: '💬 评论导出任务已创建，正在后台获取...' });
         exported = await __wait_for_feed_comment_export__(exported.job_id, headers);
       }
       var total = exported.total_count || 0;
@@ -158,7 +158,7 @@ async function __fetch_feed_comments__() {
     }
   } catch (err) {
     console.error('[feed.js] 评论导出请求失败:', err);
-    __wx_log({ msg: '❌ 获取评论列表失败<' + (err && err.message ? err.message : err) + '>' });
+    __wx_log({ level: 'error', msg: '❌ 获取评论列表失败<' + (err && err.message ? err.message : err) + '>' });
   } finally {
     if (window.__wx_keep_alive && typeof window.__wx_keep_alive.unlockRefresh === 'function') {
       window.__wx_keep_alive.unlockRefresh(refreshLockKey);
@@ -536,7 +536,7 @@ async function __insert_download_btn_to_feed_toolbar() {
     container.insertBefore(commentIconWrapper, container.firstChild);
 
     console.log('[feed.js] ✅ 工具栏按钮注入成功');
-    __wx_log({ msg: "注入评论获取和下载按钮成功!" });
+    __wx_log({ level: 'debug', msg: "注入评论获取和下载按钮成功!" });
     return true;
   };
 
@@ -577,7 +577,7 @@ function __handle_feed_download_click() {
       if (resolvedProfile) {
         __show_feed_download_options(resolvedProfile);
       } else {
-        __wx_log({ msg: '❌ 获取当前视频数据超时\n请翻到目标视频后重试' });
+        __wx_log({ level: 'error', msg: '❌ 获取当前视频数据超时\n请翻到目标视频后重试' });
       }
     });
     return;
@@ -774,7 +774,7 @@ async function __handle_export_click() {
     }
 
     if (typeof __wx_log === 'function') {
-      __wx_log({ msg: '❌ 导出失败: ' + errorMsg });
+      __wx_log({ level: 'error', msg: '❌ 导出失败: ' + errorMsg });
     }
     alert('导出失败: ' + errorMsg);
   }

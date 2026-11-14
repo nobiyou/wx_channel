@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -167,6 +168,79 @@ func TestLoggerFileOutputPreservesConsoleBoundary(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("logs", "wx_channel.log"))
 	if err != nil || !strings.Contains(string(content), "public-marker") || !strings.Contains(string(content), "private-file-marker") {
 		t.Fatalf("unexpected file output: content=%s, error=%v", content, err)
+	}
+}
+
+func TestRoutineOperationsStayInFileAndFailuresRemainVisible(t *testing.T) {
+	isolateLogger(t)
+	output := captureLoggerConsole(t, func() {
+		LogAPI("GET", "/poll-success", 200, time.Millisecond)
+		LogAPI("GET", "/poll-not-modified", 304, time.Millisecond)
+		LogAPI("GET", "/auth-failure", 401, time.Millisecond)
+		LogAPI("POST", "/server-failure", 503, time.Millisecond)
+		LogUploadChunk("chunk-success", 0, 10, 1, true)
+		LogUploadChunk("chunk-failure", 1, 10, 1, false)
+		LogCSVOperation("save-success", "id", "title", true, "")
+		LogCSVOperation("save-failure", "id", "title", false, "disk full")
+	})
+	for _, marker := range []string{"/poll-success", "/poll-not-modified", "chunk-success", "save-success"} {
+		if strings.Contains(output, marker) {
+			t.Errorf("routine operation leaked to console: %s", marker)
+		}
+	}
+	for _, marker := range []string{"/auth-failure", "/server-failure", "chunk-failure", "save-failure", "disk full"} {
+		if !strings.Contains(output, marker) {
+			t.Errorf("failure missing from console: %s", marker)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join("logs", "wx_channel.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"/poll-success", "/poll-not-modified", "chunk-success", "save-success", "WRN", "ERR"} {
+		if !strings.Contains(string(content), marker) {
+			t.Errorf("diagnostic missing from file: %s", marker)
+		}
+	}
+}
+
+func TestFrontendTipLevelsPreserveLegacyMessages(t *testing.T) {
+	isolateLogger(t)
+	output := captureLoggerConsole(t, func() {
+		LogTip("debug", "detail-marker")
+		LogTip("info", "action-marker")
+		LogTip("warn", "warning-marker")
+		LogTip("error", "error-marker")
+		LogTip("", "legacy-message-marker")
+		LogTip("unknown", "unknown-marker")
+	})
+	if strings.Contains(output, "detail-marker") {
+		t.Fatal("frontend diagnostics leaked to console")
+	}
+	for _, marker := range []string{"action-marker", "warning-marker", "error-marker", "legacy-message-marker", "unknown-marker"} {
+		if strings.Count(output, marker) != 1 {
+			t.Errorf("expected one visible tip %q, got %s", marker, output)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join("logs", "wx_channel.log"))
+	if err != nil || !strings.Contains(string(content), "detail-marker") {
+		t.Fatalf("frontend diagnostics lost: %s, %v", content, err)
+	}
+}
+
+func TestDownloadURLOnlyAppearsInFile(t *testing.T) {
+	isolateLogger(t)
+	const rawURL = "https://example.com/video?private-token=long-token"
+	output := captureLoggerConsole(t, func() {
+		LogDownload("id", "download-success", "author", rawURL, 1024, true)
+		LogDownloadError("id", "download-failure", "author", rawURL, io.ErrUnexpectedEOF, 2)
+	})
+	if strings.Contains(output, rawURL) || !strings.Contains(output, "download-success") || !strings.Contains(output, "download-failure") {
+		t.Fatalf("unexpected download summary: %s", output)
+	}
+	content, err := os.ReadFile(filepath.Join("logs", "wx_channel.log"))
+	if err != nil || !strings.Contains(string(content), rawURL) {
+		t.Fatalf("download diagnostic URL lost: %s, %v", content, err)
 	}
 }
 

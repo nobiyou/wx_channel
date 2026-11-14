@@ -32,14 +32,7 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
-		utils.GetLogger().Info(
-			"API 请求: %s %s [%d] %s from %s",
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			duration.String(),
-			r.RemoteAddr,
-		)
+		utils.LogAPI(r.Method, r.URL.Path, wrapped.statusCode, duration)
 	})
 }
 

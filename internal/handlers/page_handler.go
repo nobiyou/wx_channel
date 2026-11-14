@@ -74,7 +74,7 @@ func (h *APIHandler) HandleInjectHealth(Conn *SunnyNet.HttpConn) bool {
 		h.SetCurrentURL(health.Href)
 	}
 
-	utils.LogInfo("[注入健康] reason=%s page=%s wxu=%t wxe=%t store=%t profile=%t hasUrl=%t hasKey=%t href=%s",
+	utils.LogFileInfo("[注入健康] reason=%s page=%s wxu=%t wxe=%t store=%t profile=%t hasUrl=%t hasKey=%t href=%s",
 		health.Reason, health.PagePath, health.WXU, health.WXE, health.Store, health.Profile, health.HasURL, health.HasKey, health.Href)
 	h.sendEmptyResponse(Conn)
 	return true
@@ -99,7 +99,7 @@ func (h *APIHandler) HandlePageURL(Conn *SunnyNet.HttpConn) bool {
 
 		if data.URL != "" {
 			h.SetCurrentURL(data.URL)
-			utils.LogInfo("[页面访问] URL=%s", data.URL)
+			utils.LogFileInfo("[页面访问] URL=%s", data.URL)
 		}
 
 		// 返回空响应
@@ -153,7 +153,7 @@ func (h *APIHandler) HandleSavePageContent(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	// 记录请求体大小（用于调试）
-	utils.LogInfo("save_page_content 请求体大小: %d 字节", len(body))
+	utils.LogFileInfo("save_page_content 请求体大小: %d 字节", len(body))
 
 	err = json.Unmarshal(body, &contentData)
 	if err != nil {

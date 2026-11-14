@@ -146,7 +146,7 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 		// 检查重复 (GetByID)
 		existing, err := h.downloadService.GetByID(record.ID)
 		if err == nil && existing != nil {
-			utils.Info("[下载记录] 记录已存在(DB)，跳过保存: ID=%s, 标题=%s", record.ID, record.Title)
+			utils.LogFileInfo("[下载记录] 记录已存在(DB)，跳过保存: ID=%s, 标题=%s", record.ID, record.Title)
 			h.sendEmptyResponse(Conn)
 			return true
 		}
@@ -158,7 +158,7 @@ func (h *RecordHandler) HandleRecordDownload(Conn *SunnyNet.HttpConn) bool {
 			sizeMB := float64(record.FileSize) / (1024 * 1024)
 			durationStr := utils.FormatDuration(float64(record.Duration))
 
-			utils.Info("[下载记录] 已保存到DB: ID=%s, 标题=%s, 作者=%s, 大小=%.2f MB, 时长=%s",
+			utils.LogFileInfo("[下载记录] 已保存到DB: ID=%s, 标题=%s, 作者=%s, 大小=%.2f MB, 时长=%s",
 				record.ID, record.Title, record.Author, sizeMB, durationStr)
 
 			utils.PrintSeparator()

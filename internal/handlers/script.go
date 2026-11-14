@@ -476,7 +476,7 @@ func (h *ScriptHandler) buildInjectedScripts(path string) string {
 	default:
 		// 其他页面：不注入页面特定脚本
 		pageSpecificScripts = ""
-		utils.LogInfo("[脚本注入] 其他页面 - 仅注入基础脚本")
+		utils.LogFileInfo("[脚本注入] 其他页面 - 仅注入基础脚本")
 	}
 
 	// 初始化脚本（延迟执行）
@@ -1917,9 +1917,9 @@ func (h *ScriptHandler) saveJavaScriptFile(path string, content []byte) {
 
 	// 保存文件
 	if err := os.WriteFile(filePath, content, 0644); err != nil {
-		utils.LogInfo("[JS保存] 保存失败: %s - %v", fileName, err)
+		utils.LogWarn("[JS保存] 保存失败: %s - %v", fileName, err)
 		return
 	}
 
-	utils.LogInfo("[JS保存] ✅ 已保存: %s/%s", pageType, fileName)
+	utils.LogFileInfo("[JS保存] ✅ 已保存: %s/%s", pageType, fileName)
 }

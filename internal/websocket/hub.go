@@ -84,7 +84,7 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.lastClient = client // 记录最后注册的客户端
 			h.mu.Unlock()
-			utils.LogInfo("WebSocket 客户端已连接: %s", client.RemoteAddr)
+			utils.LogFileInfo("WebSocket 客户端已连接: %s", client.RemoteAddr)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -101,7 +101,7 @@ func (h *Hub) Run() {
 						break
 					}
 				}
-				utils.LogInfo("WebSocket 客户端已断开: %s", addr)
+				utils.LogFileInfo("WebSocket 客户端已断开: %s", addr)
 			}
 			h.mu.Unlock()
 		}
@@ -322,7 +322,7 @@ func (h *Hub) callAPIOnClient(ctx context.Context, client *Client, key string, b
 
 	// 记录请求开始时间
 	startTime := time.Now()
-	utils.LogInfo("发送 API 请求: ID=%s, Key=%s, Timeout=%v", reqID, key, timeout)
+	utils.LogFileInfo("发送 API 请求: ID=%s, Key=%s, Timeout=%v", reqID, key, timeout)
 
 	// 发送请求
 	if err := ctx.Err(); err != nil {
@@ -354,7 +354,7 @@ func (h *Hub) callAPIOnClient(ctx context.Context, client *Client, key string, b
 			return nil, fmt.Errorf("API error (code=%d): %s", resp.ErrCode, resp.ErrMsg)
 		}
 
-		utils.LogInfo("API 调用成功: ID=%s, Duration=%v, DataSize=%d",
+		utils.LogFileInfo("API 调用成功: ID=%s, Duration=%v, DataSize=%d",
 			reqID, duration, len(resp.Data))
 		return resp.Data, nil
 

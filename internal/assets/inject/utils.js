@@ -460,7 +460,7 @@ var WXU = (() => {
     error(opt) {
       opt = opt || {};
       console.error("[WXU.error]", opt.msg);
-      __wx_log({ msg: "❌ " + opt.msg });
+      __wx_log({ level: "error", msg: "❌ " + opt.msg });
       if (opt.alert !== 0) {
         alert(opt.msg);
       }

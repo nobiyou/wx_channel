@@ -188,7 +188,7 @@ func (app *App) Run() {
 	// 启动时检查更新 (移到这里以确保尽早执行)
 	go func() {
 		time.Sleep(2 * time.Second) // 缩短等待时间
-		utils.Info("正在检查更新...")
+		utils.LogFileInfo("正在检查更新...")
 		vService := services.NewVersionService()
 		result, err := vService.CheckUpdate()
 		if err != nil {
@@ -202,9 +202,7 @@ func (app *App) Run() {
 			color.Green("⬇️ 下载地址: %s", result.DownloadURL)
 			utils.PrintSeparator()
 		} else {
-			utils.PrintSeparator()
-			color.Green("✅ 当前已是最新版本: v%s", result.CurrentVersion)
-			utils.PrintSeparator()
+			utils.LogFileInfo("当前已是最新版本: v%s", result.CurrentVersion)
 		}
 	}()
 
@@ -219,7 +217,7 @@ func (app *App) Run() {
 	if err := app.initOfficialAccountService(); err != nil {
 		utils.HandleError(err, "初始化公众号采集服务")
 	} else {
-		utils.Info("✓ 公众号文章采集服务已就绪")
+		utils.LogFileInfo("✓ 公众号文章采集服务已就绪")
 	}
 
 	app.printEnvConfig()
@@ -267,7 +265,7 @@ func (app *App) Run() {
 			}
 		}
 	} else {
-		utils.Info("本地 MCP 服务未启用 (mcp_enabled: false)")
+		utils.LogFileInfo("本地 MCP 服务未启用 (mcp_enabled: false)")
 	}
 	app.APIRouter = router.NewAPIRouterWithRuntimeDiagnostics(app.Cfg, app.WSHub, app.Sunny, app.RuntimeDiagnostics)
 	if app.OfficialAccountService != nil {
@@ -363,7 +361,7 @@ func (app *App) Run() {
 			utils.Info("✓ 证书安装成功！")
 		}
 	} else {
-		utils.Info("✓ 证书已存在，无需重新安装。")
+		utils.LogFileInfo("✓ 证书已存在，无需重新安装。")
 	}
 
 	// 1. 立即启动核心驱动
@@ -376,13 +374,6 @@ func (app *App) Run() {
 	app.Sunny.SetGoCallback(GlobalHttpCallback, nil, nil, nil)
 
 	// 2. 立即渲染界面面板 (不再受网络连接阻塞)
-	utils.PrintSeparator()
-	color.Blue("📡 服务状态信息")
-	utils.PrintSeparator()
-	utils.PrintLabelValue("⏳", "服务状态", "已启动")
-	utils.PrintLabelValue("🔌", "代理端口", app.Port)
-	utils.PrintLabelValue("📱", "支持平台", "微信视频号")
-
 	proxyMode := "进程代理"
 	if os_env != "windows" {
 		proxyMode = "系统代理"
@@ -391,15 +382,15 @@ func (app *App) Run() {
 
 	// 3. 立即启动各类后台服务
 	go app.WSHub.Run()
-	utils.Info("✓ WebSocket Hub 已启动")
+	utils.LogFileInfo("✓ WebSocket Hub 已启动")
 
 	wsPort := app.Port + 1
 	go app.startWebSocketServer(wsPort)
 	if app.Lifecycle != nil && app.Cfg.AutoOpenChannels {
 		go app.Lifecycle.Run(lifecycleCtx)
-		utils.Info("✓ 视频号页面生命周期管理已启动")
+		utils.LogFileInfo("✓ 视频号页面生命周期管理已启动")
 	} else {
-		utils.Info("视频号页面生命周期管理未启用 (auto_open_channels: false)")
+		utils.LogFileInfo("视频号页面生命周期管理未启用 (auto_open_channels: false)")
 	}
 
 	// 启动云端连接器（如果启用）
@@ -408,7 +399,7 @@ func (app *App) Run() {
 		app.CloudConnector.Start()
 		utils.Info("✓ Insight Edge 连接已启用，地址: %s", app.Cfg.CloudHubURL)
 	} else {
-		utils.Info("Insight Edge 连接已禁用 (cloud_enabled: false 或未配置 Edge 地址)")
+		utils.LogFileInfo("Insight Edge 连接已禁用 (cloud_enabled: false 或未配置 Edge 地址)")
 	}
 
 	utils.Info("🔍 请打开需要下载的视频号页面进行下载")
@@ -418,7 +409,7 @@ func (app *App) Run() {
 		app.RadarService.Start()
 		utils.Info("✓ 雷达服务已启用")
 	} else {
-		utils.Info("雷达服务未启用 (radar_enabled: false)")
+		utils.LogFileInfo("雷达服务未启用 (radar_enabled: false)")
 	}
 
 	// 4. 【异步】处理 Windows 进程注入和连通性检查 (不阻塞主线程)
@@ -547,23 +538,11 @@ func (app *App) printEnvConfig() {
 }
 
 func (app *App) printTitle() {
-	color.Set(color.FgCyan)
-	fmt.Println("")
-	fmt.Println(" ██╗    ██╗██╗  ██╗     ██████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗███████╗██╗     ")
-	fmt.Println(" ██║    ██║╚██╗██╔╝    ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔════╝██║     ")
-	fmt.Println(" ██║ █╗ ██║ ╚███╔╝     ██║     ███████║███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██║     ")
-	fmt.Println(" ██║███╗██║ ██╔██╗     ██║     ██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██║     ")
-	fmt.Println(" ╚███╔███╔╝██╔╝ ██╗    ╚██████╗██║  ██║██║  ██║██║ ╚████║██║ ╚████║███████╗███████╗")
-	fmt.Println("  ╚══╝╚══╝ ╚═╝  ╚═╝     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚══════╝")
-	color.Unset()
-
-	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
-	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("    v%s 更新要点：", app.Cfg.Version)
+	color.Cyan("微信视频号下载助手 v%s", app.Cfg.Version)
+	utils.LogFileInfo("项目地址：https://github.com/nobiyou/wx_channel")
 	for _, highlight := range releaseHighlights {
-		color.Green("    • %s", highlight)
+		utils.LogFileInfo("v%s 更新要点：%s", app.Cfg.Version, highlight)
 	}
-	fmt.Println()
 }
 
 // 隐式需要的辅助函数
@@ -628,17 +607,17 @@ func (app *App) configureLoadBalancer() {
 	switch strategy {
 	case "roundrobin":
 		selector = websocket.NewRoundRobinSelector()
-		utils.Info("负载均衡策略: 轮询 (Round Robin)")
+		utils.LogFileInfo("负载均衡策略: 轮询 (Round Robin)")
 	case "leastconn":
 		selector = websocket.NewLeastConnectionSelector()
-		utils.Info("负载均衡策略: 最少连接 (Least Connection)")
+		utils.LogFileInfo("负载均衡策略: 最少连接 (Least Connection)")
 	case "weighted":
 		// 加权选择器需要配置权重，这里使用默认权重
 		selector = websocket.NewWeightedSelector(nil)
-		utils.Info("负载均衡策略: 加权 (Weighted)")
+		utils.LogFileInfo("负载均衡策略: 加权 (Weighted)")
 	case "random":
 		selector = websocket.NewRandomSelector()
-		utils.Info("负载均衡策略: 随机 (Random)")
+		utils.LogFileInfo("负载均衡策略: 随机 (Random)")
 	default:
 		selector = websocket.NewLeastConnectionSelector()
 		utils.Warn("未知的负载均衡策略: %s, 使用默认策略: 最少连接", strategy)

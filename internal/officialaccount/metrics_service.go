@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"wx_channel/internal/response"
+	"wx_channel/internal/utils"
 )
 
 func (s *Service) CaptureArticleMetrics(request MetricRequest) (MetricCaptureResult, error) {
@@ -106,10 +106,10 @@ func (s *Service) CaptureArticleMetrics(request MetricRequest) (MetricCaptureRes
 	result.Stored = snapshot != nil
 	result.State = &state
 	if snapshot == nil {
-		log.Printf("[公众号指标] 未发现文章指标 | biz=%s | article=%s | source=%s", biz, article.Key, result.Source)
+		utils.LogFileInfo("[公众号指标] 未发现文章指标 | biz=%s | article=%s | source=%s", biz, article.Key, result.Source)
 		return result, nil
 	}
-	log.Printf("[公众号指标] 已记录文章指标 | biz=%s | article=%s | source=%s | view=%s like=%s comment=%s share=%s collect=%s reward=%s",
+	utils.LogFileInfo("[公众号指标] 已记录文章指标 | biz=%s | article=%s | source=%s | view=%s like=%s comment=%s share=%s collect=%s reward=%s",
 		biz, article.Key, result.Source, formatMetricValue(metrics.ViewCount), formatMetricValue(metrics.LikeCount),
 		formatMetricValue(metrics.CommentCount), formatMetricValue(metrics.ShareCount), formatMetricValue(metrics.CollectCount),
 		formatMetricValue(metrics.RewardCount))

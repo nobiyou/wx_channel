@@ -262,7 +262,7 @@ func (h *UploadHandler) downloadWithHeaders(ctx context.Context, url, targetPath
 	}
 
 	total := resp.ContentLength
-	utils.Info("📡 [视频下载] 直连响应: status=%s | length=%d | type=%s | range=%s", resp.Status, total, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Range"))
+	utils.LogFileInfo("📡 [视频下载] 直连响应: status=%s | length=%d | type=%s | range=%s", resp.Status, total, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Range"))
 
 	out, err := os.Create(targetPath)
 	if err != nil {
@@ -422,7 +422,7 @@ func (h *UploadHandler) HandleCancelDownload(Conn *SunnyNet.HttpConn) bool {
 	if cancel, ok := h.activeDownloads.Load(videoId); ok {
 		if cancelFunc, ok := cancel.(context.CancelFunc); ok {
 			cancelFunc()
-			utils.Info("Found and executed cancel function for %s", videoId)
+			utils.LogFileInfo("Found and executed cancel function for %s", videoId)
 		}
 		h.activeDownloads.Delete(videoId)
 		h.sendSuccessResponse(Conn)
@@ -492,7 +492,7 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 	uploadId := fmt.Sprintf("%x", b)
-	utils.Info("🔄 init_upload: 生成 uploadId = %s", uploadId)
+	utils.LogFileInfo("🔄 init_upload: 生成 uploadId = %s", uploadId)
 
 	// 创建临时目录
 	upDir := filepath.Join(uploadsRoot, uploadId)
@@ -511,7 +511,7 @@ func (h *UploadHandler) HandleInitUpload(Conn *SunnyNet.HttpConn) bool {
 		"success":  true,
 		"uploadId": uploadId,
 	}
-	utils.Info("✅ init_upload: 返回响应: %v", responseData)
+	utils.LogFileInfo("✅ init_upload: 返回响应: %v", responseData)
 	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
@@ -589,7 +589,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.Info("[分片上传] 接收分片: uploadId=%s, 分片索引=%d/%d", uploadId, index+1, total)
+	utils.LogFileInfo("[分片上传] 接收分片: uploadId=%s, 分片索引=%d/%d", uploadId, index+1, total)
 
 	file, _, err := Conn.Request.FormFile("chunk")
 	if err != nil {
@@ -655,7 +655,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 				return true
 			}
 			written = n
-			utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
+			utils.LogFileInfo("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
 		case "sha256":
 			hsh := sha256.New()
 			n, err := io.Copy(io.MultiWriter(out, hsh), file)
@@ -673,7 +673,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 				return true
 			}
 			written = n
-			utils.Info("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
+			utils.LogFileInfo("[分片上传] 校验通过: uploadId=%s, 分片索引=%d, 算法=%s, 大小=%.2fMB", uploadId, index, algo, float64(written)/(1024*1024))
 		default:
 			h.sendErrorResponse(Conn, fmt.Errorf("unsupported_algo"))
 			return true
@@ -710,7 +710,7 @@ func (h *UploadHandler) HandleUploadChunk(Conn *SunnyNet.HttpConn) bool {
 	}
 
 	sizeMB := float64(written) / (1024 * 1024)
-	utils.Info("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, sizeMB, partPath)
+	utils.LogFileInfo("[分片上传] 分片已保存: uploadId=%s, 分片索引=%d/%d, 大小=%.2fMB, 路径=%s", uploadId, index+1, total, sizeMB, partPath)
 
 	// 记录分片上传成功
 	utils.LogUploadChunk(uploadId, index, total, sizeMB, true)
@@ -876,7 +876,7 @@ func (h *UploadHandler) HandleCompleteUpload(Conn *SunnyNet.HttpConn) bool {
 		"path":    finalPath,
 		"size":    fileSize,
 	}
-	utils.Info("✅ complete_upload: 返回响应: %v", responseData)
+	utils.LogFileInfo("✅ complete_upload: 返回响应: %v", responseData)
 	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
@@ -917,7 +917,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
-	utils.Info("🔄 save_video: 开始处理请求")
+	utils.LogFileInfo("🔄 save_video: 开始处理请求")
 
 	// 解析multipart表单
 	err := Conn.Request.ParseMultipartForm(h.getConfig().MaxUploadSize)
@@ -927,7 +927,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		return true
 	}
 
-	utils.Info("✅ save_video: 表单解析成功")
+	utils.LogFileInfo("✅ save_video: 表单解析成功")
 
 	file, header, err := Conn.Request.FormFile("video")
 	if err != nil {
@@ -937,7 +937,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 	defer file.Close()
 
-	utils.Info("接收上传: %s, 报告大小: %d bytes", header.Filename, header.Size)
+	utils.LogFileInfo("接收上传: %s, 报告大小: %d bytes", header.Filename, header.Size)
 
 	filename := Conn.Request.FormValue("filename")
 	authorName := Conn.Request.FormValue("authorName")
@@ -965,7 +965,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 	}
 	savePath := filepath.Join(downloadsDir, authorFolder)
 
-	utils.Info("保存目录: %s", savePath)
+	utils.LogFileInfo("保存目录: %s", savePath)
 	if err := utils.EnsureDir(savePath); err != nil {
 		utils.HandleError(err, "创建文件夹")
 		h.sendErrorResponse(Conn, err)
@@ -1045,7 +1045,7 @@ func (h *UploadHandler) HandleSaveVideo(Conn *SunnyNet.HttpConn) bool {
 		"path":    filePath,
 		"size":    fileSize,
 	}
-	utils.Info("✅ save_video: 返回响应: %v", responseData)
+	utils.LogFileInfo("✅ save_video: 返回响应: %v", responseData)
 	h.sendJSONResponse(Conn, 200, responseData)
 	return true
 }
@@ -1380,9 +1380,9 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			ext = ".mp4"
 		}
 		filename = base + qualitySuffix + ext
-		utils.Info("📐 [视频下载] 添加分辨率信息到文件名: %s", qualityInfo)
+		utils.LogFileInfo("📐 [视频下载] 添加分辨率信息到文件名: %s", qualityInfo)
 	} else if hasResolutionInFilename {
-		utils.Info("📐 [视频下载] 文件名中已包含分辨率信息，跳过添加")
+		utils.LogFileInfo("📐 [视频下载] 文件名中已包含分辨率信息，跳过添加")
 	}
 	if qualitySuffix == "" && hasResolutionInFilename {
 		// 前端可能已经带上了分辨率但没有完整的质量标识，仍保护实际存在的尾段。
@@ -1482,7 +1482,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			totalMB := float64(total) / (1024 * 1024)
 			percentage := progress * 100
 
-			utils.Info("📥 [视频下载] 进度: %.2f%% (%.2f/%.2f MB)", percentage, downloadedMB, totalMB)
+			utils.LogFileInfo("📥 [视频下载] 进度: %.2f%% (%.2f/%.2f MB)", percentage, downloadedMB, totalMB)
 
 			// 发送 WebSocket 事件
 			if h.wsHub != nil {
@@ -1529,12 +1529,12 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		mode := downloadModeFromRequest(req)
 		normalizedURL := normalizeDownloadVideoURL(req)
 		if normalizedURL != req.VideoURL {
-			utils.Info("🩹 [视频下载] 已规范化视频下载地址")
+			utils.LogFileInfo("🩹 [视频下载] 已规范化视频下载地址")
 			req.VideoURL = normalizedURL
 		}
 		connections = downloadConnectionCountFromMode(connections, mode)
 		if mode == downloadVideoModeOriginal {
-			utils.Info("🎯 [视频下载] 原始视频使用单连接模式")
+			utils.LogFileInfo("🎯 [视频下载] 原始视频使用单连接模式")
 		}
 
 		reqHeaders := map[string]string{
@@ -1552,7 +1552,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			}
 			reqHeaders[k] = v
 		}
-		utils.Info("🌐 [视频下载] 请求头: Referer=%s | UA=%s | 连接数=%d", reqHeaders["Referer"], reqHeaders["User-Agent"], connections)
+		utils.LogFileInfo("🌐 [视频下载] 请求头: Referer=%s | UA=%s | 连接数=%d", reqHeaders["Referer"], reqHeaders["User-Agent"], connections)
 
 		_ = os.Remove(tmpPath)
 
@@ -1603,7 +1603,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		}
 
 		if needDecrypt {
-			utils.Info("🔐 [视频下载] 开始解密...")
+			utils.LogFileInfo("🔐 [视频下载] 开始解密...")
 			if err := utils.DecryptFileInPlace(actualPath, req.Key, "", 0); err != nil {
 				utils.Error("❌ [视频下载] 解密失败: %v", err)
 				_ = os.Remove(actualPath)
@@ -1616,7 +1616,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 				}
 				return
 			}
-			utils.Info("✓ [视频下载] 解密完成")
+			utils.LogFileInfo("✓ [视频下载] 解密完成")
 		}
 
 		finalPath, err := utils.MoveFileToAvailablePathWithSuffix(actualPath, videoPath, requiredSuffix)
@@ -1643,7 +1643,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 		if needDecrypt {
 			statusMsg = " [已解密]"
 		}
-		utils.Info("✓ [视频下载] 视频已保存%s", statusMsg)
+		utils.Info("✓ [视频下载] 已保存: %s (%.2f MB)%s", relativePath, fileSize, statusMsg)
 
 		if h.downloadService != nil {
 			record := &database.DownloadRecord{
@@ -1670,7 +1670,7 @@ func (h *UploadHandler) HandleDownloadVideo(Conn *SunnyNet.HttpConn) bool {
 			if err := h.downloadService.Create(record); err != nil {
 				utils.Error("保存下载记录失败: %v", err)
 			} else {
-				utils.Info("已保存下载记录: %s", record.Title)
+				utils.LogFileInfo("已保存下载记录: %s", record.Title)
 			}
 		}
 
@@ -1740,7 +1740,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 					// 为了避免刷屏，我们在 ProgressReader 中已经限制了1秒一次。
 					// 但如果是日志文件，\r 没用。
 					// 可以在这里再次控制频率或格式。
-					utils.Info("📥 [视频下载] 进度: %.2f%% (%.2f/%.2f MB)",
+					utils.LogFileInfo("📥 [视频下载] 进度: %.2f%% (%.2f/%.2f MB)",
 						percent, float64(current)/(1024*1024), float64(total)/(1024*1024))
 
 					// 广播进度到 WebSocket
@@ -1755,7 +1755,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 						})
 					}
 				} else {
-					utils.Info("📥 [视频下载] 已下载: %.2f MB", float64(current)/(1024*1024))
+					utils.LogFileInfo("📥 [视频下载] 已下载: %.2f MB", float64(current)/(1024*1024))
 				}
 			},
 		}
@@ -1789,7 +1789,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 
 	if *expectedTotalSize > 0 {
 		sizeMB := float64(*expectedTotalSize) / (1024 * 1024)
-		utils.Info("📦 [视频下载] 期望文件大小: %.2f MB", sizeMB)
+		utils.LogFileInfo("📦 [视频下载] 期望文件大小: %.2f MB", sizeMB)
 	}
 
 	// 打开/创建文件（断点续传时追加，否则创建新文件）
@@ -1812,7 +1812,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 	if needDecrypt {
 		if resumeOffset >= prefixLen {
 			// 断点续传：已下载部分 >= 128KB，直接复制剩余数据（未加密）
-			utils.Info("🔐 [视频下载] 加密视频断点续传，复制剩余数据（未加密部分）...")
+			utils.LogFileInfo("🔐 [视频下载] 加密视频断点续传，复制剩余数据（未加密部分）...")
 			n, err := io.Copy(out, resp.Body)
 			if err != nil {
 				return fmt.Errorf("写入视频数据失败: %v", err)
@@ -1820,7 +1820,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 			*written = n
 		} else {
 			// 从头开始下载：需要解密前128KB
-			utils.Info("🔐 [视频下载] 开始解密下载...")
+			utils.LogFileInfo("🔐 [视频下载] 开始解密下载...")
 
 			// 解析 key 为 uint64
 			seed, err := utils.ParseKey(req.Key)
@@ -1830,7 +1830,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 
 			// 生成 128KB 解密数组
 			decryptorPrefix := util.GenerateDecryptorArray(seed, int(prefixLen))
-			utils.Info("🔑 [视频下载] 从 key 生成解密数组，长度: %d bytes", len(decryptorPrefix))
+			utils.LogFileInfo("🔑 [视频下载] 从 key 生成解密数组，长度: %d bytes", len(decryptorPrefix))
 
 			// 读取前缀数据
 			prefixData := make([]byte, prefixLen)
@@ -1840,7 +1840,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 			}
 			prefixData = prefixData[:n]
 
-			utils.Info("📖 [视频下载] 读取前缀: %d bytes", n)
+			utils.LogFileInfo("📖 [视频下载] 读取前缀: %d bytes", n)
 
 			// 解密前缀
 			decryptedPrefix := util.XorDecrypt(prefixData, decryptorPrefix)
@@ -1852,7 +1852,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 			}
 			*written += int64(nw)
 
-			utils.Info("✓ [视频下载] 前缀解密完成")
+			utils.LogFileInfo("✓ [视频下载] 前缀解密完成")
 
 			// 复制剩余数据（未加密）
 			buf := make([]byte, 32*1024)
@@ -1884,7 +1884,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 		}
 	} else {
 		// 普通下载（非加密）
-		utils.Info("📥 [视频下载] 开始下载...")
+		utils.LogFileInfo("📥 [视频下载] 开始下载...")
 		n, err := io.Copy(out, resp.Body)
 		if err != nil {
 			return fmt.Errorf("写入视频数据失败: %v", err)
@@ -1929,7 +1929,7 @@ func (h *UploadHandler) downloadVideoWithRetry(ctx context.Context, client *http
 					diffPercent)
 			}
 		} else {
-			utils.Info("✓ [视频下载] 下载大小验证通过: %.2f MB", float64(actualWritten)/(1024*1024))
+			utils.LogFileInfo("✓ [视频下载] 下载大小验证通过: %.2f MB", float64(actualWritten)/(1024*1024))
 		}
 	}
 

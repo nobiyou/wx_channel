@@ -143,7 +143,7 @@ function __show_batch_download_ui__(videos, title) {
   }
 
   if (!videos || videos.length === 0) {
-    __wx_log({ msg: '❌ 暂无视频数据' });
+    __wx_log({ level: 'error', msg: '❌ 暂无视频数据' });
     return;
   }
 
@@ -402,7 +402,7 @@ function __close_batch_download_ui__() {
 function __cancel_batch_download__() {
   if (__wx_batch_download_manager__.isDownloading) {
     __wx_batch_download_manager__.stopSignal = true;
-    __wx_log({ msg: '⏹️ 正在取消下载...' });
+    __wx_log({ level: 'debug', msg: '⏹️ 正在取消下载...' });
 
     var cancelBtn = document.getElementById('batch-cancel-btn');
     if (cancelBtn) {
@@ -427,7 +427,7 @@ function __export_batch_video_list__() {
   var videos = __wx_batch_download_manager__.getFilteredVideos();
 
   if (videos.length === 0) {
-    __wx_log({ msg: '⚠️ 没有可导出的视频' });
+    __wx_log({ level: 'warn', msg: '⚠️ 没有可导出的视频' });
     return;
   }
 
@@ -498,14 +498,14 @@ function __export_batch_video_list__() {
 // ==================== 清空视频列表 ====================
 function __clear_batch_video_list__() {
   if (__wx_batch_download_manager__.isDownloading) {
-    __wx_log({ msg: '⚠️ 下载中，无法清空' });
+    __wx_log({ level: 'warn', msg: '⚠️ 下载中，无法清空' });
     return;
   }
 
   var count = __wx_batch_download_manager__.getFilteredVideos().length;
 
   if (count === 0) {
-    __wx_log({ msg: '⚠️ 列表已经是空的' });
+    __wx_log({ level: 'warn', msg: '⚠️ 列表已经是空的' });
     return;
   }
 
@@ -862,12 +862,12 @@ async function __batch_download_selected__() {
   var selectedVideos = __wx_batch_download_manager__.getSelectedVideos();
 
   if (selectedVideos.length === 0) {
-    __wx_log({ msg: '❌ 请先选择要下载的视频' });
+    __wx_log({ level: 'error', msg: '❌ 请先选择要下载的视频' });
     return;
   }
 
   if (__wx_batch_download_manager__.isDownloading) {
-    __wx_log({ msg: '⚠️ 正在下载中，请等待...' });
+    __wx_log({ level: 'warn', msg: '⚠️ 正在下载中，请等待...' });
     return;
   }
 
@@ -894,7 +894,7 @@ async function __batch_download_selected__() {
   }
 
   if (formattedVideos.length === 0) {
-    __wx_log({ msg: '❌ 没有可下载的视频' });
+    __wx_log({ level: 'error', msg: '❌ 没有可下载的视频' });
     return;
   }
 
@@ -903,7 +903,7 @@ async function __batch_download_selected__() {
   __wx_batch_download_manager__.stopSignal = false;
   if (__wx_batch_download_manager__.isVisible) __update_batch_ui__();
 
-  __wx_log({ msg: '🚀 开始批量下载 ' + formattedVideos.length + ' 个视频（后端并发）...' });
+  __wx_log({ level: 'debug', msg: '🚀 开始批量下载 ' + formattedVideos.length + ' 个视频（后端并发）...' });
 
   // 显示进度和取消按钮
   var progressDiv = document.getElementById('batch-download-progress');
@@ -994,7 +994,7 @@ async function __batch_download_selected__() {
       throw new Error(result.error || result.message || '启动批量下载失败');
     }
 
-    __wx_log({ msg: '✅ 批量下载已启动，并发数: ' + (data.concurrency || 5) });
+    __wx_log({ level: 'debug', msg: '✅ 批量下载已启动，并发数: ' + (data.concurrency || 5) });
 
     // 等待100ms后立即查询一次进度（避免错过快速完成的下载）
     await new Promise(function(resolve) { setTimeout(resolve, 100); });
@@ -1015,7 +1015,7 @@ async function __batch_download_selected__() {
           
           // 如果已经完成，直接显示结果并返回
           if (total > 0 && done + failed >= total) {
-            __wx_log({ msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
+            __wx_log({ level: 'debug', msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
             __reset_batch_download_ui__();
             return;
           }
@@ -1036,7 +1036,7 @@ async function __batch_download_selected__() {
             method: 'POST',
             headers: __wx_channels_batch_api_headers__()
           });
-          __wx_log({ msg: '⏹️ 批量下载已取消' });
+          __wx_log({ level: 'debug', msg: '⏹️ 批量下载已取消' });
         } catch (e) {
           console.error('[批量下载] 取消失败:', e);
         }
@@ -1108,7 +1108,7 @@ async function __batch_download_selected__() {
             // 检查是否完成
             if (total > 0 && done + failed >= total && running === 0) {
               clearInterval(pollInterval);
-              __wx_log({ msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
+              __wx_log({ level: 'debug', msg: '✅ 批量下载完成: 成功 ' + done + ' 个, 失败 ' + failed + ' 个' });
               __reset_batch_download_ui__();
             }
           } else {
@@ -1123,7 +1123,7 @@ async function __batch_download_selected__() {
     }, 2000); // 每2秒轮询一次
 
   } catch (err) {
-    __wx_log({ msg: '❌ 批量下载失败: ' + (err.message || err) });
+    __wx_log({ level: 'error', msg: '❌ 批量下载失败: ' + (err.message || err) });
     console.error('[批量下载] 错误:', err);
     __reset_batch_download_ui__();
   }

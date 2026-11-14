@@ -96,7 +96,7 @@ function __update_tab_display() {
     __update_download_button_state();
 
     if (displayName !== '未知') {
-      __wx_log({ msg: '📍 当前模块: ' + displayName + ' - ' + __get_tab_description(newTab) });
+      __wx_log({ level: 'debug', msg: '📍 当前模块: ' + displayName + ' - ' + __get_tab_description(newTab) });
     }
   }
 }
@@ -210,7 +210,7 @@ function __handle_home_download_click() {
 
   __resolve_current_home_profile(5, 260).then(function (profile) {
     if (!profile) {
-      __wx_log({ msg: '❌ 获取当前视频数据失败\n请等待视频完全加载后重试' });
+      __wx_log({ level: 'error', msg: '❌ 获取当前视频数据失败\n请等待视频完全加载后重试' });
       return;
     }
 
@@ -783,7 +783,7 @@ function __show_home_download_options(profile) {
 
 // ==================== 统一按钮插入入口 ====================
 async function insert_download_btn() {
-  __wx_log({ msg: "等待注入下载按钮" });
+  __wx_log({ level: 'debug', msg: "等待注入下载按钮" });
 
   var pathname = window.location.pathname;
   console.log('[home.js] 当前页面路径:', pathname);

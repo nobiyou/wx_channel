@@ -361,10 +361,10 @@ window.__wx_channels_profile_collector = {
         } else {
           if (__wx_is_account_like_page__()) {
             try {
-              __wx_log({ msg: '⏳ 正在加载「' + self.currentLikeTabLabel + '」数据...' });
+              __wx_log({ level: 'debug', msg: '⏳ 正在加载「' + self.currentLikeTabLabel + '」数据...' });
               await self.loadCurrentLikeTabVideos();
             } catch (e) {
-              __wx_log({ msg: '❌ ' + (e.message || e) });
+              __wx_log({ level: 'error', msg: '❌ ' + (e.message || e) });
               return;
             }
           }
@@ -375,7 +375,7 @@ window.__wx_channels_profile_collector = {
           });
 
           if (filteredVideos.length === 0) {
-            __wx_log({ msg: '⚠️ 暂无视频数据' });
+            __wx_log({ level: 'warn', msg: '⚠️ 暂无视频数据' });
             return;
           }
 
@@ -454,7 +454,7 @@ window.__wx_channels_profile_collector = {
     // 限制最多300个视频
     if (targetVideos.length >= this._maxVideos) {
       if (targetVideos.length === this._maxVideos) {
-        __wx_log({ msg: '⚠️ [Profile] 已达到最大采集数量 ' + this._maxVideos + ' 个' });
+        __wx_log({ level: 'warn', msg: '⚠️ [Profile] 已达到最大采集数量 ' + this._maxVideos + ' 个' });
       }
       return;
     }
@@ -547,7 +547,7 @@ WXE.onUserLiveReplayLoaded(function (feeds) {
 
   if (!__wx_is_profile_page__()) return;
 
-  __wx_log({ msg: '📺 [Profile] 获取到直播回放列表，数量: ' + feeds.length });
+  __wx_log({ level: 'debug', msg: '📺 [Profile] 获取到直播回放列表，数量: ' + feeds.length });
 
   feeds.forEach(function (item) {
     if (!item || !item.objectDesc) return;
@@ -588,7 +588,7 @@ WXE.onUserLiveReplayLoaded(function (feeds) {
     window.__wx_channels_profile_collector.addVideoFromAPI(profile);
   });
 
-  __wx_log({ msg: '✅ [Profile] 直播回放列表采集完成，共 ' + feeds.length + ' 个' });
+  __wx_log({ level: 'debug', msg: '✅ [Profile] 直播回放列表采集完成，共 ' + feeds.length + ' 个' });
 });
 
 // 监听赞和收藏/喜欢列表加载

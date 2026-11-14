@@ -47,7 +47,7 @@ func InitLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) error
 func initLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) (err error) {
 	defer func() {
 		if err != nil && defaultLogger == nil {
-			consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "2006-01-02 15:04:05"}
+			consoleWriter := newConsoleWriter()
 			defaultLogger = &Logger{
 				zLogger:    zerolog.New(consoleWriter).With().Timestamp().Logger(),
 				fileLogger: zerolog.Nop(),
@@ -79,26 +79,8 @@ func initLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) (err 
 		return fmt.Errorf("打开日志文件 %q 失败: %w", logFile, err)
 	}
 
-	// 配置 zerolog
-	// 文件输出 JSON (或普通文本，这里为了现代化建议用 JSON，但为了人类可读性，zerolog file 一般也推荐 ConsoleWriter 也可以，或者纯 JSON)
-	// 如果用户想要 "现代化"，JSON 是更好的机器可读格式。但为了兼容原有 "cat log" 的体验，可能 ConsoleWriter (无颜色) 更好？
-	// 让我们同时输出到控制台(带颜色)和文件(JSON 或 纯文本)。
-	// 以前的逻辑是：只写入文件，不写入控制台（控制台由 Info/Warn/Error 函数负责? 不，原代码 consoleLog 也是 log.New(os.Stdout...)）
-	// 原代码：defaultLogger.logger 写入 file, defaultLogger.consoleLog 写入 stdout.
-
-	// Zerolog MultiLevelWriter
-	consoleWriter := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "2006-01-02 15:04:05"}
-	// fileWriter := file // 文件里存 JSON，方便分析？或者也存文本？
-	// 为了方便查看，文件里我们也暂时用 ConsoleWriter (no color) 或者是纯 JSON。
-	// 通常生产环境文件存 JSON。但这是一个客户端工具，由用户直接看日志，可能文本更好。
-	// 让我们让文件也存文本格式，或者 JSON。
-	// 考虑到 gap analysis 说 "Standardize error handling" 和 "Modernization", JSON is safer.
-	// 但是用户之前的日志是文本的。
-	// 让我们用 zerolog 的 ConsoleWriter 但去除颜色写入文件，这样格式好看。
-
-	// fileOutput := zerolog.ConsoleWriter{Out: file, TimeFormat: "2006-01-02 15:04:05", NoColor: true}
-	// 为了更好的机器可读性和标准实践，文件输出应使用普通 JSON
-	// 但为了匹配之前的行为（纯文本），让我们使用不带颜色的 ConsoleWriter
+	// 终端使用短时间，文件保留完整日期和诊断字段。
+	consoleWriter := newConsoleWriter()
 	fileOutput := zerolog.ConsoleWriter{Out: file, TimeFormat: "2006-01-02 15:04:05", NoColor: true}
 
 	multi := zerolog.MultiLevelWriter(consoleWriter, fileOutput)
@@ -133,6 +115,13 @@ func initLoggerWithRotation(level LogLevel, logFile string, maxSizeMB int) (err 
 	log.Logger = zLog
 
 	return nil
+}
+
+func newConsoleWriter() zerolog.ConsoleWriter {
+	return zerolog.ConsoleWriter{
+		Out: os.Stdout, TimeFormat: "15:04:05",
+		FieldsExclude: []string{"url"},
+	}
 }
 
 // GetLogger 获取默认日志记录器
@@ -308,9 +297,16 @@ func LogDownloadRetry(videoID, title string, attempt, maxRetries int, err error)
 		Msgf("正在重试 %d/%d", attempt, maxRetries)
 }
 
-// LogAPI 记录API调用
+// LogAPI 将正常请求写入文件，失败请求保留在终端。
 func LogAPI(method, path string, statusCode int, duration time.Duration) {
-	GetLogger().zLogger.Info().
+	logger := GetLogger()
+	event := logger.fileLogger.Info()
+	if statusCode >= 500 {
+		event = logger.zLogger.Error()
+	} else if statusCode >= 400 {
+		event = logger.zLogger.Warn()
+	}
+	event.
 		Str("type", "API").
 		Str("method", method).
 		Str("path", path).
@@ -321,11 +317,14 @@ func LogAPI(method, path string, statusCode int, duration time.Duration) {
 
 // LogUploadInit 记录上传初始化
 func LogUploadInit(uploadID string, success bool) {
+	logger := GetLogger()
+	event := logger.fileLogger.Info()
 	status := "成功"
 	if !success {
 		status = "失败"
+		event = logger.zLogger.Warn()
 	}
-	GetLogger().zLogger.Info().
+	event.
 		Str("type", "上传初始化").
 		Str("upload_id", uploadID).
 		Str("status", status).
@@ -334,11 +333,14 @@ func LogUploadInit(uploadID string, success bool) {
 
 // LogUploadChunk 记录分片上传
 func LogUploadChunk(uploadID string, index, total int, sizeMB float64, success bool) {
+	logger := GetLogger()
+	event := logger.fileLogger.Info()
 	status := "成功"
 	if !success {
 		status = "失败"
+		event = logger.zLogger.Warn()
 	}
-	GetLogger().zLogger.Info().
+	event.
 		Str("type", "分片上传").
 		Str("upload_id", uploadID).
 		Int("index", index+1).
@@ -383,11 +385,14 @@ func LogDirectUpload(filename, author string, sizeMB float64, encrypted bool, su
 
 // LogCSVOperation 记录CSV操作
 func LogCSVOperation(operation, videoID, title string, success bool, reason string) {
+	logger := GetLogger()
+	event := logger.fileLogger.Info()
 	status := "成功"
 	if !success {
 		status = "失败"
+		event = logger.zLogger.Warn()
 	}
-	event := GetLogger().zLogger.Info().
+	event.
 		Str("type", "CSV操作").
 		Str("operation", operation).
 		Str("id", videoID).
@@ -519,4 +524,18 @@ func (l *Logger) FileInfo(format string, args ...interface{}) {
 // LogFileInfo 仅记录到文件的信息日志(全局)
 func LogFileInfo(format string, args ...interface{}) {
 	GetLogger().FileInfo(format, args...)
+}
+
+// LogTip 按前端明确指定的级别输出一次；旧客户端和未知级别仍然可见。
+func LogTip(level, message string) {
+	switch level {
+	case "debug":
+		LogFileInfo("[页面] %s", message)
+	case "warn":
+		LogWarn("[页面] %s", message)
+	case "error":
+		LogError("[页面] %s", message)
+	default:
+		LogInfo("[页面] %s", message)
+	}
 }

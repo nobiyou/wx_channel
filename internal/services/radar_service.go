@@ -145,7 +145,7 @@ func (s *RadarService) checkTargets() {
 
 // processTarget 处理单个雷达监控目标的拉取与对比逻辑
 func (s *RadarService) processTarget(target database.RadarTarget) {
-	utils.LogInfo("[Radar] 开始检测账号: %s (%s)", target.AuthorName, target.Username)
+	utils.LogFileInfo("[Radar] 开始检测账号: %s (%s)", target.AuthorName, target.Username)
 
 	// 更新最后检测时间
 	now := time.Now()
@@ -217,7 +217,7 @@ func (s *RadarService) processTarget(target database.RadarTarget) {
 	radarLog.FoundVideos = len(allObjects)
 
 	if radarLog.FoundVideos == 0 {
-		utils.LogInfo("[Radar] 账号 [%s] 暂无视频数据(Raw Data Size: %d)", target.AuthorName, len(data))
+		utils.LogFileInfo("[Radar] 账号 [%s] 暂无视频数据(Raw Data Size: %d)", target.AuthorName, len(data))
 		_ = s.repo.AddLog(radarLog)
 		return
 	}
@@ -329,7 +329,7 @@ func (s *RadarService) processTarget(target database.RadarTarget) {
 				utils.LogWarn("[Radar] 新视频 [%s] 无法提取 URL，跳过: %s", target.AuthorName, videoID)
 				continue
 			}
-			utils.LogInfo("[Radar] 发现新视频 [%s]: %s (%s)", target.AuthorName, title, videoID)
+			utils.LogFileInfo("[Radar] 发现新视频 [%s]: %s (%s)", target.AuthorName, title, videoID)
 			newVideoCount++
 
 			// 直接从 feed_list 数据入队，无需额外请求 feed_profile
@@ -347,7 +347,7 @@ func (s *RadarService) processTarget(target database.RadarTarget) {
 			if _, err := s.queueService.AddToQueue(req); err != nil {
 				utils.LogError("[Radar] 添加视频到下载队列失败 [%s]-[%s]: %v", target.AuthorName, title, err)
 			} else {
-				utils.LogInfo("[Radar] 成功加入队列: %s", title)
+				utils.LogFileInfo("[Radar] 成功加入队列: %s", title)
 			}
 		}
 	}

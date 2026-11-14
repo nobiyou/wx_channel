@@ -198,7 +198,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 		return false
 	}
 
-	utils.Info("📥 [批量下载] 收到 batch_start 请求")
+	utils.LogFileInfo("📥 [批量下载] 收到 batch_start 请求")
 
 	// 处理 CORS 预检请求
 	if Conn.Request.Method == "OPTIONS" {
@@ -220,7 +220,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 		}
 	}
 
-	utils.Info("📥 [批量下载] 开始读取请求体...")
+	utils.LogFileInfo("📥 [批量下载] 开始读取请求体...")
 
 	// 检查请求体是否为空
 	if Conn.Request.Body == nil {
@@ -239,7 +239,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 	defer Conn.Request.Body.Close()
 
 	bodySize := len(body)
-	utils.Info("📥 [批量下载] 请求体大小: %.2f MB", float64(bodySize)/(1024*1024))
+	utils.LogFileInfo("📥 [批量下载] 请求体大小: %.2f MB", float64(bodySize)/(1024*1024))
 
 	var req struct {
 		Videos          []BatchTask `json:"videos"`
@@ -247,13 +247,13 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 		PageSource      string      `json:"pageSource,omitempty"` // 页面来源
 	}
 
-	utils.Info("📥 [批量下载] 开始解析 JSON...")
+	utils.LogFileInfo("📥 [批量下载] 开始解析 JSON...")
 	if err := json.Unmarshal(body, &req); err != nil {
 		utils.HandleError(err, "解析batch_start JSON")
 		h.sendErrorResponse(Conn, err)
 		return true
 	}
-	utils.Info("📥 [批量下载] JSON 解析完成，视频数: %d", len(req.Videos))
+	utils.LogFileInfo("📥 [批量下载] JSON 解析完成，视频数: %d", len(req.Videos))
 
 	// 判断批量下载来源
 	pageSource := req.PageSource
@@ -278,7 +278,7 @@ func (h *BatchHandler) HandleBatchStart(Conn *SunnyNet.HttpConn) bool {
 			pageSource = "batch_console"
 		}
 	}
-	utils.Info("📥 [批量下载] 来源: %s", pageSource)
+	utils.LogFileInfo("📥 [批量下载] 来源: %s", pageSource)
 
 	if len(req.Videos) == 0 {
 		h.sendErrorResponse(Conn, fmt.Errorf("视频列表为空"))
@@ -429,7 +429,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 				task.Status = "downloading"
 				h.mu.Unlock()
 
-				utils.Info("📥 [Worker %d] 开始下载: %s", workerID, task.Title)
+				utils.LogFileInfo("📥 [Worker %d] 开始下载: %s", workerID, task.Title)
 
 				// 下载视频
 				err := h.downloadVideo(ctx, task, downloadsDir, forceRedownload, taskIdx)
@@ -452,7 +452,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 				} else {
 					task.Status = "done"
 					task.Progress = 100
-					utils.Info("✅ [Worker %d] 完成: %s", workerID, task.Title)
+					utils.LogFileInfo("✅ [Worker %d] 完成: %s", workerID, task.Title)
 				}
 				h.mu.Unlock()
 			}
@@ -487,7 +487,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 		utils.Info("ℹ️ [批量下载] 没有待处理的任务（所有任务已完成或失败）")
 		return
 	}
-	utils.Info("📋 [批量下载] 开始处理 %d 个待处理任务", pendingCount)
+	utils.LogFileInfo("📋 [批量下载] 开始处理 %d 个待处理任务", pendingCount)
 
 	// 等待所有 worker 完成
 	wg.Wait()
@@ -634,25 +634,10 @@ func (h *BatchHandler) downloadVideo(ctx context.Context, task *BatchTask, downl
 	return fmt.Errorf("下载失败（已重试 %d 次）: %v", maxRetries, lastErr)
 }
 
-// downloadVideoOnce 执行一次下载尝试（支持断点续传）
-func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, desiredPath, requiredSuffix string, taskIdx int) (string, error) {
-	// 使用 Gopeed 下载
-	if h.gopeedService == nil {
-		return "", fmt.Errorf("Gopeed下载服务未初始化")
-	}
-
-	// 开始下载
-	utils.Info("🚀 [批量下载] 使用 Gopeed 下载: %s", task.Title)
-	tmpHint := task.ID
-	if tmpHint == "" {
-		tmpHint = strconv.Itoa(taskIdx)
-	}
-	if strings.TrimSpace(task.TempPath) == "" {
-		task.TempPath = utils.BuildTempDownloadPath(desiredPath, tmpHint)
-	}
-	tmpPath := task.TempPath
-
-	onProgress := func(progress float64, downloaded int64, total int64) {
+// downloadProgressCallback 持续更新任务进度，仅在进度跨区间时记录诊断。
+func (h *BatchHandler) downloadProgressCallback(taskIdx int) func(float64, int64, int64) {
+	lastLoggedBucket := 0
+	return func(progress float64, downloaded int64, total int64) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 
@@ -670,14 +655,37 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 					task.SizeMB = fmt.Sprintf("%.2fMB", task.TotalMB)
 				}
 
-				// 每10%输出一次日志
-				if int(task.Progress)%10 == 0 && task.Progress > 0 {
-					utils.Info("📊 [批量下载] %s 进度: %.1f%% (%.2f/%.2f MB)",
+				// 跨过新的 10% 区间才写一次文件日志，页面进度仍实时更新。
+				bucket := int(task.Progress) / 10
+				if bucket > lastLoggedBucket {
+					lastLoggedBucket = bucket
+					utils.LogFileInfo("📊 [批量下载] %s 进度: %.1f%% (%.2f/%.2f MB)",
 						task.Title, task.Progress, task.DownloadedMB, task.TotalMB)
 				}
 			}
 		}
 	}
+}
+
+// downloadVideoOnce 执行一次下载尝试（支持断点续传）
+func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, desiredPath, requiredSuffix string, taskIdx int) (string, error) {
+	// 使用 Gopeed 下载
+	if h.gopeedService == nil {
+		return "", fmt.Errorf("Gopeed下载服务未初始化")
+	}
+
+	// 开始下载
+	utils.LogFileInfo("🚀 [批量下载] 使用 Gopeed 下载: %s", task.Title)
+	tmpHint := task.ID
+	if tmpHint == "" {
+		tmpHint = strconv.Itoa(taskIdx)
+	}
+	if strings.TrimSpace(task.TempPath) == "" {
+		task.TempPath = utils.BuildTempDownloadPath(desiredPath, tmpHint)
+	}
+	tmpPath := task.TempPath
+
+	onProgress := h.downloadProgressCallback(taskIdx)
 
 	// 获取单文件连接数配置
 	connections := 8 // 默认值
@@ -687,11 +695,11 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 
 	downloadURL, mode := NormalizeDownloadURL(task.GetURL(), task.FileFormat)
 	if downloadURL != task.GetURL() {
-		utils.Info("🩹 [批量下载] 已规范化视频下载地址")
+		utils.LogFileInfo("🩹 [批量下载] 已规范化视频下载地址")
 	}
 	connections = ResolveDownloadConnections(mode, connections)
 	if mode == downloadVideoModeOriginal {
-		utils.Info("🎯 [批量下载] 原始视频使用单连接模式")
+		utils.LogFileInfo("🎯 [批量下载] 原始视频使用单连接模式")
 	}
 
 	headers := cloneStringMap(task.Headers)
@@ -707,7 +715,7 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 	if task.SourceURL != "" {
 		headers["Referer"] = task.SourceURL
 	}
-	utils.Info("🌐 [批量下载] 请求头: Referer=%s | UA=%s | 连接数=%d", headers["Referer"], headers["User-Agent"], connections)
+	utils.LogFileInfo("🌐 [批量下载] 请求头: Referer=%s | UA=%s | 连接数=%d", headers["Referer"], headers["User-Agent"], connections)
 
 	createTask := func() error {
 		_ = os.Remove(tmpPath)
@@ -793,13 +801,13 @@ func (h *BatchHandler) downloadVideoOnce(ctx context.Context, task *BatchTask, d
 	// 解密逻辑（如果需要）
 	needDecrypt := task.Key != "" || (task.DecryptorPrefix != "" && task.PrefixLen > 0)
 	if needDecrypt {
-		utils.Info("🔐 [批量下载] 开始解密视频...")
+		utils.LogFileInfo("🔐 [批量下载] 开始解密视频...")
 		if err := utils.DecryptFileInPlace(actualPath, task.GetKey(), task.DecryptorPrefix, task.PrefixLen); err != nil {
 			h.cleanupTaskArtifacts(task.GopeedTaskID, actualPath, true)
 			task.GopeedTaskID = ""
 			return "", fmt.Errorf("解密失败: %v", err)
 		}
-		utils.Info("✓ [批量下载] 解密完成")
+		utils.LogFileInfo("✓ [批量下载] 解密完成")
 	}
 
 	finalPath, err := utils.MoveFileToAvailablePathWithSuffix(actualPath, desiredPath, requiredSuffix)
@@ -871,7 +879,7 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 					utils.Warn("更新下载记录互动数据失败: %v", updateErr)
 				}
 			}
-			utils.Info("📝 [下载记录] 记录已存在(DB)，跳过保存: %s - %s", task.Title, task.GetAuthor())
+			utils.LogFileInfo("📝 [下载记录] 记录已存在(DB)，跳过保存: %s - %s", task.Title, task.GetAuthor())
 			return
 		}
 	}
@@ -935,7 +943,7 @@ func (h *BatchHandler) saveDownloadRecord(task *BatchTask, filePath string, stat
 				utils.Warn("保存下载记录失败: %v", err)
 			}
 		} else {
-			utils.Info("📝 [下载记录] 已保存(DB): %s - %s", task.Title, task.GetAuthor())
+			utils.LogFileInfo("📝 [下载记录] 已保存(DB): %s - %s", task.Title, task.GetAuthor())
 		}
 	}
 }

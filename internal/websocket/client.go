@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -141,12 +142,12 @@ func (c *Client) ReadPump() {
 			if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded") {
 				utils.LogWarn("WebSocket 连接空闲超时，关闭连接: %s", c.RemoteAddr)
 			} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled") {
-				utils.LogInfo("WebSocket 上下文已取消: %s", c.RemoteAddr)
+				utils.LogFileInfo("WebSocket 上下文已取消: %s", c.RemoteAddr)
 			} else {
 				// 检查是否是正常关闭
 				status := websocket.CloseStatus(err)
 				if status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway {
-					utils.LogInfo("WebSocket 正常关闭")
+					utils.LogFileInfo("WebSocket 正常关闭")
 				} else {
 					utils.LogError("WebSocket 异常关闭: %v (状态码: %d)", err, status)
 				}
@@ -318,17 +319,25 @@ func (c *Client) UpdateState(state ClientStateBody) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	username := normalizeFinderUsername(state)
+	probeStatus := state.APIProbeStatus
+	if probeStatus == "" {
+		probeStatus = c.apiProbeStatus
+	}
+	if probeStatus == "" {
+		probeStatus = "unknown"
+	}
+	stateChanged := c.pagePath != state.PagePath || c.href != state.Href ||
+		c.finderUsername != username || c.apiReady != state.APIReady ||
+		c.apiFunctional != state.APIFunctional || c.apiProbeStatus != probeStatus ||
+		c.apiProbeError != state.APIProbeError || !maps.Equal(c.methods, state.Methods)
+
 	c.pagePath = state.PagePath
 	c.href = state.Href
-	c.finderUsername = normalizeFinderUsername(state)
+	c.finderUsername = username
 	c.apiReady = state.APIReady
 	c.apiFunctional = state.APIFunctional
-	if state.APIProbeStatus != "" {
-		c.apiProbeStatus = state.APIProbeStatus
-	}
-	if c.apiProbeStatus == "" {
-		c.apiProbeStatus = "unknown"
-	}
+	c.apiProbeStatus = probeStatus
 	c.apiProbeError = state.APIProbeError
 	if state.APIProbeAt > 0 {
 		c.apiProbeAt = time.UnixMilli(state.APIProbeAt)
@@ -343,7 +352,9 @@ func (c *Client) UpdateState(state ClientStateBody) {
 		c.methods[k] = v
 	}
 
-	utils.LogInfo("WebSocket 客户端状态更新: %s | page=%s | apiReady=%t", c.RemoteAddr, c.pagePath, c.apiReady)
+	if stateChanged {
+		utils.LogFileInfo("WebSocket 客户端状态更新: %s | page=%s | apiReady=%t | apiFunctional=%t | probe=%s", c.RemoteAddr, c.pagePath, c.apiReady, c.apiFunctional, c.apiProbeStatus)
+	}
 }
 
 func (c *Client) SupportsKey(key string) bool {

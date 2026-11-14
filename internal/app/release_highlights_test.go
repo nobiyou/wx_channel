@@ -39,7 +39,7 @@ func TestReleaseHighlightsMatchCurrentVersion(t *testing.T) {
 	}
 }
 
-func TestPrintTitleRendersCurrentReleaseHighlights(t *testing.T) {
+func TestPrintTitleShowsCompactCurrentVersion(t *testing.T) {
 	var output bytes.Buffer
 	previousOutput := color.Output
 	previousNoColor := color.NoColor
@@ -54,12 +54,15 @@ func TestPrintTitleRendersCurrentReleaseHighlights(t *testing.T) {
 	app.printTitle()
 	rendered := output.String()
 
-	if !strings.Contains(rendered, "v"+version.Current+" 更新要点") {
+	if !strings.Contains(rendered, "微信视频号下载助手 v"+version.Current) {
 		t.Fatalf("startup title does not show current release version: %q", rendered)
 	}
+	if strings.Count(rendered, "\n") != 1 {
+		t.Fatalf("startup title should occupy one line: %q", rendered)
+	}
 	for _, highlight := range releaseHighlights {
-		if !strings.Contains(rendered, highlight) {
-			t.Fatalf("startup title missing release highlight %q", highlight)
+		if strings.Contains(rendered, highlight) {
+			t.Fatalf("release details should stay in the log file: %q", highlight)
 		}
 	}
 	for _, retired := range []string{"批量下载修复", "下载模式对齐"} {
