@@ -35,11 +35,11 @@
     return send(url, options);
   }
 
-  function log(message) {
+  function log(message, level) {
     apiFetch('/__wx_channels_api/tip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msg: '[直播] ' + message })
+      body: JSON.stringify({ msg: '[直播] ' + message, level: level || 'info' })
     }).catch(function (error) {
       console.warn('[直播] 日志上报失败:', error);
     });
@@ -64,14 +64,54 @@
     return result;
   }
 
+  function decodeSdkParams(value) {
+    if (typeof value !== 'string' || !value) return {};
+    try {
+      var binary = window.atob(value);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return asObject(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function streamFromChannels(value) {
+    var params = asObject(value);
+    var channels = params.cdn_trans_info || params.cdnTransInfo;
+    if (!Array.isArray(channels)) return '';
+    var preferred = params.cdn_quality_svrcfg;
+    if (preferred === undefined) preferred = params.cdnQualitySvrcfg;
+    var first = '';
+    for (var i = 0; i < channels.length; i++) {
+      var channel = asObject(channels[i]);
+      var url = firstHttp(channel.url);
+      if (!url) continue;
+      if (!first) first = url;
+      var tag = channel.quality_tag;
+      if (tag === undefined) tag = channel.qualityTag;
+      if (preferred !== undefined && String(tag) === String(preferred)) return url;
+    }
+    return first;
+  }
+
+  function streamFromPayload(value) {
+    var payload = asObject(value);
+    var views = payload.channel_params_desc || payload.channelParamsDesc;
+    if (Array.isArray(views)) {
+      for (var i = 0; i < views.length; i++) {
+        var view = asObject(views[i]);
+        var stream = streamFromChannels(view.channel_params || view.channelParams);
+        if (stream) return stream;
+      }
+    }
+    return streamFromChannels(payload.channel_params || payload.channelParams);
+  }
+
   function extractStream(value) {
     var data = unwrap(value);
     var sdk = asObject(data.liveSdkInfo || data.liveSDKInfo || data.sdkInfo);
     var stream = asObject(data.stream || data.liveStream || data.liveInfo);
-    var payload = asObject(data.payload);
-    var params = asObject(payload.channelParams);
-    var channels = Array.isArray(params.cdn_trans_info) ? params.cdn_trans_info : [];
-    var channelURL = channels.length > 0 ? channels[0].url : '';
     return firstHttp(
       sdk.liveCdnUrl,
       sdk.liveStreamUrl,
@@ -84,7 +124,9 @@
       stream.liveCdnUrl,
       stream.streamUrl,
       stream.flvUrl,
-      channelURL
+      streamFromPayload(decodeSdkParams(sdk.sdkParams)),
+      streamFromPayload(data.payload),
+      streamFromPayload(data)
     );
   }
 
@@ -303,7 +345,11 @@
       state.live = data;
     }
     var stream = extractStream(raw);
-    if (stream) state.streamUrl = stream;
+    if (stream) {
+      var firstStream = !state.streamUrl;
+      state.streamUrl = stream;
+      if (firstStream) log('已捕获直播流，下载按钮已就绪', 'debug');
+    }
     window.dispatchEvent(new CustomEvent('wx_channels_live_ready', { detail: state }));
     updateButton();
   };

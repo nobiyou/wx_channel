@@ -72,6 +72,9 @@ function loadLive() {
     navigator: { userAgent: 'live-test' },
     location: { href: 'https://channels.weixin.qq.com/web/pages/live', origin: 'https://channels.weixin.qq.com' },
     fetch: nativeFetch,
+    atob,
+    TextDecoder,
+    Uint8Array,
     dispatchEvent() {},
     setInterval() { return 1; },
     MutationObserver: class { observe() {} },
@@ -120,4 +123,51 @@ test('live download keeps the original fetch when page bundles replace global fe
     'User-Agent': 'live-test',
   });
   assert.match(button.parentNode.children.find(element => element.id === '__wx_channels_live_download_status__').textContent, /已启动/);
+});
+
+test('live SDK parameters supply the declared CDN quality', async () => {
+  const { sandbox, container, requests } = loadLive();
+  const sdkParams = Buffer.from(JSON.stringify({
+    channel_params: {
+      cdn_quality_svrcfg: 2,
+      cdn_trans_info: [
+        { quality_tag: 1, url: 'https://stream.example/low.flv' },
+        { quality_tag: 2, url: 'https://stream.example/current.flv' },
+      ],
+    },
+  })).toString('base64');
+  sandbox.__wx_channels_capture_live_data__('joinLive', { data: { liveSdkInfo: { sdkParams } } });
+  const button = container.children.find(element => element.id === '__wx_channels_live_download_button__');
+  assert.equal(button.textContent, '下载直播');
+  assert.equal(button.disabled, false);
+  await button.click();
+  const request = requests.find(item => item.url.endsWith('/download_live'));
+  assert.equal(JSON.parse(request.options.body).streamUrl, 'https://stream.example/current.flv');
+});
+
+test('multi-view SDK parameters skip streams without a usable HTTP URL', () => {
+  const { sandbox } = loadLive();
+  const sdkParams = Buffer.from(JSON.stringify({
+    channel_params_desc: [
+      { stream_id: 'pending', channel_params: { cdn_trans_info: [{ url: 'blob:temporary' }] } },
+      { stream_id: 'main', view_desc: '主画面', channel_params: { cdn_trans_info: [{ url: 'https://stream.example/main.flv' }] } },
+    ],
+  })).toString('base64');
+  sandbox.__wx_channels_capture_live_data__('joinLive', { liveSdkInfo: { sdkParams } });
+  assert.equal(sandbox.__wx_channels_live_runtime__.streamUrl, 'https://stream.example/main.flv');
+});
+
+test('invalid SDK data remains waiting and a later valid update enables recording', () => {
+  const { sandbox, container } = loadLive();
+  const button = container.children.find(element => element.id === '__wx_channels_live_download_button__');
+  for (const sdkParams of ['not base64!', Buffer.from('not JSON').toString('base64')]) {
+    assert.doesNotThrow(() => sandbox.__wx_channels_capture_live_data__('joinLive', { liveSdkInfo: { sdkParams } }));
+    assert.equal(button.textContent, '等待直播流');
+    assert.equal(button.disabled, true);
+  }
+  sandbox.__wx_channels_capture_live_data__('joinLive', {
+    payload: { channelParams: { cdn_trans_info: [{ url: 'https://stream.example/recovered.flv' }] } },
+  });
+  assert.equal(button.textContent, '下载直播');
+  assert.equal(sandbox.__wx_channels_live_runtime__.streamUrl, 'https://stream.example/recovered.flv');
 });

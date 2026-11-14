@@ -50,6 +50,7 @@ type ScriptHandler struct {
 	officialAccountOrigin string
 	officialAccountToken  string
 	version               string
+	liveScriptVersion     string
 	liveContextMu         sync.Mutex
 	liveContexts          map[string]time.Time
 	lastLivePageAt        time.Time
@@ -83,23 +84,31 @@ func (h *ScriptHandler) SetLiveScript(script []byte) {
 
 // NewScriptHandler 创建脚本处理器
 func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS, feedJS, profileJS, batchDownloadJS, zipJS, fileSaverJS, mittJS, eventbusJS, utilsJS, apiClientJS, keepAliveJS []byte, version string) *ScriptHandler {
+	// Live bundles contain different capture hooks from Home bundles. Give
+	// them a separate cache key, refreshed even when a test build keeps its version.
+	separator := "?"
+	if strings.Contains(version, "?") {
+		separator = "&"
+	}
+	liveScriptVersion := fmt.Sprintf("%s%swx_live=%x", version, separator, time.Now().UnixNano())
 	return &ScriptHandler{
-		coreJS:          coreJS,
-		decryptJS:       decryptJS,
-		downloadJS:      downloadJS,
-		homeJS:          homeJS,
-		feedJS:          feedJS,
-		profileJS:       profileJS,
-		batchDownloadJS: batchDownloadJS,
-		zipJS:           zipJS,
-		fileSaverJS:     fileSaverJS,
-		mittJS:          mittJS,
-		eventbusJS:      eventbusJS,
-		utilsJS:         utilsJS,
-		apiClientJS:     apiClientJS,
-		keepAliveJS:     keepAliveJS,
-		version:         version,
-		liveContexts:    make(map[string]time.Time),
+		coreJS:            coreJS,
+		decryptJS:         decryptJS,
+		downloadJS:        downloadJS,
+		homeJS:            homeJS,
+		feedJS:            feedJS,
+		profileJS:         profileJS,
+		batchDownloadJS:   batchDownloadJS,
+		zipJS:             zipJS,
+		fileSaverJS:       fileSaverJS,
+		mittJS:            mittJS,
+		eventbusJS:        eventbusJS,
+		utilsJS:           utilsJS,
+		apiClientJS:       apiClientJS,
+		keepAliveJS:       keepAliveJS,
+		version:           version,
+		liveScriptVersion: liveScriptVersion,
+		liveContexts:      make(map[string]time.Time),
 	}
 }
 
@@ -204,18 +213,22 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 		return true
 	}
 
+	isLivePage := host == "channels.weixin.qq.com" && pagePath == "/web/pages/live"
+	scriptVersion := h.version
+	if isLivePage {
+		scriptVersion = h.liveScriptVersion
+	}
 	// 添加版本号到JS引用
 	scriptReg1 := regexp.MustCompile(`src="([^"]{1,})\.js"`)
-	html = scriptReg1.ReplaceAllString(html, `src="$1.js`+h.version+`"`)
+	html = scriptReg1.ReplaceAllString(html, `src="$1.js`+scriptVersion+`"`)
 	scriptReg2 := regexp.MustCompile(`href="([^"]{1,})\.js"`)
-	html = scriptReg2.ReplaceAllString(html, `href="$1.js`+h.version+`"`)
+	html = scriptReg2.ReplaceAllString(html, `href="$1.js`+scriptVersion+`"`)
 	Conn.Response.Header.Set("__debug", "append_script")
 
 	// The proxy has already consumed the upstream body. Once script URLs or
 	// inline injection change its size, stale compression and length headers can
 	// make the WebView render a blank page. This is especially visible on the
 	// standalone live page, which does not receive the download UI injection.
-	isLivePage := host == "channels.weixin.qq.com" && pagePath == "/web/pages/live"
 	if host == "channels.weixin.qq.com" {
 		h.rememberLivePageContext(Conn, pagePath)
 	}
@@ -340,14 +353,18 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 	}
 
 	// 添加版本号到JS引用
+	scriptVersion := h.version
+	if isLiveScriptRequest(Conn) || isLivePageRequest(Conn) || h.hasRecentLivePageContext(Conn) {
+		scriptVersion = h.liveScriptVersion
+	}
 	depReg := regexp.MustCompile(`"js/([^"]{1,})\.js"`)
 	fromReg := regexp.MustCompile(`from {0,1}"([^"]{1,})\.js"`)
 	lazyImportReg := regexp.MustCompile(`import\("([^"]{1,})\.js"\)`)
 	importReg := regexp.MustCompile(`import {0,1}"([^"]{1,})\.js"`)
-	content = fromReg.ReplaceAllString(content, `from"$1.js`+h.version+`"`)
-	content = depReg.ReplaceAllString(content, `"js/$1.js`+h.version+`"`)
-	content = lazyImportReg.ReplaceAllString(content, `import("$1.js`+h.version+`")`)
-	content = importReg.ReplaceAllString(content, `import"$1.js`+h.version+`"`)
+	content = fromReg.ReplaceAllString(content, `from"$1.js`+scriptVersion+`"`)
+	content = depReg.ReplaceAllString(content, `"js/$1.js`+scriptVersion+`"`)
+	content = lazyImportReg.ReplaceAllString(content, `import("$1.js`+scriptVersion+`")`)
+	content = importReg.ReplaceAllString(content, `import"$1.js`+scriptVersion+`"`)
 	Conn.Response.Header.Set("__debug", "replace_script")
 
 	// The standalone live page shares common bundles with Home/Profile. Keep
@@ -1657,12 +1674,17 @@ func isLivePageRequest(conn *SunnyNet.HttpConn) bool {
 	return strings.EqualFold(refererURL.Hostname(), "channels.weixin.qq.com") && pagePath == "/web/pages/live"
 }
 
+func isLiveScriptRequest(conn *SunnyNet.HttpConn) bool {
+	return conn != nil && conn.Request != nil && conn.Request.URL != nil &&
+		conn.Request.URL.Query().Get("wx_live") != ""
+}
+
 // shouldSkipPageSpecificRewrites keeps the upstream page runtime intact for
 // live pages. Some Windows WebView requests omit Referer on shared bundles;
 // those requests are deliberately treated as unknown rather than being sent
 // through Home/Profile source rewrites, which can blank the live page.
 func (h *ScriptHandler) shouldSkipPageSpecificRewrites(conn *SunnyNet.HttpConn, host string) bool {
-	if isLivePageRequest(conn) {
+	if isLiveScriptRequest(conn) || isLivePageRequest(conn) {
 		return true
 	}
 	// Shared bundles are commonly served from res.wx.qq.com rather than

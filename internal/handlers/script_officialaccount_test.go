@@ -97,7 +97,7 @@ func TestScriptHandlerRewritesLiveHTMLWithoutStaleBodyHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read live page: %v", err)
 	}
-	if !strings.Contains(string(body), `src="/web/app.js?t=test"`) {
+	if !strings.Contains(string(body), `src="/web/app.js?t=test&wx_live=`) {
 		t.Fatalf("live page script version was not applied: %s", body)
 	}
 	if page.Response.Header.Get("Content-Encoding") != "" || page.Response.Header.Get("Content-Length") != "" {
@@ -220,7 +220,7 @@ func TestScriptHandlerRewritesLiveJavascriptWithoutStaleBodyHeaders(t *testing.T
 	if err != nil {
 		t.Fatalf("read live JavaScript: %v", err)
 	}
-	if !strings.Contains(string(body), `import"chunk.js?t=test"`) {
+	if !strings.Contains(string(body), `import"chunk.js?t=test&wx_live=`) {
 		t.Fatalf("live JavaScript dependency version was not applied: %s", body)
 	}
 	if page.Response.Header.Get("Content-Encoding") != "" || page.Response.Header.Get("Content-Length") != "" {
