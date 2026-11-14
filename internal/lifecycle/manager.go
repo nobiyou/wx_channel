@@ -17,6 +17,7 @@ const (
 	stateWaitingForWeChat = "waiting_for_wechat"
 	stateOpening          = "opening"
 	stateWaitingForClient = "waiting_for_client"
+	stateWaitingForLogin  = "waiting_for_login"
 	stateHealthy          = "healthy"
 	stateRecovering       = "recovering"
 	stateManualRequired   = "manual_required"
@@ -28,6 +29,9 @@ const (
 )
 
 var allowedChannelPaths = map[string]struct{}{
+	"/platform/login":         {},
+	"/login":                  {},
+	"/login.html":             {},
 	"/web/pages/feed":         {},
 	"/web/pages/home":         {},
 	"/web/pages/profile":      {},
@@ -264,6 +268,20 @@ func (m *Manager) Tick(ctx context.Context) error {
 		m.setStateLocked(stateHealthy, now)
 		m.mu.Unlock()
 		return nil
+	}
+
+	// A live login page deliberately has no business APIs. Do not rotate its
+	// OAuth session with automatic refreshes while the user scans/confirms.
+	for _, status := range statuses {
+		if websocket.IsChannelLoginURL(status.Href) && status.ApplicationFresh && statusFresh(status, now, m.cfg.StaleAfter) {
+			m.mu.Lock()
+			m.unhealthySamples, m.attempts = 0, 0
+			m.nextRetryAt, m.cooldownUntil = time.Time{}, time.Time{}
+			m.lastError = ""
+			m.setStateLocked(stateWaitingForLogin, now)
+			m.mu.Unlock()
+			return nil
+		}
 	}
 
 	if candidate {

@@ -35,6 +35,7 @@ type Client struct {
 	lastSeen       time.Time
 	pagePath       string
 	href           string
+	finderUsername string
 	apiReady       bool
 	apiFunctional  bool
 	apiProbeStatus string
@@ -319,6 +320,7 @@ func (c *Client) UpdateState(state ClientStateBody) {
 
 	c.pagePath = state.PagePath
 	c.href = state.Href
+	c.finderUsername = normalizeFinderUsername(state)
 	c.apiReady = state.APIReady
 	c.apiFunctional = state.APIFunctional
 	if state.APIProbeStatus != "" {
@@ -407,11 +409,16 @@ func (c *Client) statusAt(now time.Time, staleAfter time.Duration) ClientStatus 
 	applicationFresh := isFreshAt(now, staleAfter, c.lastSeen)
 	protocolFresh := isFreshAt(now, staleAfter, c.lastPong)
 	apiFunctionalFresh := isAPIFunctionallyFreshAt(now, c.apiProbeStatus, c.apiProbeAt)
+	username := c.finderUsername
+	if !applicationFresh {
+		username = ""
+	}
 
 	return ClientStatus{
 		RemoteAddr:         c.RemoteAddr,
 		PagePath:           c.pagePath,
 		Href:               c.href,
+		FinderUsername:     username,
 		APIReady:           c.apiReady,
 		APIFunctional:      c.apiFunctional,
 		APIProbeStatus:     c.apiProbeStatus,

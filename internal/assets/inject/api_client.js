@@ -22,6 +22,8 @@ window.__wx_api_client = {
   functionalProbePending: false,
   functionalProbeInterval: 60000,
   functionalProbeTimeout: 8000,
+  loginStateMonitorTimer: null,
+  lastLoginStateKey: null,
   apiFunctional: false,
   apiProbeStatus: 'unknown',
   apiProbeAt: 0,
@@ -580,6 +582,7 @@ window.__wx_api_client = {
 
         // 启动心跳
         self.startHeartbeat();
+        self.startLoginStateMonitor();
         self.sendClientState();
         self.scheduleInjectHealthReports('ws_open');
       };
@@ -646,7 +649,7 @@ window.__wx_api_client = {
 
   collectClientState: function () {
     var methods = {};
-    if (window.WXU) {
+    if (!this.isChannelLoginPage() && window.WXU) {
       methods.finderGetCommentDetail = !!(window.WXU.API && typeof window.WXU.API.finderGetCommentDetail === 'function');
       methods.finderGetCommentList = !!(window.WXU.API && typeof window.WXU.API.finderGetCommentList === 'function');
       methods.finderUserPage = !!(window.WXU.API && typeof window.WXU.API.finderUserPage === 'function');
@@ -657,6 +660,7 @@ window.__wx_api_client = {
     return {
       pagePath: window.location.pathname,
       href: window.location.href,
+      finderUsername: this.collectFinderUsername(),
       apiReady: !!(methods.finderGetCommentDetail || methods.finderGetCommentList || methods.finderUserPage || methods.finderSearch || methods.finderGetInteractionedFeedList),
       apiFunctional: this.apiFunctional,
       apiProbeStatus: this.apiProbeStatus,
@@ -668,6 +672,50 @@ window.__wx_api_client = {
       userAgent: navigator.userAgent,
       visible: !document.hidden
     };
+  },
+
+  isChannelLoginPage: function () {
+    try {
+      var pathname = new URL(window.location.href).pathname.replace(/\/+$/, '') || '/';
+      return pathname === '/' || pathname === '/platform/login' || pathname === '/login' || pathname === '/login.html';
+    } catch (err) { return false; }
+  },
+
+  // A profile's visible 视频号 ID belongs to the viewed creator. Only the
+  // account reported by WeChat initialization identifies the signed-in user.
+  collectFinderUsername: function () {
+    if (this.isChannelLoginPage()) {
+      window.__wx_username = '';
+      return '';
+    }
+    return String(window.__wx_username || '').trim();
+  },
+
+  // Keep the official login page in its existing browser session. Only
+  // account and page transitions are synchronized; QR rendering belongs to WeChat.
+  startLoginStateMonitor: function () {
+    this.stopLoginStateMonitor();
+    var self = this;
+    this.loginStateMonitorTimer = setInterval(function () {
+      if (self.connected && !self.unloading) self.reportLoginStateChange();
+    }, 2500);
+  },
+
+  loginStateKey: function (state) {
+    return JSON.stringify([state.finderUsername, state.href, state.pagePath]);
+  },
+
+  reportLoginStateChange: function () {
+    var state = this.collectClientState();
+    if (this.loginStateKey(state) !== this.lastLoginStateKey) this.sendClientState(state);
+  },
+
+  stopLoginStateMonitor: function () {
+    if (this.loginStateMonitorTimer) {
+      clearInterval(this.loginStateMonitorTimer);
+      this.loginStateMonitorTimer = null;
+    }
+    this.lastLoginStateKey = null;
   },
 
   collectInjectHealth: function () {
@@ -726,15 +774,17 @@ window.__wx_api_client = {
     }, 1500);
   },
 
-  sendClientState: function () {
+  sendClientState: function (state) {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
     }
     try {
+      state = state || this.collectClientState();
       this.ws.send(JSON.stringify({
         type: 'client_state',
-        data: this.collectClientState()
+        data: state
       }));
+      this.lastLoginStateKey = this.loginStateKey(state);
     } catch (err) {
       console.error('[API客户端] 发送客户端状态失败:', err);
     }
@@ -745,6 +795,9 @@ window.__wx_api_client = {
     try {
       var parsed = new URL(String(rawUrl || ''), window.location.href);
       var allowedPaths = {
+        '/platform/login': true,
+        '/login': true,
+        '/login.html': true,
         '/web/pages/feed': true,
         '/web/pages/home': true,
         '/web/pages/profile': true,
@@ -752,6 +805,7 @@ window.__wx_api_client = {
       };
       return parsed.protocol === 'https:' &&
         parsed.hostname === 'channels.weixin.qq.com' &&
+        !parsed.username && !parsed.password && !parsed.port &&
         !!allowedPaths[parsed.pathname];
     } catch (err) {
       return false;
@@ -1231,6 +1285,7 @@ window.__wx_api_client = {
     }
     this.heartbeatPending = false;
     this.stopFunctionalHealthMonitor();
+    this.stopLoginStateMonitor();
   },
 
   // 发送心跳
@@ -1306,9 +1361,12 @@ if (document.readyState === 'loading') {
 // 监听初始化事件，获取用户名
 if (window.WXE && window.WXE.onInit) {
   window.WXE.onInit(function (data) {
-    if (data && data.mainFinderUsername) {
-      window.__wx_username = data.mainFinderUsername;
+    if (data && Object.prototype.hasOwnProperty.call(data, 'mainFinderUsername')) {
+      window.__wx_username = String(data.mainFinderUsername || '').trim();
       console.log('[API客户端] 已获取用户名:', window.__wx_username);
+      if (window.__wx_api_client) {
+        window.__wx_api_client.sendClientState();
+      }
     }
   });
 }

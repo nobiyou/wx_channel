@@ -11,6 +11,7 @@ function loadClient() {
     document: {
       readyState: 'loading',
       hidden: false,
+      body: { innerText: '视频号ID：sph-test-account-001' },
       addEventListener() {},
       dispatchEvent() {},
     },
@@ -112,6 +113,7 @@ function clearReconnectTimer(api) {
 
 function main() {
   const env = loadClient();
+  assert(env.api.collectClientState().finderUsername === '', 'visible account labels must not authenticate the current user');
   env.api.handleCommand({ action: 'channel_reload', payload: { reason: 'test-reload' } });
   assert(env.calls.refresh.length === 1 && env.calls.refresh[0] === 'test-reload', 'valid reload must call keep-alive refresh');
 
@@ -119,16 +121,20 @@ function main() {
     action: 'channel_navigate',
     payload: { url: 'https://channels.weixin.qq.com/web/pages/feed?source=test' },
   });
-  assert(env.calls.assigned.length === 1, 'valid navigation must be assigned');
+  env.api.handleCommand({
+    action: 'channel_navigate',
+    payload: { url: 'https://channels.weixin.qq.com/platform/login' },
+  });
+  assert(env.calls.assigned.length === 2, 'valid business and login navigation must be assigned');
 
   env.api.handleCommand({ action: 'channel_navigate', payload: { url: 'https://example.com/web/pages/home' } });
   env.api.handleCommand({ action: 'channel_navigate', payload: { url: 'https://channels.weixin.qq.com/other' } });
-  assert(env.calls.assigned.length === 1, 'invalid navigation must be rejected');
+  assert(env.calls.assigned.length === 2, 'invalid navigation must be rejected');
 
   env.calls.locked = true;
   env.api.handleCommand({ action: 'channel_reload', payload: { reason: 'locked' } });
   env.api.handleCommand({ action: 'channel_navigate', payload: { url: 'https://channels.weixin.qq.com/web/pages/home' } });
-  assert(env.calls.refresh.length === 1 && env.calls.assigned.length === 1, 'refresh lock must block lifecycle commands');
+  assert(env.calls.refresh.length === 1 && env.calls.assigned.length === 2, 'refresh lock must block lifecycle commands');
 
   env.api.connected = true;
   env.api.ws = { send() {}, close() {} };
@@ -152,6 +158,8 @@ function main() {
   assert(reconnectAPI.connected === false, 'closed socket must mark client disconnected');
   assert(reconnectAPI.reconnectTimer !== null, 'closed socket must schedule reconnect');
   clearReconnectTimer(reconnectAPI);
+
+
 }
 
 main();

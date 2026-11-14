@@ -68,6 +68,7 @@ type FeedCommentListBody struct {
 type ClientStateBody struct {
 	PagePath       string          `json:"pagePath"`
 	Href           string          `json:"href"`
+	FinderUsername string          `json:"finderUsername,omitempty"`
 	APIReady       bool            `json:"apiReady"`
 	APIFunctional  bool            `json:"apiFunctional"`
 	APIProbeStatus string          `json:"apiProbeStatus,omitempty"`
@@ -83,6 +84,7 @@ type ClientStatus struct {
 	RemoteAddr         string          `json:"remote_addr"`
 	PagePath           string          `json:"page_path"`
 	Href               string          `json:"href"`
+	FinderUsername     string          `json:"finder_username,omitempty"`
 	APIReady           bool            `json:"api_ready"`
 	APIFunctional      bool            `json:"api_functional"`
 	APIProbeStatus     string          `json:"api_probe_status,omitempty"`

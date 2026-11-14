@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +83,8 @@ func NewConnector(cfg *config.Config, localHub *hubws.Hub) *Connector {
 type localCapabilitySummary struct {
 	PagePath            string
 	Href                string
+	ClientRemoteAddr    string
+	FinderUsername      string
 	APIReady            bool
 	WSClients           int
 	ReadyClients        int
@@ -94,38 +98,49 @@ type localCapabilitySummary struct {
 }
 
 func (c *Connector) collectLocalCapabilities() localCapabilitySummary {
+	if c.local == nil {
+		return summarizeClientCapabilities(nil)
+	}
+	return summarizeClientCapabilities(c.local.ClientStatuses())
+}
+
+func summarizeClientCapabilities(statuses []hubws.ClientStatus) localCapabilitySummary {
 	summary := localCapabilitySummary{
 		Methods: make(map[string]bool),
 	}
-	if c.local == nil {
-		return summary
-	}
-
-	statuses := c.local.ClientStatuses()
 	summary.WSClients = len(statuses)
 
 	bestScore := -1
+	var bestSeen time.Time
+	bestClient := ""
 	for _, status := range statuses {
-		if status.APIReady {
+		if !status.ApplicationFresh {
+			continue
+		}
+		page, err := url.Parse(status.Href)
+		if err != nil || page.Scheme != "https" || !strings.EqualFold(page.Hostname(), "channels.weixin.qq.com") || page.User != nil || (page.Port() != "" && page.Port() != "443") {
+			continue
+		}
+		if status.APIReady && status.Fresh {
 			summary.ReadyClients++
 		}
-		if status.SupportsSearch {
+		if status.SupportsSearch && status.Fresh {
 			summary.SearchReadyClients++
 		}
-		if status.SupportsFeed {
+		if status.SupportsFeed && status.Fresh {
 			summary.FeedReadyClients++
 		}
-		if status.SupportsProfile {
+		if status.SupportsProfile && status.Fresh {
 			summary.ProfileReadyClients++
 		}
 		for method, ok := range status.Methods {
-			if ok {
+			if ok && status.Fresh {
 				summary.Methods[method] = true
 			}
 		}
 
 		score := 0
-		if status.APIReady {
+		if status.APIReady && status.Fresh {
 			score += 100
 		}
 		if status.SupportsSearch {
@@ -140,10 +155,24 @@ func (c *Connector) collectLocalCapabilities() localCapabilitySummary {
 		if status.Href != "" {
 			score += 5
 		}
-		if score > bestScore {
+		// An old login tab must not replace an authenticated account. Equal
+		// candidates use observation time instead of Go map iteration order.
+		if hubws.IsChannelLoginURL(status.Href) {
+			score += 1000
+		}
+		if status.FinderUsername != "" {
+			score += 2000
+		}
+		seen, _ := time.Parse(time.RFC3339, status.LastSeenAt)
+		clientKey := status.Href + "\n" + status.RemoteAddr
+		if score > bestScore || (score == bestScore && (seen.After(bestSeen) || (seen.Equal(bestSeen) && clientKey < bestClient))) {
 			bestScore = score
+			bestSeen = seen
+			bestClient = clientKey
 			summary.PagePath = status.PagePath
 			summary.Href = status.Href
+			summary.ClientRemoteAddr = status.RemoteAddr
+			summary.FinderUsername = status.FinderUsername
 		}
 	}
 
@@ -371,6 +400,7 @@ func (c *Connector) sendHeartbeat() error {
 		HardwareFingerprint: hwFingerprintJSON,
 		PagePath:            localCaps.PagePath,
 		Href:                localCaps.Href,
+		FinderUsername:      localCaps.FinderUsername,
 		APIReady:            localCaps.APIReady,
 		WSClients:           localCaps.WSClients,
 		ReadyClients:        localCaps.ReadyClients,
@@ -499,6 +529,23 @@ func (c *Connector) processMessage(msg CloudMessage) {
 	switch cmd.Action {
 	case "api_call":
 		c.handleAPICall(msg.ID, cmd.Data)
+	case "channel_reload", "channel_navigate":
+		if c.local == nil {
+			c.sendError(msg.ID, "本地视频号页面调度器未初始化")
+			return
+		}
+		// Lifecycle commands are forwarded to the live page without exposing
+		// the local WebSocket protocol to the cloud server. The page client
+		// validates the destination before navigating.
+		selected := c.collectLocalCapabilities()
+		err := c.local.SendCommandToMatchingClient(func(status hubws.ClientStatus) bool {
+			return status.ApplicationFresh && selected.Href != "" && status.Href == selected.Href && status.RemoteAddr == selected.ClientRemoteAddr
+		}, cmd.Action, cmd.Data)
+		if err != nil {
+			c.sendError(msg.ID, err.Error())
+			return
+		}
+		c.sendResponse(msg.ID, true, json.RawMessage(`{"accepted":true}`), "")
 	default:
 		utils.LogError("未知操作: %s", cmd.Action)
 		c.sendError(msg.ID, fmt.Sprintf("Unknown action: %s", cmd.Action))

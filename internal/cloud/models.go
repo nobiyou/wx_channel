@@ -36,6 +36,7 @@ type HeartbeatPayload struct {
 	SearchReadyClients  int             `json:"search_ready_clients,omitempty"`  // 搜索可用页面数量
 	FeedReadyClients    int             `json:"feed_ready_clients,omitempty"`    // 视频列表可用页面数量
 	ProfileReadyClients int             `json:"profile_ready_clients,omitempty"` // 视频详情可用页面数量
+	FinderUsername      string          `json:"finder_username"`                 // 当前登录的视频号用户名
 	SupportsSearch      bool            `json:"supports_search,omitempty"`       // 是否支持搜索
 	SupportsFeed        bool            `json:"supports_feed,omitempty"`         // 是否支持视频列表
 	SupportsProfile     bool            `json:"supports_profile,omitempty"`      // 是否支持视频详情

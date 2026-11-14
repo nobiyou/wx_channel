@@ -188,6 +188,22 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 		pagePath = "/"
 	}
 
+	if host == "open.weixin.qq.com" && pagePath == "/connect/qrconnect" {
+		// WeChat owns QR rendering and polling. Preserve this OAuth session.
+		Conn.Response.Body = io.NopCloser(bytes.NewReader(body))
+		return true
+	}
+	if host == "channels.weixin.qq.com" && isChannelLoginPagePath(pagePath) {
+		injected := h.buildInjectedScripts(pagePath)
+		if nonce := officialAccountCSPNonce(Conn.Response.Header); nonce != "" {
+			injected = strings.ReplaceAll(injected, "<script>", `<script nonce="`+htmlstd.EscapeString(nonce)+`">`)
+		}
+		html, _ = injectScriptsIntoHTMLHead(html, injected)
+		resetModifiedResponseHeaders(Conn.Response.Header)
+		Conn.Response.Body = io.NopCloser(strings.NewReader(html))
+		return true
+	}
+
 	// 添加版本号到JS引用
 	scriptReg1 := regexp.MustCompile(`src="([^"]{1,})\.js"`)
 	html = scriptReg1.ReplaceAllString(html, `src="$1.js`+h.version+`"`)
@@ -255,6 +271,15 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 	return true
 }
 
+func isChannelLoginPagePath(path string) bool {
+	switch strings.TrimRight(path, "/") {
+	case "", "/platform/login", "/login", "/login.html":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *ScriptHandler) hasOfficialAccountPage(path string) bool {
 	if len(h.officialAccountJS) == 0 {
 		return false
@@ -302,6 +327,12 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 
 	content := string(body)
 	originalContent := content
+	if referer, ok := requestRefererURL(Conn); ok &&
+		((strings.EqualFold(referer.Hostname(), "channels.weixin.qq.com") && isChannelLoginPagePath(referer.Path)) ||
+			(strings.EqualFold(referer.Hostname(), "open.weixin.qq.com") && strings.TrimRight(referer.Path, "/") == "/connect/qrconnect")) {
+		Conn.Response.Body = io.NopCloser(bytes.NewReader(body))
+		return true
+	}
 	resetHeaders := func() {
 		if content != originalContent {
 			resetModifiedResponseHeaders(Conn.Response.Header)
@@ -369,6 +400,11 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 
 // buildInjectedScripts 构建所有需要注入的脚本（根据页面路径注入不同脚本）
 func (h *ScriptHandler) buildInjectedScripts(path string) string {
+	if isChannelLoginPagePath(path) {
+		// OAuth owns this page. Download controls and Home/Profile runtime are
+		// unnecessary here and can interfere with login initialization.
+		return fmt.Sprintf(`<script>%s</script><script>%s</script>`, h.apiClientJS, h.keepAliveJS)
+	}
 	if path == "/web/pages/live" {
 		// 直播页使用隔离运行时，不能加载 Home/Profile 的基础脚本；但仍
 		// 需要页面快照脚本，否则直播页无法通过“保存页面”进入后端保存接口。

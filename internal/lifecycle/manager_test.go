@@ -87,6 +87,30 @@ func candidateStatus(now time.Time) websocket.ClientStatus {
 	return status
 }
 
+func TestManagerDoesNotRefreshAHealthyLoginPageWhileWaitingForScan(t *testing.T) {
+	now := time.Date(2026, 11, 14, 8, 0, 0, 0, time.UTC)
+	login := candidateStatus(now)
+	login.PagePath = "/platform/login"
+	login.Href = "https://channels.weixin.qq.com/platform/login"
+	login.Fresh = false // No business API is expected on the official login page.
+	probe, opener := &fakeProbe{running: true}, &fakeOpener{}
+	transport := &fakeTransport{statuses: []websocket.ClientStatus{login}}
+	manager := testManager(probe, opener, transport, &now)
+	for i := 0; i < 10; i++ {
+		transport.statuses[0].LastSeenAt = now.Format(time.RFC3339)
+		if err := manager.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(10 * time.Second)
+	}
+	if len(transport.commands) != 0 || opener.calls != 1 {
+		t.Fatalf("login session was interrupted: reloads=%d opens=%d", len(transport.commands), opener.calls)
+	}
+	if got := manager.Snapshot().State; got != "waiting_for_login" {
+		t.Fatalf("state = %q, want waiting_for_login", got)
+	}
+}
+
 func TestManagerOpensReadyClientWithoutStartupRefresh(t *testing.T) {
 	now := time.Date(2026, 8, 25, 8, 0, 0, 0, time.Local)
 	probe := &fakeProbe{running: true}
