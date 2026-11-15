@@ -153,6 +153,8 @@ download_records.csv
 # ==================== 测试和脚本 ====================
 # 测试脚本目录
 scripts/*
+!scripts/check-environment.ps1
+!scripts/repair-environment.ps1
 !scripts/build-dual.ps1
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1
