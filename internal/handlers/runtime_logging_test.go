@@ -41,7 +41,11 @@ func TestQuietRuntimeLogging(t *testing.T) {
 		h.processVideoData(map[string]any{
 			"id": "quiet-video", "title": "quiet-title", "nickname": "quiet-author",
 			"key": "private-decryption-key", "url": "https://example.com/quiet-video",
+			"duration": float64(65000), "size": float64(2 * 1024 * 1024),
+			"media":     map[string]any{"width": float64(1080), "height": float64(1920)},
 			"likeCount": float64(12), "commentCount": float64(3),
+			"favCount": float64(4), "forwardCount": float64(5),
+			"metricsSource": "wechat_api", "metricsObservedAt": "2026-11-15T09:00:00Z",
 		})
 		record, err := database.NewBrowseHistoryRepository().GetByID("quiet-video")
 		if err != nil || record == nil || record.LikeCount != 12 || record.CommentCount != 3 || record.DecryptKey != "private-decryption-key" {
@@ -79,9 +83,14 @@ func TestQuietRuntimeLogging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runtime logging regression: %v\n%s", err, output)
 	}
-	for _, marker := range []string{"quiet-title", "quiet-author", "quiet-video", "batch-title", "private-decryption-key", "视频详细信息", "视频已成功播放", "tip-detail-marker"} {
+	for _, marker := range []string{"batch-title", "private-decryption-key", "视频已成功播放", "tip-detail-marker"} {
 		if strings.Contains(string(output), marker) {
 			t.Errorf("routine diagnostic leaked to console: %s", marker)
+		}
+	}
+	for _, marker := range []string{"视频详细信息", "quiet-video", "quiet-author", "quiet-title", "视频时长", "视频大小", "点赞量", "评论量", "收藏数", "转发数", "数据来源"} {
+		if !strings.Contains(string(output), marker) {
+			t.Errorf("video summary missing from console: %s\n%s", marker, output)
 		}
 	}
 	for _, marker := range []string{"tip-warning-marker", "tip-failure-marker", "tip-legacy-marker"} {

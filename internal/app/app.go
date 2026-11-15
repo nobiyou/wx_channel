@@ -538,11 +538,21 @@ func (app *App) printEnvConfig() {
 }
 
 func (app *App) printTitle() {
-	color.Cyan("微信视频号下载助手 v%s", app.Cfg.Version)
-	color.Yellow("项目地址：https://github.com/nobiyou/wx_channel")
-	color.Green("v%s 更新要点：", app.Cfg.Version)
+	color.Set(color.FgCyan)
+	fmt.Println("")
+	fmt.Println(" ██╗    ██╗██╗  ██╗     ██████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗███████╗██╗     ")
+	fmt.Println(" ██║    ██║╚██╗██╔╝    ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔════╝██║     ")
+	fmt.Println(" ██║ █╗ ██║ ╚███╔╝     ██║     ███████║███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██║     ")
+	fmt.Println(" ██║███╗██║ ██╔██╗     ██║     ██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██║     ")
+	fmt.Println(" ╚███╔███╔╝██╔╝ ██╗    ╚██████╗██║  ██║██║  ██║██║ ╚████║██║ ╚████║███████╗███████╗")
+	fmt.Println("  ╚══╝╚══╝ ╚═╝  ╚═╝     ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚══════╝")
+	color.Unset()
+
+	color.Yellow("    微信视频号下载助手 v%s", app.Cfg.Version)
+	color.Yellow("    项目地址：https://github.com/nobiyou/wx_channel")
+	color.Green("    v%s 更新要点：", app.Cfg.Version)
 	for _, highlight := range releaseHighlights {
-		color.Green("  • %s", highlight)
+		color.Green("    • %s", highlight)
 	}
 	fmt.Println()
 

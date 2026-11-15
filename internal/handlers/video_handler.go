@@ -14,6 +14,7 @@ import (
 	"wx_channel/internal/response"
 	"wx_channel/internal/utils"
 
+	"github.com/fatih/color"
 	"github.com/qtgolang/SunnyNet/SunnyNet"
 )
 
@@ -219,6 +220,82 @@ func (h *APIHandler) processVideoData(data map[string]interface{}) {
 	metricsObservedAt, _ := data["metricsObservedAt"].(string)
 	metricsSnapshot := database.CaptureReportedVideoMetrics(data, metricsSource, metricsObservedAt, time.Now())
 	h.saveBrowseRecord(videoID, title, author, authorID, duration, size, coverUrl, url, decryptKey, resolution, fileFormat, likeCount, commentCount, favCount, forwardCount, pageUrl, metricsSnapshot)
+
+	printVideoDetails(data, videoID, title, author, duration, size, resolution, fileFormat, likeCount, commentCount, favCount, forwardCount, metricsSource, metricsObservedAt)
+}
+
+// printVideoDetails 输出一次完整但安全的终端摘要。
+// URL、解密密钥等敏感或过长字段继续保留在文件日志中，不占用终端状态区域。
+func printVideoDetails(data map[string]interface{}, videoID, title, author string, duration, size int64, resolution, fileFormat string, likeCount, commentCount, favCount, forwardCount int64, metricsSource, metricsObservedAt string) {
+	color.Yellow("\n")
+	utils.PrintSeparator()
+	color.Blue("📊 视频详细信息")
+	utils.PrintSeparator()
+
+	if videoID != "" {
+		utils.PrintLabelValue("🆔", "视频ID", videoID)
+	}
+	if author != "" {
+		utils.PrintLabelValue("👤", "视频号名称", author)
+	}
+	if title != "" {
+		utils.PrintLabelValue("📝", "视频标题", title)
+	}
+	if duration > 0 {
+		utils.PrintLabelValue("⏱️", "视频时长", utils.FormatDuration(float64(duration)))
+	}
+	if size > 0 {
+		utils.PrintLabelValue("📦", "视频大小", fmt.Sprintf("%.2f MB", float64(size)/(1024*1024)))
+	}
+	if resolution != "" {
+		utils.PrintLabelValue("🖥️", "视频分辨率", resolution)
+	}
+	if fileFormat != "" {
+		utils.PrintLabelValue("🎞️", "视频格式", fileFormat)
+	}
+	if _, ok := data["likeCount"]; ok {
+		utils.PrintLabelValue("👍", "点赞量", utils.FormatNumber(float64(likeCount)))
+	}
+	if _, ok := data["commentCount"]; ok {
+		utils.PrintLabelValue("💬", "评论量", utils.FormatNumber(float64(commentCount)))
+	}
+	if _, ok := data["favCount"]; ok {
+		utils.PrintLabelValue("🔖", "收藏数", utils.FormatNumber(float64(favCount)))
+	}
+	if _, ok := data["forwardCount"]; ok {
+		utils.PrintLabelValue("🔄", "转发数", utils.FormatNumber(float64(forwardCount)))
+	}
+	if createtime, ok := data["createtime"].(float64); ok {
+		utils.PrintLabelValue("📅", "创建时间", time.Unix(int64(createtime), 0).Format("2006-01-02 15:04:05"))
+	}
+	if location := videoLocation(data); location != "" {
+		utils.PrintLabelValue("🌍", "地理位置", location)
+	}
+	if metricsSource != "" {
+		utils.PrintLabelValue("📡", "数据来源", metricsSource)
+	}
+	if metricsObservedAt != "" {
+		utils.PrintLabelValue("🕒", "数据时间", metricsObservedAt)
+	}
+
+	utils.PrintSeparator()
+	color.Yellow("\n")
+}
+
+func videoLocation(data map[string]interface{}) string {
+	if info, ok := data["ipRegionInfo"].(map[string]interface{}); ok {
+		if region, ok := info["regionText"].(string); ok && strings.TrimSpace(region) != "" {
+			return strings.TrimSpace(region)
+		}
+	}
+	if contact, ok := data["contact"].(map[string]interface{}); ok {
+		if extInfo, ok := contact["extInfo"].(map[string]interface{}); ok {
+			province, _ := extInfo["province"].(string)
+			city, _ := extInfo["city"].(string)
+			return strings.TrimSpace(strings.TrimSpace(province) + " " + strings.TrimSpace(city))
+		}
+	}
+	return ""
 }
 
 // saveBrowseRecord 保存浏览记录到数据库
