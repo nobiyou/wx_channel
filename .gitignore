@@ -155,6 +155,8 @@ download_records.csv
 scripts/*
 !scripts/check-environment.ps1
 !scripts/repair-environment.ps1
+!scripts/check-environment.cmd
+!scripts/repair-environment.cmd
 !scripts/build-dual.ps1
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1

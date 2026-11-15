@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     修复微信视频号下载助手常见的 Windows 环境问题。
 
@@ -19,7 +19,7 @@
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
-    [string]$AppRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$AppRoot = '',
     [int]$Port = 0,
     [int]$TimeoutSeconds = 8,
     [string]$CertificatePath = '',
@@ -37,6 +37,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:Actions = @()
+
+if ([string]::IsNullOrWhiteSpace($AppRoot)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) { $scriptPath = $PSCommandPath }
+    $scriptDirectory = Split-Path -Parent $scriptPath
+    $AppRoot = Split-Path -Parent $scriptDirectory
+}
 
 function Add-Action {
     param(

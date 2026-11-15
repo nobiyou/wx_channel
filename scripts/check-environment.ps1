@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     检查微信视频号下载助手的 Windows 运行环境。
 
@@ -16,7 +16,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$AppRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$AppRoot = '',
     [int]$Port = 0,
     [int]$TimeoutSeconds = 5,
     [string]$AuthToken = '',
@@ -28,6 +28,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:Checks = @()
+
+if ([string]::IsNullOrWhiteSpace($AppRoot)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) { $scriptPath = $PSCommandPath }
+    $scriptDirectory = Split-Path -Parent $scriptPath
+    $AppRoot = Split-Path -Parent $scriptDirectory
+}
 
 function Add-Check {
     param(
