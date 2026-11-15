@@ -160,15 +160,19 @@ func (h *UploadHandler) recordLiveStream(ctx context.Context, cancel context.Can
 	err := cmd.Run()
 	if err != nil {
 		if ctx.Err() != nil {
-			if _, statErr := os.Stat(tmpPath); statErr == nil {
-				if finalPath, saveErr := h.finalizeLiveRecording(req, videoID, videoPath, tmpPath, downloadsDir); saveErr != nil {
-					utils.Warn("⏹️ [直播下载] 已停止，但保存已录制片段失败: %v", saveErr)
-				} else {
-					utils.Info("⏹️ [直播下载] 已停止并保存片段: %s", finalPath)
-				}
+			if finalPath, saved, saveErr := h.autoSaveLiveRecording(req, videoID, videoPath, tmpPath, downloadsDir); saveErr != nil {
+				utils.Warn("⏹️ [直播下载] 已停止，但保存已录制片段失败: %v", saveErr)
+			} else if saved {
+				utils.Info("⏹️ [直播下载] 已停止并保存片段: %s", finalPath)
 			} else {
 				utils.Info("⏹️ [直播下载] 已停止，未产生可保存片段: %s", req.Title)
 			}
+			return
+		}
+		if finalPath, saved, saveErr := h.autoSaveLiveRecording(req, videoID, videoPath, tmpPath, downloadsDir); saveErr != nil {
+			utils.Warn("⚠️ [直播下载] 直播流异常中断，自动保存片段失败: %v", saveErr)
+		} else if saved {
+			utils.Warn("⚠️ [直播下载] 直播流异常中断，已自动保存已录制片段: %s", finalPath)
 			return
 		}
 		message := strings.TrimSpace(stderr.String())
@@ -185,6 +189,28 @@ func (h *UploadHandler) recordLiveStream(ctx context.Context, cancel context.Can
 		utils.Error("❌ [直播下载] 保存录制文件失败: %v", err)
 		h.broadcastLiveDownloadFailed(videoID, req.Title, err.Error())
 	}
+}
+
+// autoSaveLiveRecording preserves a non-empty temporary recording after an
+// unexpected FFmpeg exit. An empty or missing temp file is left to the caller
+// to report as a normal download failure.
+func (h *UploadHandler) autoSaveLiveRecording(req LiveDownloadRequest, videoID, videoPath, tmpPath, downloadsDir string) (string, bool, error) {
+	info, err := os.Stat(tmpPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if info.IsDir() || info.Size() == 0 {
+		return "", false, nil
+	}
+
+	finalPath, err := h.finalizeLiveRecording(req, videoID, videoPath, tmpPath, downloadsDir)
+	if err != nil {
+		return "", true, err
+	}
+	return finalPath, true, nil
 }
 
 func (h *UploadHandler) finalizeLiveRecording(req LiveDownloadRequest, videoID, videoPath, tmpPath, downloadsDir string) (string, error) {

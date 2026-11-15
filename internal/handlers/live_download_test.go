@@ -43,3 +43,37 @@ func TestResolveLiveFFmpegUsesConfiguredExecutable(t *testing.T) {
 		t.Fatalf("resolveLiveFFmpeg() = %q, want %q", got, path)
 	}
 }
+
+func TestAutoSaveLiveRecordingRequiresNonEmptyTempFile(t *testing.T) {
+	h := &UploadHandler{}
+	root := t.TempDir()
+	tmpPath := filepath.Join(root, "live.tmp")
+	videoPath := filepath.Join(root, "saved", "live.flv")
+
+	saved, ok, err := h.autoSaveLiveRecording(LiveDownloadRequest{Title: "断流测试"}, "live-id", videoPath, tmpPath, filepath.Join(root, "saved"))
+	if err != nil || ok || saved != "" {
+		t.Fatalf("missing temp file should not save: path=%q saved=%t err=%v", saved, ok, err)
+	}
+
+	if err := os.WriteFile(tmpPath, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	saved, ok, err = h.autoSaveLiveRecording(LiveDownloadRequest{Title: "空文件测试"}, "empty-id", videoPath, tmpPath, filepath.Join(root, "saved"))
+	if err != nil || ok || saved != "" {
+		t.Fatalf("empty temp file should not save: path=%q saved=%t err=%v", saved, ok, err)
+	}
+
+	if err := os.WriteFile(tmpPath, []byte("recorded bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "saved"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	saved, ok, err = h.autoSaveLiveRecording(LiveDownloadRequest{Title: "有效片段测试", Author: "测试作者"}, "saved-id", videoPath, tmpPath, filepath.Join(root, "saved"))
+	if err != nil || !ok || saved == "" {
+		t.Fatalf("non-empty temp file should save: path=%q saved=%t err=%v", saved, ok, err)
+	}
+	if _, err := os.Stat(saved); err != nil {
+		t.Fatalf("saved recording missing: %v", err)
+	}
+}
