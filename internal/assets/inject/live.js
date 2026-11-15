@@ -27,7 +27,8 @@
     downloading: false,
     downloadId: '',
     savePath: '',
-    detailsLogged: false
+    detailsLogged: false,
+    liveKey: ''
   };
 
   function apiFetch(url, options) {
@@ -181,13 +182,63 @@
   function liveID() {
     var profile = asObject(state.profile);
     var live = asObject(state.live);
-    return String(profile.id || profile.objectId || live.liveId || live.id || '').trim() || ('live_' + Date.now());
+    return firstText(
+      live.liveId,
+      live.live_id,
+      live.roomId,
+      live.room_id,
+      live.id,
+      profile.id,
+      profile.objectId
+    ) || ('live_' + Date.now());
+  }
+
+  function liveKey(value, stream) {
+    var data = unwrap(value);
+    var live = asObject(data.live || data.liveInfo || data.liveRoom || data);
+    var id = firstText(
+      data.liveId,
+      data.live_id,
+      data.roomId,
+      data.room_id,
+      live.liveId,
+      live.live_id,
+      live.roomId,
+      live.room_id,
+      live.id
+    );
+    if (id) return 'id:' + id;
+    return stream ? 'stream:' + stream : '';
+  }
+
+  function resetForNextLive() {
+    state.detailsLogged = false;
+    state.downloading = false;
+    state.downloadId = '';
+    state.savePath = '';
+    setStatus('', false);
+  }
+
+  function updateLiveKey(kind, raw, stream) {
+    if (kind !== 'finderGetLiveInfo' && kind !== 'joinLive') return;
+    var nextKey = liveKey(raw, stream);
+    if (!nextKey) return;
+    if (state.liveKey && state.liveKey !== nextKey) {
+      // joinLive may omit the room ID after finderGetLiveInfo established it.
+      var sameStream = stream && stream === state.streamUrl;
+      if (!sameStream && !(nextKey.indexOf('stream:') === 0 && state.liveKey.indexOf('id:') === 0)) {
+        resetForNextLive();
+      }
+    }
+    if (!state.liveKey || state.liveKey.indexOf('stream:') === 0 || nextKey.indexOf('id:') === 0) {
+      state.liveKey = nextKey;
+    }
   }
 
   function liveDetails() {
     var profile = asObject(state.profile);
     var live = asObject(state.live);
-    var id = firstText(profile.id, profile.objectId, live.liveId, live.id, '待确认');
+    var id = firstText(live.liveId, live.live_id, live.roomId, live.room_id, live.id, profile.id, profile.objectId, '待确认');
     var online = firstText(
       live.onlineCount,
       live.viewerCount,
@@ -394,15 +445,17 @@
 
   window.__wx_channels_capture_live_data__ = function (kind, raw) {
     var data = unwrap(raw);
+    var extractedProfile = extractProfile(raw);
     if (kind === 'finderGetCommentDetail') {
-      state.profile = extractProfile(raw);
+      state.profile = extractedProfile;
     } else if (kind === 'finderGetLiveInfo') {
       state.live = data;
-      state.profile = state.profile || extractProfile(raw);
+      state.profile = extractedProfile;
     } else if (kind === 'joinLive') {
       state.live = data;
     }
     var stream = extractStream(raw);
+    updateLiveKey(kind, raw, stream);
     if (stream) {
       var firstStream = !state.streamUrl;
       state.streamUrl = stream;
@@ -414,7 +467,11 @@
   };
 
   function mount() {
-    if (state.button) return;
+    if (state.button) {
+      if (typeof state.button.isConnected !== 'boolean' || state.button.isConnected) return;
+      state.button = null;
+      state.statusNode = null;
+    }
     createButton(getButtonContainer());
   }
 

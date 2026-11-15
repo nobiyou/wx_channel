@@ -51,6 +51,8 @@ function loadLive() {
 
   const container = createElement();
   const body = createElement();
+  let currentContainer = container;
+  let mutationCallback = null;
   const nativeFetch = async (url, options) => {
     requests.push({ url, options });
     if (url.endsWith('/download_live')) {
@@ -66,7 +68,7 @@ function loadLive() {
       body,
       createElement,
       querySelector(selector) {
-        return selector.indexOf('.host__info') >= 0 ? container : null;
+        return selector.indexOf('.host__info') >= 0 ? currentContainer : null;
       },
     },
     navigator: { userAgent: 'live-test' },
@@ -77,13 +79,23 @@ function loadLive() {
     Uint8Array,
     dispatchEvent() {},
     setInterval() { return 1; },
-    MutationObserver: class { observe() {} },
+    MutationObserver: class {
+      constructor(callback) { mutationCallback = callback; }
+      observe() {}
+    },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'live.js'), 'utf8'), sandbox);
-  return { sandbox, container, elements, requests };
+  return {
+    sandbox,
+    container,
+    elements,
+    requests,
+    replaceContainer() { currentContainer = createElement(); return currentContainer; },
+    remount() { if (mutationCallback) mutationCallback(); },
+  };
 }
 
 test('live download keeps the original fetch when page bundles replace global fetch', async () => {
@@ -171,6 +183,41 @@ test('live capture reports one visible detail summary without exposing the strea
   assert.match(summaries[0].msg, /在线人数=128/);
   assert.match(summaries[0].msg, /状态=已捕获直播流/);
   assert.doesNotMatch(summaries[0].msg, /private-token/);
+});
+
+test('switching to the next live refreshes the stream, detail summary, and button', () => {
+  const { sandbox, container, requests, replaceContainer, remount } = loadLive();
+  sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
+    liveId: 'live-first',
+    title: '第一场直播',
+    contact: { nickname: '主播一' },
+    liveCdnUrl: 'https://stream.example/first.flv',
+  });
+  const oldButton = container.children.find((element) => element.id === '__wx_channels_live_download_button__');
+  assert.ok(oldButton);
+
+  const nextContainer = replaceContainer();
+  oldButton.isConnected = false;
+  remount();
+  sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
+    liveId: 'live-second',
+    title: '第二场直播',
+    contact: { nickname: '主播二' },
+    liveCdnUrl: 'https://stream.example/second.flv',
+  });
+
+  const nextButton = nextContainer.children.find((element) => element.id === '__wx_channels_live_download_button__');
+  assert.ok(nextButton, 'next live should remount the download button');
+  assert.equal(nextButton.textContent, '下载直播');
+  assert.equal(sandbox.__wx_channels_live_runtime__.streamUrl, 'https://stream.example/second.flv');
+  const summaries = requests
+    .filter((item) => item.url.endsWith('/tip'))
+    .map((item) => JSON.parse(item.options.body))
+    .filter((item) => item.level === 'info' && item.msg.includes('直播信息'));
+  assert.equal(summaries.length, 2);
+  assert.match(summaries[1].msg, /ID=live-second/);
+  assert.match(summaries[1].msg, /标题=第二场直播/);
+  assert.match(summaries[1].msg, /主播=主播二/);
 });
 
 test('multi-view SDK parameters skip streams without a usable HTTP URL', () => {
