@@ -160,15 +160,16 @@ test('live SDK parameters supply the declared CDN quality', async () => {
 test('live capture reports one visible detail summary without exposing the stream URL', () => {
   const { sandbox, requests } = loadLive();
   sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
-    id: 'live-42',
-    title: '春日直播',
-    contact: { nickname: '主播A' },
+    liveInfo: { liveId: 'live-42' },
+    liveDescription: '春日直播',
+    bizUserInfo: { bizNickname: '主播A' },
     onlineCount: 128,
     liveCdnUrl: 'https://stream.example/private-token.flv',
   });
   sandbox.__wx_channels_capture_live_data__('joinLive', {
-    id: 'live-42',
-    title: '春日直播',
+    liveInfo: { liveId: 'live-42' },
+    liveDescription: '春日直播',
+    bizUserInfo: { bizNickname: '主播A' },
     liveCdnUrl: 'https://stream.example/private-token.flv',
   });
 

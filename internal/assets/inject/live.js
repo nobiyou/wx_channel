@@ -149,13 +149,18 @@
     var profile = asObject(state.profile);
     var objectDesc = asObject(profile.objectDesc);
     var live = asObject(state.live);
+    var liveInfo = asObject(live.liveInfo || live.live || live.info);
     return String(
       firstText(
         profile.description,
         profile.title,
         objectDesc.description,
+        live.liveDescription,
+        liveInfo.liveDescription,
         live.description,
+        liveInfo.description,
         live.title,
+        liveInfo.title,
         live.liveTitle,
         live.roomName,
         live.name,
@@ -168,10 +173,13 @@
     var profile = asObject(state.profile);
     var contact = asObject(profile.contact || profile.anchorContact);
     var live = asObject(state.live);
+    var bizUserInfo = asObject(live.bizUserInfo);
     var liveContact = asObject(live.contact || live.anchorContact || live.anchor);
     return firstText(
       contact.nickname,
       profile.nickname,
+      bizUserInfo.bizNickname,
+      bizUserInfo.nickname,
       liveContact.nickname,
       live.nickname,
       live.anchorNickname,
@@ -182,7 +190,9 @@
   function liveID() {
     var profile = asObject(state.profile);
     var live = asObject(state.live);
+    var liveInfo = asObject(live.liveInfo || live.live || live.info);
     return firstText(
+      liveInfo.liveId,
       live.liveId,
       live.live_id,
       live.roomId,
@@ -196,6 +206,7 @@
   function liveKey(value, stream) {
     var data = unwrap(value);
     var live = asObject(data.live || data.liveInfo || data.liveRoom || data);
+    var liveInfo = asObject(live.liveInfo || live.live || live.info || live);
     var id = firstText(
       data.liveId,
       data.live_id,
@@ -205,7 +216,12 @@
       live.live_id,
       live.roomId,
       live.room_id,
-      live.id
+      live.id,
+      liveInfo.liveId,
+      liveInfo.live_id,
+      liveInfo.roomId,
+      liveInfo.room_id,
+      liveInfo.id
     );
     if (id) return 'id:' + id;
     return stream ? 'stream:' + stream : '';
@@ -240,13 +256,17 @@
   function liveDetails() {
     var profile = asObject(state.profile);
     var live = asObject(state.live);
-    var id = firstText(live.liveId, live.live_id, live.roomId, live.room_id, live.id, profile.id, profile.objectId, '待确认');
+    var liveInfo = asObject(live.liveInfo || live.live || live.info);
+    var id = firstText(liveInfo.liveId, live.liveId, live.live_id, live.roomId, live.room_id, live.id, profile.id, profile.objectId, '待确认');
     var online = firstText(
       live.onlineCount,
       live.viewerCount,
       live.audienceCount,
       live.onlineNum,
-      live.audienceNum
+      live.audienceNum,
+      liveInfo.onlineCount,
+      liveInfo.viewerCount,
+      liveInfo.audienceCount
     );
     var details = [
       '直播信息',
