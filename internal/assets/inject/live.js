@@ -26,7 +26,8 @@
     statusText: '',
     downloading: false,
     downloadId: '',
-    savePath: ''
+    savePath: '',
+    detailsLogged: false
   };
 
   function apiFetch(url, options) {
@@ -135,25 +136,82 @@
     return asObject(data.object || data.feed || data.profile || data);
   }
 
+  function firstText() {
+    for (var i = 0; i < arguments.length; i++) {
+      var value = String(arguments[i] === undefined || arguments[i] === null ? '' : arguments[i]).trim();
+      if (value) return value;
+    }
+    return '';
+  }
+
   function title() {
     var profile = asObject(state.profile);
     var objectDesc = asObject(profile.objectDesc);
     var live = asObject(state.live);
     return String(
-      profile.description || profile.title || objectDesc.description || live.description || '直播'
+      firstText(
+        profile.description,
+        profile.title,
+        objectDesc.description,
+        live.description,
+        live.title,
+        live.liveTitle,
+        live.roomName,
+        live.name,
+        '直播'
+      )
     ).replace(/<[^>]*>/g, '').trim() || '直播';
   }
 
   function author() {
     var profile = asObject(state.profile);
     var contact = asObject(profile.contact || profile.anchorContact);
-    return String(contact.nickname || profile.nickname || '未知作者').trim() || '未知作者';
+    var live = asObject(state.live);
+    var liveContact = asObject(live.contact || live.anchorContact || live.anchor);
+    return firstText(
+      contact.nickname,
+      profile.nickname,
+      liveContact.nickname,
+      live.nickname,
+      live.anchorNickname,
+      '未知作者'
+    );
   }
 
   function liveID() {
     var profile = asObject(state.profile);
     var live = asObject(state.live);
     return String(profile.id || profile.objectId || live.liveId || live.id || '').trim() || ('live_' + Date.now());
+  }
+
+  function liveDetails() {
+    var profile = asObject(state.profile);
+    var live = asObject(state.live);
+    var id = firstText(profile.id, profile.objectId, live.liveId, live.id, '待确认');
+    var online = firstText(
+      live.onlineCount,
+      live.viewerCount,
+      live.audienceCount,
+      live.onlineNum,
+      live.audienceNum
+    );
+    var details = [
+      '直播信息',
+      'ID=' + id,
+      '标题=' + title(),
+      '主播=' + author(),
+      '状态=' + (state.streamUrl ? '已捕获直播流' : '等待直播流'),
+      '数据来源=直播页面'
+    ];
+    if (online) details.push('在线人数=' + online);
+    return details.join(' | ');
+  }
+
+  function maybeLogLiveDetails(kind) {
+    if (state.detailsLogged || !state.streamUrl) return;
+    if (kind !== 'finderGetLiveInfo' && kind !== 'joinLive') return;
+    state.detailsLogged = true;
+    log(liveDetails(), 'info');
   }
 
   function setButtonText(text, disabled) {
@@ -350,6 +408,7 @@
       state.streamUrl = stream;
       if (firstStream) log('已捕获直播流，下载按钮已就绪', 'debug');
     }
+    maybeLogLiveDetails(kind);
     window.dispatchEvent(new CustomEvent('wx_channels_live_ready', { detail: state }));
     updateButton();
   };

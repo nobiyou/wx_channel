@@ -145,6 +145,34 @@ test('live SDK parameters supply the declared CDN quality', async () => {
   assert.equal(JSON.parse(request.options.body).streamUrl, 'https://stream.example/current.flv');
 });
 
+test('live capture reports one visible detail summary without exposing the stream URL', () => {
+  const { sandbox, requests } = loadLive();
+  sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
+    id: 'live-42',
+    title: '春日直播',
+    contact: { nickname: '主播A' },
+    onlineCount: 128,
+    liveCdnUrl: 'https://stream.example/private-token.flv',
+  });
+  sandbox.__wx_channels_capture_live_data__('joinLive', {
+    id: 'live-42',
+    title: '春日直播',
+    liveCdnUrl: 'https://stream.example/private-token.flv',
+  });
+
+  const summaries = requests
+    .filter((item) => item.url.endsWith('/tip'))
+    .map((item) => JSON.parse(item.options.body))
+    .filter((item) => item.level === 'info' && item.msg.includes('直播信息'));
+  assert.equal(summaries.length, 1);
+  assert.match(summaries[0].msg, /ID=live-42/);
+  assert.match(summaries[0].msg, /标题=春日直播/);
+  assert.match(summaries[0].msg, /主播=主播A/);
+  assert.match(summaries[0].msg, /在线人数=128/);
+  assert.match(summaries[0].msg, /状态=已捕获直播流/);
+  assert.doesNotMatch(summaries[0].msg, /private-token/);
+});
+
 test('multi-view SDK parameters skip streams without a usable HTTP URL', () => {
   const { sandbox } = loadLive();
   const sdkParams = Buffer.from(JSON.stringify({
