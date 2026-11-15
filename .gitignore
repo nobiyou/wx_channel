@@ -158,6 +158,7 @@ scripts/*
 !scripts/check-environment.cmd
 !scripts/repair-environment.cmd
 !scripts/wx-channel-environment.cmd
+!scripts/environment_diagnostics_test.go
 !scripts/build-dual.ps1
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1

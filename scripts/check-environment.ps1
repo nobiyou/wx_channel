@@ -40,7 +40,7 @@ function Add-Check {
     param(
         [string]$Id,
         [string]$Name,
-        [ValidateSet('PASS', 'WARN', 'FAIL', 'SKIP')]
+        [ValidateSet('PASS', 'WARN', 'FAIL', 'SKIP', 'INFO')]
         [string]$Status,
         [string]$Detail,
         [string]$Fix = ''
@@ -328,11 +328,54 @@ if ($health.ok) {
         elseif ($injectionError) { $injectionDetail = $injectionError }
         Add-Check -Id 'injection' -Name '微信页面注入引擎' -Status $injectionStatus -Detail $injectionDetail -Fix '以管理员身份运行应用，并先启动微信视频号页面。'
 
-        $readyClients = [int](Get-PropertyValue -Object $channelApi.data -Name 'ready_clients' -Default 0)
+        # ready_clients counts extension API readiness, not page connections.
+        # fresh also includes API probe health; only application_fresh is a page heartbeat.
+        $clientList = @(Get-PropertyValue -Object $channelApi.data -Name 'client_list' -Default @())
+        $clientCount = [int](Get-PropertyValue -Object $channelApi.data -Name 'clients' -Default $clientList.Count)
+        $connected = [bool](Get-PropertyValue -Object $channelApi.data -Name 'connected' -Default ($clientCount -gt 0))
+        $heartbeatClients = @($clientList | Where-Object {
+            $null -ne (Get-PropertyValue -Object $_ -Name 'application_fresh')
+        })
+        $activeClients = @($heartbeatClients | Where-Object {
+            [bool](Get-PropertyValue -Object $_ -Name 'application_fresh' -Default $false)
+        })
         $clientStatus = 'SKIP'
-        if ($readyClients -gt 0) { $clientStatus = 'PASS' }
-        elseif ($wechatProcess) { $clientStatus = 'WARN' }
-        Add-Check -Id 'channel-client' -Name '视频号页面连接' -Status $clientStatus -Detail "ready_clients=$readyClients" -Fix '在微信视频号中刷新支持的页面，等待页面连接状态变为就绪。'
+        $clientDetail = '未发现页面连接；未打开视频号时属于正常状态。'
+        if ($activeClients.Count -gt 0) {
+            $clientStatus = 'PASS'
+            $clientDetail = "已连接 $clientCount 个页面，其中 $($activeClients.Count) 个页面心跳正常。"
+        } elseif ($heartbeatClients.Count -gt 0 -and $heartbeatClients.Count -eq $clientList.Count) {
+            $clientStatus = 'WARN'
+            $clientDetail = "保留 $clientCount 个页面连接，但页面心跳均已过期。"
+        } elseif ($connected -or $clientCount -gt 0) {
+            $clientStatus = 'INFO'
+            $clientDetail = "接口报告页面已连接（$clientCount 个），但未提供完整心跳数据，暂无法确认页面是否活跃。"
+        } elseif ($wechatProcess) {
+            $clientStatus = 'WARN'
+            $clientDetail = '已发现微信视频号进程，但尚无页面连接。'
+        }
+        Add-Check -Id 'channel-client' -Name '视频号页面连接' -Status $clientStatus -Detail $clientDetail -Fix '打开或刷新微信视频号页面，等待页面加载和心跳恢复后再检查。'
+
+        $readyClients = [int](Get-PropertyValue -Object $channelApi.data -Name 'ready_clients' -Default 0)
+        $apiStatus = 'SKIP'
+        $apiDetail = '没有活跃视频号页面，暂不检查扩展接口。'
+        if ($clientStatus -in @('PASS', 'INFO')) {
+            $apiStatus = 'INFO'
+            $apiDetail = "搜索、评论等扩展接口尚未就绪（ready_clients=$readyClients）；手动下载请以页面操作结果为准。"
+            $usableClients = @($activeClients | Where-Object {
+                [bool](Get-PropertyValue -Object $_ -Name 'api_ready' -Default $false) -and
+                [bool](Get-PropertyValue -Object $_ -Name 'fresh' -Default $false)
+            })
+            if ($usableClients.Count -gt 0) {
+                $apiStatus = 'PASS'
+                $apiDetail = "有 $($usableClients.Count) 个活跃页面的扩展接口已就绪（搜索、评论等）。"
+            } elseif ($clientStatus -eq 'INFO') {
+                $apiDetail = "页面心跳数据不完整，无法确认扩展接口可用性（ready_clients=$readyClients）。"
+            } elseif ($readyClients -gt 0) {
+                $apiDetail = '扩展接口探测未通过或状态已过期；搜索、评论等功能可能不可用，手动下载请以页面操作结果为准。'
+            }
+        }
+        Add-Check -Id 'channel-api' -Name '搜索/评论等扩展接口' -Status $apiStatus -Detail $apiDetail
     } else {
         Add-Check -Id 'channel-status' -Name '视频号运行状态 API' -Status 'WARN' -Detail $channelApi.error -Fix '确认应用版本包含 /api/channels/status，并检查 WebSocket 端口。'
     }
@@ -395,6 +438,7 @@ $summary = [pscustomobject]@{
     pass         = @($script:Checks | Where-Object status -eq 'PASS').Count
     warn         = @($script:Checks | Where-Object status -eq 'WARN').Count
     fail         = @($script:Checks | Where-Object status -eq 'FAIL').Count
+    info         = @($script:Checks | Where-Object status -eq 'INFO').Count
     skipped      = @($script:Checks | Where-Object status -eq 'SKIP').Count
 }
 
@@ -412,6 +456,7 @@ foreach ($check in $script:Checks) {
         'PASS' { 'Green' }
         'WARN' { 'Yellow' }
         'FAIL' { 'Red' }
+        'INFO' { 'Cyan' }
         default { 'DarkGray' }
     }
     Write-Host ("[{0,-4}] {1}：{2}" -f $check.status, $check.name, $check.detail) -ForegroundColor $color
@@ -423,5 +468,5 @@ Write-Host ''
 $overallColor = 'Green'
 if ($summary.fail -gt 0) { $overallColor = 'Red' }
 elseif ($summary.warn -gt 0) { $overallColor = 'Yellow' }
-Write-Host ("结果：通过 {0}，警告 {1}，失败 {2}，跳过 {3}" -f $summary.pass, $summary.warn, $summary.fail, $summary.skipped) -ForegroundColor $overallColor
+Write-Host ("结果：通过 {0}，警告 {1}，失败 {2}，提示 {3}，跳过 {4}" -f $summary.pass, $summary.warn, $summary.fail, $summary.info, $summary.skipped) -ForegroundColor $overallColor
 exit $(if ($summary.fail -gt 0) { 2 } elseif ($summary.warn -gt 0) { 1 } else { 0 })
