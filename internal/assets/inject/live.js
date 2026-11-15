@@ -224,13 +224,15 @@
     var nextKey = liveKey(raw, stream);
     if (!nextKey) return;
     if (state.liveKey && state.liveKey !== nextKey) {
-      // joinLive may omit the room ID after finderGetLiveInfo established it.
       var sameStream = stream && stream === state.streamUrl;
-      if (!sameStream && !(nextKey.indexOf('stream:') === 0 && state.liveKey.indexOf('id:') === 0)) {
+      if (!sameStream) {
         resetForNextLive();
       }
+      if (!sameStream || state.liveKey.indexOf('stream:') === 0 || nextKey.indexOf('id:') === 0) {
+        state.liveKey = nextKey;
+      }
     }
-    if (!state.liveKey || state.liveKey.indexOf('stream:') === 0 || nextKey.indexOf('id:') === 0) {
+    if (!state.liveKey) {
       state.liveKey = nextKey;
     }
   }
@@ -453,6 +455,7 @@
       state.profile = extractedProfile;
     } else if (kind === 'joinLive') {
       state.live = data;
+      state.profile = extractedProfile;
     }
     var stream = extractStream(raw);
     updateLiveKey(kind, raw, stream);

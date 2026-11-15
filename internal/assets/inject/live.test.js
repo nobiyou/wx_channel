@@ -199,8 +199,7 @@ test('switching to the next live refreshes the stream, detail summary, and butto
   const nextContainer = replaceContainer();
   oldButton.isConnected = false;
   remount();
-  sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
-    liveId: 'live-second',
+  sandbox.__wx_channels_capture_live_data__('joinLive', {
     title: '第二场直播',
     contact: { nickname: '主播二' },
     liveCdnUrl: 'https://stream.example/second.flv',
@@ -215,7 +214,6 @@ test('switching to the next live refreshes the stream, detail summary, and butto
     .map((item) => JSON.parse(item.options.body))
     .filter((item) => item.level === 'info' && item.msg.includes('直播信息'));
   assert.equal(summaries.length, 2);
-  assert.match(summaries[1].msg, /ID=live-second/);
   assert.match(summaries[1].msg, /标题=第二场直播/);
   assert.match(summaries[1].msg, /主播=主播二/);
 });
