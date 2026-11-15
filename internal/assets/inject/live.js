@@ -28,7 +28,8 @@
     downloadId: '',
     savePath: '',
     detailsLogged: false,
-    liveKey: ''
+    liveKey: '',
+    downloadSessions: Object.create(null)
   };
 
   function apiFetch(url, options) {
@@ -173,18 +174,43 @@
     var profile = asObject(state.profile);
     var contact = asObject(profile.contact || profile.anchorContact);
     var live = asObject(state.live);
+    var liveInfo = asObject(live.liveInfo || live.live || live.info);
     var bizUserInfo = asObject(live.bizUserInfo);
     var liveContact = asObject(live.contact || live.anchorContact || live.anchor);
+    var liveInfoBizUserInfo = asObject(liveInfo.bizUserInfo);
+    var liveInfoContact = asObject(liveInfo.contact || liveInfo.anchorContact || liveInfo.anchor);
     return firstText(
       contact.nickname,
       profile.nickname,
       bizUserInfo.bizNickname,
       bizUserInfo.nickname,
+      liveInfoBizUserInfo.bizNickname,
+      liveInfoBizUserInfo.nickname,
       liveContact.nickname,
+      liveInfoContact.nickname,
       live.nickname,
+      liveInfo.nickname,
       live.anchorNickname,
+      liveInfo.anchorNickname,
+      domAuthor(),
       '未知作者'
     );
+  }
+
+  function domAuthor() {
+    var selectors = [
+      '.host__info .nickname',
+      '.host__info [class*="nickname"]',
+      '.host__info .name',
+      '.host__info [class*="name"]',
+      '[class*="host__info"] [class*="nickname"]'
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var node = document.querySelector(selectors[i]);
+      var text = node && (node.textContent || node.getAttribute && node.getAttribute('title'));
+      if (text && String(text).trim()) return String(text).trim();
+    }
+    return '';
   }
 
   function liveID() {
@@ -228,11 +254,35 @@
   }
 
   function resetForNextLive() {
+    rememberDownloadSession();
     state.detailsLogged = false;
     state.downloading = false;
     state.downloadId = '';
     state.savePath = '';
+    state.statusText = '';
+    state.statusError = false;
     setStatus('', false);
+  }
+
+  function rememberDownloadSession() {
+    if (!state.liveKey) return;
+    if (!state.downloading && !state.downloadId && !state.statusText) return;
+    state.downloadSessions[state.liveKey] = {
+      downloading: state.downloading,
+      downloadId: state.downloadId,
+      savePath: state.savePath,
+      statusText: state.statusText,
+      statusError: !!state.statusError
+    };
+  }
+
+  function restoreDownloadSession() {
+    var session = state.liveKey ? state.downloadSessions[state.liveKey] : null;
+    if (!session) return;
+    state.downloading = !!session.downloading;
+    state.downloadId = session.downloadId || '';
+    state.savePath = session.savePath || '';
+    setStatus(session.statusText || '', !!session.statusError);
   }
 
   function updateLiveKey(kind, raw, stream) {
@@ -246,6 +296,7 @@
       }
       if (!sameStream || state.liveKey.indexOf('stream:') === 0 || nextKey.indexOf('id:') === 0) {
         state.liveKey = nextKey;
+        restoreDownloadSession();
       }
     }
     if (!state.liveKey) {
@@ -311,6 +362,7 @@
 
   function setStatus(message, error) {
     state.statusText = String(message || '');
+    state.statusError = !!error;
     if (!state.statusNode) return;
     state.statusNode.textContent = state.statusText;
     state.statusNode.title = state.statusText;
@@ -426,6 +478,7 @@
       state.savePath = String(data.path || data.relativePath || '');
       var locationText = state.savePath || '程序目录/downloads/作者目录';
       setStatus('已启动，保存到：' + locationText, false);
+      rememberDownloadSession();
       updateButton();
       log('直播录制已启动：' + title() + '；保存位置：' + locationText);
     } catch (error) {
@@ -434,6 +487,7 @@
       setStatus('启动失败：' + message, true);
       setButtonText('重试下载', false);
       state.button.title = message;
+      rememberDownloadSession();
       log('直播录制失败：' + message);
     }
   }
@@ -461,6 +515,7 @@
     } finally {
       state.downloading = false;
       state.downloadId = '';
+      rememberDownloadSession();
       updateButton();
     }
   }

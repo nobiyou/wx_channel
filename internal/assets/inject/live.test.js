@@ -157,8 +157,8 @@ test('live SDK parameters supply the declared CDN quality', async () => {
   assert.equal(JSON.parse(request.options.body).streamUrl, 'https://stream.example/current.flv');
 });
 
-test('live capture reports one visible detail summary without exposing the stream URL', () => {
-  const { sandbox, requests } = loadLive();
+test('live capture reports one visible detail summary without exposing the stream URL', async () => {
+  const { sandbox, container, requests } = loadLive();
   sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
     liveInfo: { liveId: 'live-42' },
     liveDescription: '春日直播',
@@ -184,9 +184,13 @@ test('live capture reports one visible detail summary without exposing the strea
   assert.match(summaries[0].msg, /在线人数=128/);
   assert.match(summaries[0].msg, /状态=已捕获直播流/);
   assert.doesNotMatch(summaries[0].msg, /private-token/);
+  const button = container.children.find((element) => element.id === '__wx_channels_live_download_button__');
+  await button.click();
+  const request = requests.find((item) => item.url.endsWith('/download_live'));
+  assert.equal(JSON.parse(request.options.body).author, '主播A');
 });
 
-test('switching to the next live refreshes the stream, detail summary, and button', () => {
+test('switching to the next live refreshes the stream, detail summary, and button', async () => {
   const { sandbox, container, requests, replaceContainer, remount } = loadLive();
   sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
     liveId: 'live-first',
@@ -196,6 +200,9 @@ test('switching to the next live refreshes the stream, detail summary, and butto
   });
   const oldButton = container.children.find((element) => element.id === '__wx_channels_live_download_button__');
   assert.ok(oldButton);
+  await oldButton.click();
+  assert.equal(sandbox.__wx_channels_live_runtime__.downloading, true);
+  assert.match(sandbox.__wx_channels_live_runtime__.statusText, /已启动/);
 
   const nextContainer = replaceContainer();
   oldButton.isConnected = false;
@@ -210,6 +217,7 @@ test('switching to the next live refreshes the stream, detail summary, and butto
   assert.ok(nextButton, 'next live should remount the download button');
   assert.equal(nextButton.textContent, '下载直播');
   assert.equal(sandbox.__wx_channels_live_runtime__.streamUrl, 'https://stream.example/second.flv');
+  assert.equal(sandbox.__wx_channels_live_runtime__.downloading, false);
   const summaries = requests
     .filter((item) => item.url.endsWith('/tip'))
     .map((item) => JSON.parse(item.options.body))
@@ -217,6 +225,15 @@ test('switching to the next live refreshes the stream, detail summary, and butto
   assert.equal(summaries.length, 2);
   assert.match(summaries[1].msg, /标题=第二场直播/);
   assert.match(summaries[1].msg, /主播=主播二/);
+
+  sandbox.__wx_channels_capture_live_data__('finderGetLiveInfo', {
+    liveId: 'live-first',
+    title: '第一场直播',
+    contact: { nickname: '主播一' },
+    liveCdnUrl: 'https://stream.example/first.flv',
+  });
+  assert.equal(sandbox.__wx_channels_live_runtime__.downloading, true);
+  assert.match(sandbox.__wx_channels_live_runtime__.statusText, /已启动/);
 });
 
 test('multi-view SDK parameters skip streams without a usable HTTP URL', () => {
