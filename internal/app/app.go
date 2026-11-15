@@ -539,6 +539,14 @@ func (app *App) printEnvConfig() {
 
 func (app *App) printTitle() {
 	color.Cyan("微信视频号下载助手 v%s", app.Cfg.Version)
+	color.Yellow("项目地址：https://github.com/nobiyou/wx_channel")
+	color.Green("v%s 更新要点：", app.Cfg.Version)
+	for _, highlight := range releaseHighlights {
+		color.Green("  • %s", highlight)
+	}
+	fmt.Println()
+
+	// 启动摘要同时写入文件，便于排查用户使用的具体版本。
 	utils.LogFileInfo("项目地址：https://github.com/nobiyou/wx_channel")
 	for _, highlight := range releaseHighlights {
 		utils.LogFileInfo("v%s 更新要点：%s", app.Cfg.Version, highlight)
