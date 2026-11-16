@@ -1,11 +1,11 @@
 package app
 
-const releaseHighlightsVersion = "5.7.17"
+const releaseHighlightsVersion = "5.7.18"
 
 var releaseHighlights = [...]string{
-	"直播切换 - 检测流地址变化并刷新当前直播流、详情和下载状态",
-	"直播详情 - 读取嵌套数据和页面 DOM，补全直播 ID、标题、主播和状态",
-	"断流保存 - FFmpeg 异常断流时自动保留已有录制内容",
-	"下载状态 - 按直播场次恢复状态并使用真实主播目录",
-	"Cloud 登录同步 - 改进官方登录页扫码等待、账号切换和连接状态",
+	"MCP 多 Agent - 适配 Codex、Claude Code 和 DeepSeek Harness",
+	"MCP 配置 - 提供三端 Streamable HTTP 与 Bearer Token 配置模板",
+	"MCP 工具 - 三端可发现全部视频号查询与视频分析工具",
+	"环境诊断 - 将检查和修复菜单打包为独立 Windows 工具",
+	"连接状态 - 区分页心跳与微信扩展 API 就绪状态",
 }

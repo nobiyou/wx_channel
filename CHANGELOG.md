@@ -1,5 +1,19 @@
 # wx_channel 更新日志
 
+## [5.7.18] - 2026-11-16
+
+### MCP 多 Agent 适配
+
+- 适配 Codex、Claude Code 和 DeepSeek Harness（DSH）三类本地 Agent，共用 wx_channel 的 Streamable HTTP MCP 服务和 Bearer Token 鉴权。
+- 修正 Claude Code 配置示例，补充必需的 `type: http`；新增 Codex TOML 与 DSH YAML 配置模板。
+- 三端均可发现 17 个 MCP 工具；配置模板随 Windows 三版本发布包一同分发。
+- 视频分析说明改为使用当前连接的 MCP 客户端会话模型，保留外部模型显式授权和本地证据边界。
+
+### 环境诊断工具
+
+- 将环境检查、修复菜单打包为独立 Windows 可执行工具，减少对脚本文件可见性和 PowerShell 入口的依赖。
+- 区分页连接心跳和微信扩展 API 就绪状态，诊断结果提供更明确的恢复路径。
+
 ## [5.7.17] - 2026-11-15
 
 ### 直播切换与下载稳定性
