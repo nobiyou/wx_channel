@@ -1,0 +1,13 @@
+# Append this plugin entry to the active DeepSeek Harness profile's cordis.yml.
+# Replace the token placeholder with the contents of .wx_channel_mcp_token
+# in wx_channel's downloads directory. Keep this entry's id/serverName unique.
+- id: mcp-wx-channel
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: wx-channel
+    transport: streamable-http
+    url: http://127.0.0.1:2027/mcp
+    headers:
+      Authorization: 'Bearer <read .wx_channel_mcp_token from the configured downloads directory>'
+    startupTimeoutMs: 30000
+    toolCallTimeoutMs: 90000

@@ -14,7 +14,7 @@ import (
 type videoAnalysisReviewInput struct {
 	AnalysisID       string                     `json:"analysis_id" jsonschema:"analysis id"`
 	ShotIndex        int                        `json:"shot_index" jsonschema:"one-based shot index"`
-	Description      string                     `json:"description" jsonschema:"Codex visual review of the shot"`
+	Description      string                     `json:"description" jsonschema:"connected MCP client's visual review of the shot"`
 	Evidence         []string                   `json:"evidence,omitempty" jsonschema:"visible evidence with time or frame reference"`
 	Confidence       float64                    `json:"confidence,omitempty" jsonschema:"confidence from 0 to 1"`
 	ShootingPlan     string                     `json:"shooting_plan,omitempty" jsonschema:"practical camera and lighting plan"`
@@ -35,7 +35,7 @@ type videoAnalysisReviewInput struct {
 }
 
 func registerAnalysisReviewTool(s *Server) {
-	tool := &mcp.Tool{Name: "save_video_analysis_review", Description: "Save Codex's shot review into a five-section JSON/HTML report. Include visual fields, frame_analyses, timestamped transcript with evidence source, and storyboard beats (multiple beats can belong to one continuous shot). Only claim speech was heard when audio was actually reviewed. Re-saving replaces this shot's review. It does not publish or generate video."}
+	tool := &mcp.Tool{Name: "save_video_analysis_review", Description: "Save the connected MCP client's shot review into a five-section JSON/HTML report. Include visual fields, frame_analyses, timestamped transcript with evidence source, and storyboard beats (multiple beats can belong to one continuous shot). Transcript source identifiers retain their legacy codex_ prefix for all clients. Only claim speech was heard when audio was actually reviewed. Re-saving replaces this shot's review. It does not publish or generate video."}
 	tool.Annotations = &mcp.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(false)}
 	mcp.AddTool(s.mcpServer, tool, func(ctx context.Context, _ *mcp.CallToolRequest, input videoAnalysisReviewInput) (*mcp.CallToolResult, map[string]any, error) {
 		result, out, err := s.saveVideoAnalysisReview(ctx, input)

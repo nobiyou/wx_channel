@@ -25,7 +25,7 @@ type videoAnalysisInput struct {
 	RelativePath     string `json:"relative_path,omitempty" jsonschema:"local video path relative to the downloads directory; use only when no download record id is available because metadata and metrics may be unavailable"`
 	RecordID         string `json:"record_id,omitempty" jsonschema:"completed download record id; preferred because it preserves title, author, identity, and captured metrics"`
 	Source           string `json:"source,omitempty" jsonschema:"download when using record_id; analysis requires a completed download"`
-	Mode             string `json:"mode,omitempty" jsonschema:"hybrid uses the current Codex session to analyze frames and save reviews without an API key (default); local extracts evidence only"`
+	Mode             string `json:"mode,omitempty" jsonschema:"hybrid uses the connected MCP client's current session to analyze frames and save reviews without an additional API key (default); requires image input support; local extracts evidence only"`
 	UseExternalModel bool   `json:"use_external_model,omitempty" jsonschema:"explicitly upload keyframe images to the configured external model; default false"`
 	Force            bool   `json:"force,omitempty" jsonschema:"start a new analysis even when a matching completed analysis exists"`
 }
@@ -209,7 +209,7 @@ type videoAnalysisJob struct {
 func registerVideoAnalysisTools(s *Server) {
 	startTool := &mcp.Tool{
 		Name:        "start_video_analysis",
-		Description: "Prepare analysis of a completed local download. FFmpeg extracts shots, keyframes, audio evidence, and local enrichment (faster-whisper/PaddleOCR when installed). By default the current Codex session analyzes returned shot images and saves findings with save_video_analysis_review; no additional model API key is needed. Poll status, then read every shot with images and save the shooting reconstruction. External APIs (including Gemini) run only with use_external_model=true. Downloading is independent.",
+		Description: "Prepare analysis of a completed local download. FFmpeg extracts shots, keyframes, audio evidence, and local enrichment (faster-whisper/PaddleOCR when installed). By default the connected MCP client's current session analyzes returned shot images and saves findings with save_video_analysis_review; no additional model API key is needed. Visual review requires a client model that supports image input. Poll status, then read every shot with images and save the shooting reconstruction. External APIs (including Gemini) run only with use_external_model=true. Downloading is independent.",
 	}
 	startTool.Annotations = &mcp.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: false, DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)}
 	mcp.AddTool(s.mcpServer, startTool, func(ctx context.Context, req *mcp.CallToolRequest, input videoAnalysisInput) (*mcp.CallToolResult, map[string]any, error) {

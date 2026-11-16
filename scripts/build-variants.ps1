@@ -164,7 +164,9 @@ function New-ZipPackage {
         Copy-Item (Join-Path $repoRoot 'README.md') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.example') $tempDir -Force
         Copy-Item (Join-Path $repoRoot 'config.yaml.full') $tempDir -Force
-        Copy-Item (Join-Path $repoRoot 'mcp.json.example') $tempDir -Force
+        foreach ($mcpExample in @('mcp.json.example', 'mcp.codex.toml.example', 'mcp.dsh.yaml.example')) {
+            Copy-Item (Join-Path $repoRoot $mcpExample) $tempDir -Force
+        }
         foreach ($skillName in @('wechat-channel-insight', 'wechat-channel-video-analysis')) {
             $skillSource = Join-Path $repoRoot ('.agents\skills\' + $skillName)
             if (Test-Path $skillSource) {

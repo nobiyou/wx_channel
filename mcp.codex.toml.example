@@ -1,0 +1,8 @@
+# Merge this section into Codex's config.toml.
+# Set WX_CHANNEL_MCP_TOKEN in the environment that launches Codex to the
+# contents of .wx_channel_mcp_token in wx_channel's downloads directory.
+[mcp_servers.wx-channel]
+url = "http://127.0.0.1:2027/mcp"
+bearer_token_env_var = "WX_CHANNEL_MCP_TOKEN"
+startup_timeout_sec = 30
+tool_timeout_sec = 90

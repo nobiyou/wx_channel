@@ -136,7 +136,7 @@ func failure(code string) *toolFailure {
 		recovery = "Finish the independent download action before starting analysis."
 	case "model_not_configured":
 		message = "The external video analysis model is not configured."
-		recovery = "Configure its base URL, API key and model, or omit use_external_model for Codex review."
+		recovery = "Configure its base URL, API key and model, or omit use_external_model for review by the connected MCP client."
 	default:
 		code = "query_failed"
 	}
