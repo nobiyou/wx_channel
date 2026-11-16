@@ -159,6 +159,9 @@ scripts/*
 !scripts/repair-environment.cmd
 !scripts/wx-channel-environment.cmd
 !scripts/environment_diagnostics_test.go
+!scripts/environment_tool_windows.go
+!scripts/environment_exe_test.go
+!scripts/build-environment-tool.ps1
 !scripts/build-dual.ps1
 !scripts/build-variants.ps1
 !scripts/start-insight-data-plane.ps1
