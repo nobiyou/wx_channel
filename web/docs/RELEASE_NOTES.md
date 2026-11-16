@@ -6,12 +6,12 @@
 
 - 适配 Codex、Claude Code 和 DeepSeek Harness（DSH）三类本地 Agent，共用 wx_channel 的 Streamable HTTP MCP 服务和 Bearer Token 鉴权。
 - 修正 Claude Code 配置示例，补充必需的 `type: http`；新增 Codex TOML 与 DSH YAML 配置模板。
-- 三端均可发现 17 个 MCP 工具；配置模板随 Windows 三版本发布包一同分发。
+- 提供 17 个视频号查询、下载和视频分析工具；三端配置模板随 Windows 三版本发布包一同分发。
 
 ### 环境诊断工具
 
 - 将环境检查、修复菜单打包为独立 Windows 可执行工具，减少对脚本文件可见性和 PowerShell 入口的依赖。
-- 区分页连接心跳和微信扩展 API 就绪状态，诊断结果提供更明确的恢复路径。
+- 区分页面连接心跳和微信扩展 API 就绪状态，诊断结果提供更明确的恢复路径。
 
 ## v5.7.17（2026-11-15）
 

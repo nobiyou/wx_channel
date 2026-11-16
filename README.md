@@ -297,9 +297,9 @@ WX_CHANNEL_DOWNLOAD_TIMEOUT=30
 本次版本重点完善 MCP 多 Agent 接入和本地环境诊断：
 
 - **MCP 多 Agent**：适配 Codex、Claude Code 和 DeepSeek Harness，共用本地 Streamable HTTP MCP 服务。
-- **MCP 配置**：提供三端配置模板，包含 Bearer Token 鉴权、启动超时和工具调用超时设置。
-- **MCP 工具**：三端均可发现全部 17 个视频号查询、下载和视频分析工具。
-- **环境诊断**：提供独立 Windows 环境检查与修复工具，并区分页心跳和微信扩展 API 就绪状态。
+- **MCP 配置**：提供三端 Streamable HTTP 与 Bearer Token 鉴权配置模板。
+- **MCP 工具**：提供 17 个视频号查询、下载和视频分析工具。
+- **环境诊断**：提供独立 Windows 环境检查与修复工具，并区分页面心跳和微信扩展 API 就绪状态。
 - **视频分析**：使用当前连接的 MCP 客户端会话模型，保留本地证据和外部模型授权边界。
 
 ### ✨ 主要特性
