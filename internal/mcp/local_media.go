@@ -50,6 +50,9 @@ func (s *Server) openLocalMedia(ctx context.Context, input localMediaMetadataInp
 	}
 	candidate := rawPath
 	if !filepath.IsAbs(candidate) {
+		if !isSafeRelativePath(candidate) {
+			return nil, errors.New("path_forbidden: the media path is outside the configured downloads directory")
+		}
 		candidate = filepath.Join(baseDir, candidate)
 	}
 	candidate, err = filepath.Abs(candidate)

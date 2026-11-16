@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"mime"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -341,6 +342,9 @@ func (s *Server) safeFileReference(rawPath string) (map[string]any, bool) {
 	}
 	candidate := rawPath
 	if !filepath.IsAbs(candidate) {
+		if !isSafeRelativePath(candidate) {
+			return nil, false
+		}
 		candidate = filepath.Join(baseDir, candidate)
 	}
 	candidate, err = filepath.Abs(candidate)
@@ -540,7 +544,15 @@ func decodeCursor(cursor string) (int, error) {
 }
 
 func isSafeRelativePath(relative string) bool {
-	return relative != "" && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+	// Stored records can come from another OS. Treat Windows separators and
+	// drive prefixes as paths even when the host filesystem would accept them
+	// as literal filenames. Native absolute records are made relative first.
+	portable := strings.ReplaceAll(relative, `\`, "/")
+	if len(portable) >= 2 && portable[1] == ':' {
+		return false
+	}
+	portable = path.Clean(portable)
+	return portable != "." && portable != ".." && !strings.HasPrefix(portable, "../") && !path.IsAbs(portable) && !(len(portable) >= 2 && portable[1] == ':')
 }
 
 func mediaMIMEType(path string) string {

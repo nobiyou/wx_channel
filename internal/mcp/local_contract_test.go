@@ -321,7 +321,11 @@ func TestLocalContractMediaAllowlistAndSafeText(t *testing.T) {
 			t.Errorf("metadata %q: %v", name, err)
 		}
 	}
-	for i, path := range []string{"config.yaml", "../outside.mp4", `C:\private\video.mp4`} {
+	for i, path := range []string{
+		"config.yaml", "../outside.mp4", `..\outside.mp4`,
+		`C:\private\video.mp4`, "C:/private/video.mp4", `C:private\video.mp4`,
+		`\private\video.mp4`, `\\server\private\video.mp4`,
+	} {
 		id := fmt.Sprintf("unsafe-%d", i)
 		localContractDownload(t, id, path)
 		_, detail, err := s.getLocalVideo(context.Background(), nil, getLocalVideoInput{ID: id})
@@ -357,6 +361,29 @@ func TestLocalContractMediaAllowlistAndSafeText(t *testing.T) {
 		}
 		if (strings.HasPrefix(title, "https:") || title == "/topic") && got != title {
 			t.Errorf("ordinary URL title was redacted: %s", got)
+		}
+	}
+}
+
+func TestLocalMediaRejectsForeignWindowsPaths(t *testing.T) {
+	if filepath.Separator == '\\' {
+		t.Skip("foreign Windows filenames apply to non-Windows filesystems")
+	}
+	s := localContractServer(t)
+	for i, name := range []string{`C:\private\video.mp4`, `C:private\video.mp4`, `\private\video.mp4`, `\\server\private\video.mp4`, `..\outside.mp4`} {
+		// These are real filenames on Unix, so rejection cannot depend on a
+		// missing file or the host's interpretation of Windows path syntax.
+		if err := os.WriteFile(filepath.Join(s.deps.DownloadsDir, name), []byte("video"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		id := fmt.Sprintf("foreign-path-%d", i)
+		localContractDownload(t, id, name)
+		for _, input := range []localMediaMetadataInput{{RelativePath: name}, {RecordID: id}} {
+			media, err := s.openLocalMedia(context.Background(), input)
+			if err == nil {
+				media.file.Close()
+				t.Errorf("foreign Windows path opened: %q, record_id=%q", name, input.RecordID)
+			}
 		}
 	}
 }
