@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -71,59 +72,132 @@ func TestEnvironmentDiagnosticsSeparatesPageConnectionFromAPIReadiness(t *testin
 			api:        "INFO",
 		},
 	}
-	for _, file := range []string{"wx-channel-environment.cmd", "check-environment.ps1"} {
-		t.Run(file, func(t *testing.T) {
-			for _, tc := range cases {
-				t.Run(tc.name, func(t *testing.T) {
-					cmd := exec.Command(host, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness)
-					cmd.Env = append(os.Environ(),
-						"WX_ENV_DIAGNOSTIC_TOOL="+filepath.Join(cwd, file),
-						"WX_ENV_DIAGNOSTIC_FIXTURE="+fixture,
-						"WX_ENV_DIAGNOSTIC_STATUS="+tc.status,
-					)
-					output, runErr := cmd.CombinedOutput()
-					var report struct {
-						Checks []struct {
-							ID     string `json:"id"`
-							Status string `json:"status"`
-						} `json:"checks"`
-						Info int `json:"info"`
-						Warn int `json:"warn"`
-						Fail int `json:"fail"`
-					}
-					if err := json.Unmarshal(output, &report); err != nil {
-						t.Fatalf("invalid diagnostic output (process: %v): %v\n%s", runErr, err, output)
-					}
-					statuses := make(map[string]string)
-					infoCount := 0
-					for _, check := range report.Checks {
-						statuses[check.ID] = check.Status
-						if check.Status == "INFO" {
-							infoCount++
-						}
-					}
-					if got := statuses["channel-client"]; got != tc.connection {
-						t.Errorf("page connection = %q, want %q", got, tc.connection)
-					}
-					if got := statuses["channel-api"]; got != tc.api {
-						t.Errorf("extension API = %q, want %q", got, tc.api)
-					}
-					if report.Info != infoCount {
-						t.Errorf("summary.info = %d, counted %d informational checks", report.Info, infoCount)
-					}
-					wantExit := 0
-					if report.Fail > 0 {
-						wantExit = 2
-					} else if report.Warn > 0 {
-						wantExit = 1
-					}
-					if got := cmd.ProcessState.ExitCode(); got != wantExit {
-						t.Errorf("exit code = %d, want %d (process: %v)", got, wantExit, runErr)
-					}
-					if statuses["channel-client"] == "" {
-						t.Logf("full diagnostic report: %s", output)
-					}
-				})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(host, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness)
+			cmd.Env = append(os.Environ(),
+				"WX_ENV_DIAGNOSTIC_TOOL="+filepath.Join(cwd, "wx-channel-environment.cmd"),
+				"WX_ENV_DIAGNOSTIC_FIXTURE="+fixture,
+				"WX_ENV_DIAGNOSTIC_STATUS="+tc.status,
+			)
+			output, runErr := cmd.CombinedOutput()
+			var report struct {
+				Checks []struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+				} `json:"checks"`
+				Info int `json:"info"`
+				Warn int `json:"warn"`
+				Fail int `json:"fail"`
+			}
+			if err := json.Unmarshal(output, &report); err != nil {
+				t.Fatalf("invalid diagnostic output (process: %v): %v\n%s", runErr, err, output)
+			}
+			statuses := make(map[string]string)
+			infoCount := 0
+			for _, check := range report.Checks {
+				statuses[check.ID] = check.Status
+				if check.Status == "INFO" {
+					infoCount++
+				}
+			}
+			if got := statuses["channel-client"]; got != tc.connection {
+				t.Errorf("page connection = %q, want %q", got, tc.connection)
+			}
+			if got := statuses["channel-api"]; got != tc.api {
+				t.Errorf("extension API = %q, want %q", got, tc.api)
+			}
+			if report.Info != infoCount {
+				t.Errorf("summary.info = %d, counted %d informational checks", report.Info, infoCount)
+			}
+			wantExit := 0
+			if report.Fail > 0 {
+				wantExit = 2
+			} else if report.Warn > 0 {
+				wantExit = 1
+			}
+			if got := cmd.ProcessState.ExitCode(); got != wantExit {
+				t.Errorf("exit code = %d, want %d (process: %v)", got, wantExit, runErr)
+			}
+			if statuses["channel-client"] == "" {
+				t.Logf("full diagnostic report: %s", output)
+			}
+		})
+	}
+}
+
+func TestEnvironmentRepairPreviewPreservesUserFiles(t *testing.T) {
+	host := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fallback := range []string{"0", "1"} {
+		t.Run("netstat_fallback_"+fallback, func(t *testing.T) {
+			fixture := t.TempDir()
+			appRoot := filepath.Join(fixture, "中文目录 含空格")
+			if err := os.Mkdir(appRoot, 0755); err != nil {
+				t.Fatal(err)
+			}
+			config := []byte("# 保留注释\r\nport: 2025\r\ndownload_dir: '视频 下载'\r\nlog_file: '日志/助手.log'\r\n")
+			configPath := filepath.Join(appRoot, "config.yaml")
+			if err := os.WriteFile(configPath, config, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(appRoot, "wx_channel.exe"), []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			harness := filepath.Join(fixture, "preview.ps1")
+			if err := os.WriteFile(harness, []byte(environmentDiagnosticsHarness), 0600); err != nil {
+				t.Fatal(err)
+			}
+			reportPath := filepath.Join(fixture, "preview.json")
+			cmd := exec.Command(host, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harness)
+			cmd.Env = append(os.Environ(),
+				"WX_ENV_DIAGNOSTIC_TOOL="+filepath.Join(cwd, "wx-channel-environment.cmd"),
+				"WX_ENV_DIAGNOSTIC_FIXTURE="+appRoot,
+				"WX_ENV_DIAGNOSTIC_OPERATION=repair",
+				"WX_ENV_DIAGNOSTIC_PORT_CONFLICT=1",
+				"WX_ENV_DIAGNOSTIC_NETSTAT="+fallback,
+				"WX_ENV_DIAGNOSTIC_REPORT="+reportPath,
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("repair preview failed: %v\n%s", err, output)
+			}
+			raw, err := os.ReadFile(reportPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var report struct {
+				Actions []struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+				} `json:"actions"`
+				Fail int `json:"fail"`
+			}
+			if err := json.Unmarshal(raw, &report); err != nil {
+				t.Fatal(err)
+			}
+			statuses := make(map[string]string)
+			for _, action := range report.Actions {
+				statuses[action.ID] = action.Status
+			}
+			for _, id := range []string{"download-directory", "log-directory", "config-port", "unblock-files"} {
+				if statuses[id] != "SKIP" {
+					t.Errorf("preview action %s = %q, want SKIP", id, statuses[id])
+				}
+			}
+			if report.Fail != 0 || statuses["certificate"] != "DONE" {
+				t.Errorf("certificate detection changed: %s", raw)
+			}
+			after, err := os.ReadFile(configPath)
+			if err != nil || !bytes.Equal(config, after) {
+				t.Fatalf("preview modified configuration: %v", err)
+			}
+			files, err := os.ReadDir(appRoot)
+			if err != nil || len(files) != 2 {
+				t.Fatalf("preview created directories or backups: %v, %v", files, err)
 			}
 		})
 	}
@@ -136,13 +210,19 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
 function Get-NetTCPConnection {
     [CmdletBinding()]param([string]$State, [int]$LocalPort)
+    if ($env:WX_ENV_DIAGNOSTIC_NETSTAT -eq '1') { throw 'CIM cmdlet unavailable' }
+    if ($env:WX_ENV_DIAGNOSTIC_PORT_CONFLICT -eq '1' -and $LocalPort -ne 2025) { return }
     [pscustomobject]@{ OwningProcess = 123 }
 }
+function netstat.exe { '  TCP    127.0.0.1:2025    0.0.0.0:0    LISTENING    123' }
 function Get-Process {
     [CmdletBinding()]param([int]$Id)
+    if ($PSBoundParameters.ContainsKey('Id') -and $env:WX_ENV_DIAGNOSTIC_PORT_CONFLICT -eq '1') { [pscustomobject]@{ ProcessName = 'other_app' }; return }
     [pscustomobject]@{ ProcessName = 'wx_channel' }
     if (-not $PSBoundParameters.ContainsKey('Id')) { [pscustomobject]@{ ProcessName = 'WeChatAppEx' } }
 }
+function Import-Certificate { throw 'Unexpected certificate installation' }
+function Unblock-File { throw 'Unexpected file unblock' }
 function Get-ChildItem {
     [CmdletBinding()]param([string]$Path)
     if ($Path -like 'Cert:*') { [pscustomobject]@{ Subject = 'CN=SunnyNet' }; return }
@@ -160,18 +240,20 @@ function Invoke-WebRequest {
     [pscustomobject]@{ StatusCode = 200; Content = (@{ code = 0; data = $data } | ConvertTo-Json -Depth 10) }
 }
 $tool = $env:WX_ENV_DIAGNOSTIC_TOOL
-if ([IO.Path]::GetExtension($tool) -eq '.cmd') {
-    $raw = [IO.File]::ReadAllText($tool, [Text.Encoding]::UTF8)
-    $marker = ':WX_CHANNEL_ENV_PAYLOAD'
-    $payload = $raw.Substring($raw.LastIndexOf($marker) + $marker.Length)
-    $tokens = $null; $parseErrors = $null
-    $tree = [Management.Automation.Language.Parser]::ParseInput($payload, [ref]$tokens, [ref]$parseErrors)
-    if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-    $function = $tree.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-EnvironmentCheck' }, $true)
-    Invoke-Expression $function.Extent.Text
-    Invoke-EnvironmentCheck -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -SkipNetwork -Json
+$raw = [IO.File]::ReadAllText($tool, [Text.Encoding]::UTF8)
+$marker = ':WX_CHANNEL_ENV_PAYLOAD'
+$payload = $raw.Substring($raw.LastIndexOf($marker) + $marker.Length)
+$tokens = $null; $parseErrors = $null
+$tree = [Management.Automation.Language.Parser]::ParseInput($payload, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+foreach ($function in $tree.EndBlock.Statements) {
+    if ($function -is [Management.Automation.Language.FunctionDefinitionAst]) { Invoke-Expression $function.Extent.Text }
+}
+if ($env:WX_ENV_DIAGNOSTIC_OPERATION -eq 'repair') {
+    $report = Invoke-EnvironmentRepair -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -RepairConfig -UnblockFiles -WhatIf -Json
+    [IO.File]::WriteAllText($env:WX_ENV_DIAGNOSTIC_REPORT, ($report -join [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
     exit $script:ToolExitCode
 }
-& $tool -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -SkipNetwork -Json
-exit $LASTEXITCODE
+Invoke-EnvironmentCheck -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -SkipNetwork -Json
+exit $script:ToolExitCode
 `

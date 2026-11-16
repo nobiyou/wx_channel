@@ -1,5 +1,7 @@
 @echo off
 setlocal
+rem Use the native Windows PowerShell modules when launched from PowerShell 7.
+set "PSModulePath="
 set "WX_CHANNEL_ENV_TOOL_FILE=%~f0"
 title wx_channel Environment Check and Repair
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { $text=[IO.File]::ReadAllText($env:WX_CHANNEL_ENV_TOOL_FILE,[Text.Encoding]::UTF8); $marker=':WX_CHANNEL_ENV_PAYLOAD'; $offset=$text.LastIndexOf($marker); if($offset -lt 0){throw 'Tool payload is missing.'}; & ([scriptblock]::Create($text.Substring($offset+$marker.Length))) } catch { Write-Host ($_ | Out-String) -ForegroundColor Red; exit 2 }"
@@ -42,6 +44,83 @@ try {
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
     $Host.UI.RawUI.WindowTitle = $script:ToolName
 } catch { }
+# 检测和修复共用的环境检查方法。
+function Get-ConfigValue {
+    param(
+        [string]$Path,
+        [string]$Key,
+        [string]$Default = ''
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $Default
+    }
+
+    try {
+        $line = Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop |
+            Where-Object { $_ -match "^\s*$([regex]::Escape($Key))\s*:" } |
+            Select-Object -First 1
+        if ($null -eq $line) {
+            return $Default
+        }
+
+        $value = ($line -replace "^\s*$([regex]::Escape($Key))\s*:\s*", '').Trim()
+        $value = $value -replace '\s+#.*$', ''
+        return $value.Trim('"', "'")
+    } catch {
+        return $Default
+    }
+}
+
+function Test-IsAdministrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        return $false
+    }
+}
+
+function Get-ListenPortOwner {
+    param([int]$TargetPort)
+
+    $ownerIds = @()
+    try {
+        if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+            $ownerIds = @(Get-NetTCPConnection -State Listen -LocalPort $TargetPort -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.OwningProcess })
+        }
+    } catch { }
+
+    if ($ownerIds.Count -eq 0) {
+        try {
+            $ownerIds = @(netstat.exe -ano -p tcp 2>$null | ForEach-Object {
+                if ($_ -match "^\s*TCP\s+\S+:$TargetPort\s+\S+\s+LISTENING\s+(\d+)\s*$") {
+                    [int]$Matches[1]
+                }
+            })
+        } catch { }
+    }
+
+    $owners = @($ownerIds | ForEach-Object {
+        $processName = ''
+        try { $processName = (Get-Process -Id $_ -ErrorAction Stop).ProcessName } catch { }
+        if ($processName) { "PID=$_, Process=$processName" } else { "PID=$_" }
+    })
+    return ($owners -join '; ')
+}
+
+function Test-CertificateInstalled {
+    foreach ($store in @('Cert:\CurrentUser\Root', 'Cert:\LocalMachine\Root')) {
+        try {
+            $matches = @(Get-ChildItem -Path $store -ErrorAction Stop | Where-Object { $_.Subject -match '(?i)SunnyNet' })
+            if ($matches.Count -gt 0) { return $true }
+        } catch { }
+    }
+    return $false
+}
+
 function Invoke-EnvironmentCheck {
 <#
 .SYNOPSIS
@@ -98,75 +177,6 @@ function Add-Check {
         detail = $Detail
         fix    = $Fix
     }
-}
-
-function Get-ConfigValue {
-    param(
-        [string]$Path,
-        [string]$Key,
-        [string]$Default = ''
-    )
-
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $Default
-    }
-
-    try {
-        $line = Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop |
-            Where-Object { $_ -match "^\s*$([regex]::Escape($Key))\s*:" } |
-            Select-Object -First 1
-        if ($null -eq $line) {
-            return $Default
-        }
-
-        $value = ($line -replace "^\s*$([regex]::Escape($Key))\s*:\s*", '').Trim()
-        $value = $value -replace '\s+#.*$', ''
-        return $value.Trim('"', "'")
-    } catch {
-        return $Default
-    }
-}
-
-function Test-IsAdministrator {
-    try {
-        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    } catch {
-        return $false
-    }
-}
-
-function Get-ListenPortOwner {
-    param([int]$TargetPort)
-
-    try {
-        $cmd = Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue
-        if ($null -ne $cmd) {
-            $connections = @(Get-NetTCPConnection -State Listen -LocalPort $TargetPort -ErrorAction SilentlyContinue)
-            if ($connections.Count -gt 0) {
-                $owners = @($connections | ForEach-Object {
-                    $processName = ''
-                    try { $processName = (Get-Process -Id $_.OwningProcess -ErrorAction Stop).ProcessName } catch { }
-                    $suffix = ''
-                    if ($processName) { $suffix = ", Process=$processName" }
-                    "PID=$($_.OwningProcess)$suffix"
-                })
-                return ($owners -join '; ')
-            }
-        }
-    } catch { }
-
-    try {
-        $lines = @(netstat.exe -ano -p tcp 2>$null | Where-Object {
-            $_ -match "LISTENING\s+(\d+)\s*$" -and $_ -match ":$TargetPort\s"
-        })
-        if ($lines.Count -gt 0) {
-            return ($lines -join '; ').Trim()
-        }
-    } catch { }
-
-    return ''
 }
 
 function Invoke-LocalApi {
@@ -229,22 +239,6 @@ function Get-PropertyValue {
     $property = $Object.PSObject.Properties[$Name]
     if ($null -eq $property -or $null -eq $property.Value) { return $Default }
     return $property.Value
-}
-
-function Test-CertificateInstalled {
-    $stores = @('Cert:\CurrentUser\Root', 'Cert:\LocalMachine\Root')
-    foreach ($store in $stores) {
-        try {
-            $matches = @(Get-ChildItem -Path $store -ErrorAction Stop | Where-Object {
-                $_.Subject -match '(?i)(^|\s|,)CN\s*=\s*SunnyNet($|,|\s)' -or
-                $_.Subject -match '(?i)SunnyNet'
-            })
-            if ($matches.Count -gt 0) {
-                return $true
-            }
-        } catch { }
-    }
-    return $false
 }
 
 function Test-DirectoryWritable {
@@ -576,48 +570,6 @@ function Add-Action {
     }
 }
 
-function Get-ConfigValue {
-    param([string]$Path, [string]$Key, [string]$Default = '')
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $Default }
-    try {
-        $line = Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction Stop |
-            Where-Object { $_ -match "^\s*$([regex]::Escape($Key))\s*:" } |
-            Select-Object -First 1
-        if ($null -eq $line) { return $Default }
-        $value = ($line -replace "^\s*$([regex]::Escape($Key))\s*:\s*", '').Trim()
-        return (($value -replace '\s+#.*$', '').Trim('"', "'"))
-    } catch {
-        return $Default
-    }
-}
-
-function Test-IsAdministrator {
-    try {
-        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    } catch {
-        return $false
-    }
-}
-
-function Get-ListenPortOwner {
-    param([int]$TargetPort)
-    try {
-        if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
-            $connections = @(Get-NetTCPConnection -State Listen -LocalPort $TargetPort -ErrorAction SilentlyContinue)
-            if ($connections.Count -gt 0) {
-                return @($connections | ForEach-Object {
-                    $name = ''
-                    try { $name = (Get-Process -Id $_.OwningProcess -ErrorAction Stop).ProcessName } catch { }
-                    if ($name) { "PID=$($_.OwningProcess), Process=$name" } else { "PID=$($_.OwningProcess)" }
-                }) -join '; '
-            }
-        }
-    } catch { }
-    return ''
-}
-
 function Find-FreePort {
     param([int]$StartPort)
     for ($candidate = $StartPort; $candidate -le ($StartPort + 50); $candidate++) {
@@ -652,16 +604,6 @@ function Invoke-Api {
     } catch {
         return [pscustomobject]@{ ok = $false; body = ''; statusCode = 0; error = $_.Exception.Message }
     }
-}
-
-function Test-CertificateInstalled {
-    foreach ($store in @('Cert:\CurrentUser\Root', 'Cert:\LocalMachine\Root')) {
-        try {
-            $matches = @(Get-ChildItem -Path $store -ErrorAction Stop | Where-Object { $_.Subject -match '(?i)SunnyNet' })
-            if ($matches.Count -gt 0) { return $true }
-        } catch { }
-    }
-    return $false
 }
 
 function Get-CertificatePathFromApi {
@@ -777,7 +719,7 @@ if ($RepairConfig) {
         if ($PSCmdlet.ShouldProcess($configPath, '创建最小配置')) {
             try {
                 $minimalConfig = @(
-                    '# 由 repair-environment.ps1 创建的最小配置'
+                    '# 由微信视频号环境工具创建的最小配置'
                     "port: $effectivePort"
                     'download_dir: downloads'
                     'log_file: logs/wx_channel.log'
@@ -865,7 +807,6 @@ if ($SkipCertificate) {
             } else {
                 Add-Action -Id 'certificate-user' -Status 'SKIP' -Detail 'WhatIf/用户取消，未导入证书。'
             }
-
 
         }
     }

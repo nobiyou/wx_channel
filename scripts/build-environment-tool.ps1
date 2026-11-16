@@ -1,4 +1,12 @@
-﻿[CmdletBinding()]
+﻿<#
+.SYNOPSIS
+    编译微信视频号环境检测与修复工具 EXE。
+.DESCRIPTION
+    直接嵌入 wx-channel-environment.cmd，不另行复制检测或修复实现。
+.EXAMPLE
+    .\scripts\build-environment-tool.ps1 -OutputPath C:\Output\wx-channel-environment.exe
+#>
+[CmdletBinding()]
 param([string]$OutputPath = '')
 
 Set-StrictMode -Version Latest

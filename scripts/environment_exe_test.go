@@ -128,14 +128,14 @@ func TestEnvironmentExecutableRunsWithoutScriptFiles(t *testing.T) {
 		defer cancel()
 		host := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 		baseline := exec.CommandContext(ctx, host, "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-			`$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false); & $env:WX_ENV_DIAGNOSTIC_TOOL -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -SkipNetwork -Json -TimeoutSeconds 1`)
+			`$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false); $env:WX_CHANNEL_ENV_TOOL_FILE = $env:WX_ENV_DIAGNOSTIC_TOOL; $raw = [IO.File]::ReadAllText($env:WX_CHANNEL_ENV_TOOL_FILE, [Text.Encoding]::UTF8); $marker = ':WX_CHANNEL_ENV_PAYLOAD'; & ([scriptblock]::Create($raw.Substring($raw.LastIndexOf($marker) + $marker.Length))) -AppRoot $env:WX_ENV_DIAGNOSTIC_FIXTURE -Action check -SkipNetwork -Json -TimeoutSeconds 1`)
 		for _, value := range os.Environ() {
 			name, _, _ := strings.Cut(value, "=")
 			if !strings.EqualFold(name, "PSModulePath") {
 				baseline.Env = append(baseline.Env, value)
 			}
 		}
-		baseline.Env = append(baseline.Env, "WX_ENV_DIAGNOSTIC_TOOL="+filepath.Join(cwd, "check-environment.ps1"), "WX_ENV_DIAGNOSTIC_FIXTURE="+appRoot)
+		baseline.Env = append(baseline.Env, "WX_ENV_DIAGNOSTIC_TOOL="+filepath.Join(cwd, "wx-channel-environment.cmd"), "WX_ENV_DIAGNOSTIC_FIXTURE="+appRoot)
 		baseline.WaitDelay = 3 * time.Second
 		before, beforeErr := baseline.CombinedOutput()
 		after, afterErr := run(t, "", nil, "-Action", "check", "-AppRoot", appRoot, "-SkipNetwork", "-Json", "-TimeoutSeconds", "1")
