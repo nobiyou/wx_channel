@@ -50,6 +50,7 @@ type ScriptHandler struct {
 	officialAccountOrigin string
 	officialAccountToken  string
 	version               string
+	channelsScriptVersion string
 	liveScriptVersion     string
 	liveContextMu         sync.Mutex
 	liveContexts          map[string]time.Time
@@ -84,31 +85,34 @@ func (h *ScriptHandler) SetLiveScript(script []byte) {
 
 // NewScriptHandler 创建脚本处理器
 func NewScriptHandler(cfg *config.Config, coreJS, decryptJS, downloadJS, homeJS, feedJS, profileJS, batchDownloadJS, zipJS, fileSaverJS, mittJS, eventbusJS, utilsJS, apiClientJS, keepAliveJS []byte, version string) *ScriptHandler {
-	// Live bundles contain different capture hooks from Home bundles. Give
-	// them a separate cache key, refreshed even when a test build keeps its version.
+	// Download and live pages need different hooks in the shared bundles. Carry
+	// their runtime identity in a cache key, refreshed even for same-version builds.
 	separator := "?"
 	if strings.Contains(version, "?") {
 		separator = "&"
 	}
-	liveScriptVersion := fmt.Sprintf("%s%swx_live=%x", version, separator, time.Now().UnixNano())
+	runtimeID := time.Now().UnixNano()
+	channelsScriptVersion := fmt.Sprintf("%s%swx_channels=%x", version, separator, runtimeID)
+	liveScriptVersion := fmt.Sprintf("%s%swx_live=%x", version, separator, runtimeID)
 	return &ScriptHandler{
-		coreJS:            coreJS,
-		decryptJS:         decryptJS,
-		downloadJS:        downloadJS,
-		homeJS:            homeJS,
-		feedJS:            feedJS,
-		profileJS:         profileJS,
-		batchDownloadJS:   batchDownloadJS,
-		zipJS:             zipJS,
-		fileSaverJS:       fileSaverJS,
-		mittJS:            mittJS,
-		eventbusJS:        eventbusJS,
-		utilsJS:           utilsJS,
-		apiClientJS:       apiClientJS,
-		keepAliveJS:       keepAliveJS,
-		version:           version,
-		liveScriptVersion: liveScriptVersion,
-		liveContexts:      make(map[string]time.Time),
+		coreJS:                coreJS,
+		decryptJS:             decryptJS,
+		downloadJS:            downloadJS,
+		homeJS:                homeJS,
+		feedJS:                feedJS,
+		profileJS:             profileJS,
+		batchDownloadJS:       batchDownloadJS,
+		zipJS:                 zipJS,
+		fileSaverJS:           fileSaverJS,
+		mittJS:                mittJS,
+		eventbusJS:            eventbusJS,
+		utilsJS:               utilsJS,
+		apiClientJS:           apiClientJS,
+		keepAliveJS:           keepAliveJS,
+		version:               version,
+		channelsScriptVersion: channelsScriptVersion,
+		liveScriptVersion:     liveScriptVersion,
+		liveContexts:          make(map[string]time.Time),
 	}
 }
 
@@ -217,6 +221,8 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 	scriptVersion := h.version
 	if isLivePage {
 		scriptVersion = h.liveScriptVersion
+	} else if host == "channels.weixin.qq.com" && isChannelDownloadPagePath(pagePath) {
+		scriptVersion = h.channelsScriptVersion
 	}
 	// 添加版本号到JS引用
 	scriptReg1 := regexp.MustCompile(`src="([^"]{1,})\.js"`)
@@ -236,7 +242,7 @@ func (h *ScriptHandler) HandleHTMLResponse(Conn *SunnyNet.HttpConn, host, path s
 		resetModifiedResponseHeaders(Conn.Response.Header)
 	}
 
-	if host == "channels.weixin.qq.com" && (pagePath == "/web/pages/feed" || pagePath == "/web/pages/home" || pagePath == "/web/pages/profile" || pagePath == "/web/pages/account/like" || pagePath == "/web/pages/live") {
+	if host == "channels.weixin.qq.com" && (isChannelDownloadPagePath(pagePath) || isLivePage) {
 		// 根据页面路径注入不同的脚本
 		injectedScripts := h.buildInjectedScripts(pagePath)
 		var injected bool
@@ -293,6 +299,15 @@ func isChannelLoginPagePath(path string) bool {
 	}
 }
 
+func isChannelDownloadPagePath(path string) bool {
+	switch path {
+	case "/web/pages/home", "/web/pages/feed", "/web/pages/profile", "/web/pages/account/like":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *ScriptHandler) hasOfficialAccountPage(path string) bool {
 	if len(h.officialAccountJS) == 0 {
 		return false
@@ -340,10 +355,9 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 
 	content := string(body)
 	originalContent := content
-	// Cross-origin scripts may carry only the channel origin as Referer. The
-	// explicit live cache marker must take priority over that ambiguous login
-	// path, or the capture hooks are skipped before live routing is reached.
-	if referer, ok := requestRefererURL(Conn); ok && !isLiveScriptRequest(Conn) &&
+	// An origin-only Referer can come from any channel page. Explicit runtime
+	// markers, carried from its injected HTML, take priority over this hint.
+	if referer, ok := requestRefererURL(Conn); ok && !isLiveScriptRequest(Conn) && !isChannelsScriptRequest(Conn) &&
 		((strings.EqualFold(referer.Hostname(), "channels.weixin.qq.com") && isChannelLoginPagePath(referer.Path)) ||
 			(strings.EqualFold(referer.Hostname(), "open.weixin.qq.com") && strings.TrimRight(referer.Path, "/") == "/connect/qrconnect")) {
 		Conn.Response.Body = io.NopCloser(bytes.NewReader(body))
@@ -357,7 +371,11 @@ func (h *ScriptHandler) HandleJavaScriptResponse(Conn *SunnyNet.HttpConn, host, 
 
 	// 添加版本号到JS引用
 	scriptVersion := h.version
-	if isLiveScriptRequest(Conn) || isLivePageRequest(Conn) || h.hasRecentLivePageContext(Conn) {
+	if isLiveScriptRequest(Conn) {
+		scriptVersion = h.liveScriptVersion
+	} else if isChannelsScriptRequest(Conn) {
+		scriptVersion = h.channelsScriptVersion
+	} else if isLivePageRequest(Conn) || h.hasRecentLivePageContext(Conn) {
 		scriptVersion = h.liveScriptVersion
 	}
 	depReg := regexp.MustCompile(`"js/([^"]{1,})\.js"`)
@@ -1682,12 +1700,23 @@ func isLiveScriptRequest(conn *SunnyNet.HttpConn) bool {
 		conn.Request.URL.Query().Get("wx_live") != ""
 }
 
+func isChannelsScriptRequest(conn *SunnyNet.HttpConn) bool {
+	return conn != nil && conn.Request != nil && conn.Request.URL != nil &&
+		conn.Request.URL.Query().Get("wx_channels") != ""
+}
+
 // shouldSkipPageSpecificRewrites keeps the upstream page runtime intact for
 // live pages. Some Windows WebView requests omit Referer on shared bundles;
-// those requests are deliberately treated as unknown rather than being sent
+// unmarked requests are deliberately treated as unknown rather than being sent
 // through Home/Profile source rewrites, which can blank the live page.
 func (h *ScriptHandler) shouldSkipPageSpecificRewrites(conn *SunnyNet.HttpConn, host string) bool {
-	if isLiveScriptRequest(conn) || isLivePageRequest(conn) {
+	if isLiveScriptRequest(conn) {
+		return true
+	}
+	if isChannelsScriptRequest(conn) {
+		return false
+	}
+	if isLivePageRequest(conn) {
 		return true
 	}
 	// Shared bundles are commonly served from res.wx.qq.com rather than
