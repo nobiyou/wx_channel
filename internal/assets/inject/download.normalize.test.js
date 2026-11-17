@@ -280,6 +280,15 @@ async function main() {
     'xWT111',
     'primary click should send the selected media spec to the backend',
   );
+
+  for (const result of [{ success: true, started: true }, { success: true, skipped: true }, { success: true }]) {
+    const tips = [];
+    sandbox.__wx_log = tip => tips.push(tip);
+    sandbox.fetch = async () => ({ ok: true, async json() { return result; } });
+    await sandbox.__wx_channels_download_via_backend__(profile, 'Operation video', specific);
+    assertEqual(tips.length, 2, 'download should report its operation and submission result');
+    assertEqual(tips.every(tip => tip.level === 'info'), true, 'download operation and result must be visible');
+  }
 }
 
 main().catch(function (error) {

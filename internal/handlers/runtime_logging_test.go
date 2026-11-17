@@ -26,6 +26,8 @@ func TestQuietRuntimeLogging(t *testing.T) {
 		h := &APIHandler{}
 		for _, body := range []string{
 			`{"level":"debug","msg":"tip-detail-marker"}`,
+			`{"level":"info","msg":"tip-download-operation-marker"}`,
+			`{"level":"info","msg":"tip-download-result-marker"}`,
 			`{"level":"warn","msg":"tip-warning-marker"}`,
 			`{"level":"error","msg":"tip-failure-marker"}`,
 			`{"msg":"tip-legacy-marker"}`,
@@ -93,7 +95,7 @@ func TestQuietRuntimeLogging(t *testing.T) {
 			t.Errorf("video summary missing from console: %s\n%s", marker, output)
 		}
 	}
-	for _, marker := range []string{"tip-warning-marker", "tip-failure-marker", "tip-legacy-marker"} {
+	for _, marker := range []string{"tip-download-operation-marker", "tip-download-result-marker", "tip-warning-marker", "tip-failure-marker", "tip-legacy-marker"} {
 		if strings.Count(string(output), marker) != 1 {
 			t.Errorf("expected one visible frontend tip: %s\n%s", marker, output)
 		}

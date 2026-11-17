@@ -140,7 +140,7 @@ async function __fetch_feed_comments__() {
     try {
       var exported = result.data;
       if (exported.job_id) {
-        __wx_log({ level: 'debug', msg: '💬 评论导出任务已创建，正在后台获取...' });
+        __wx_log({ level: 'info', msg: '💬 评论导出任务已创建，正在后台获取...' });
         exported = await __wait_for_feed_comment_export__(exported.job_id, headers);
       }
       var total = exported.total_count || 0;

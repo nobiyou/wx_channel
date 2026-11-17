@@ -361,7 +361,7 @@ window.__wx_channels_profile_collector = {
         } else {
           if (__wx_is_account_like_page__()) {
             try {
-              __wx_log({ level: 'debug', msg: '⏳ 正在加载「' + self.currentLikeTabLabel + '」数据...' });
+              __wx_log({ level: 'info', msg: '⏳ 正在加载「' + self.currentLikeTabLabel + '」数据...' });
               await self.loadCurrentLikeTabVideos();
             } catch (e) {
               __wx_log({ level: 'error', msg: '❌ ' + (e.message || e) });

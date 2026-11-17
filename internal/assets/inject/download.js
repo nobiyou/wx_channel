@@ -487,7 +487,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
     headers['X-Local-Auth'] = window.__WX_LOCAL_TOKEN__;
   }
 
-  __wx_log({ level: 'debug', msg: '🚀 使用 Gopeed 后端下载: ' + filename.substring(0, 30) + '...' });
+  __wx_log({ level: 'info', msg: '🚀 使用 Gopeed 后端下载: ' + filename.substring(0, 30) + '...' });
   var response = await fetch('/__wx_channels_api/download_video', {
     method: 'POST',
     headers: headers,
@@ -508,7 +508,7 @@ async function __wx_channels_download_via_backend__(profile, filename, normalize
   var msg = data.skipped
     ? '⏭️ 文件已存在，跳过下载'
     : (data.started ? '⏳ 后端下载任务已在后台启动' : (hasKey ? '✓ 视频已下载并解密' : '✓ 视频已下载'));
-  __wx_log({ level: 'debug', msg: msg });
+  __wx_log({ level: 'info', msg: msg });
   return data;
 }
 
@@ -542,18 +542,18 @@ async function __wx_channels_handle_click_download__(spec) {
     filename = filename + qualitySuffix;
   }
 
-  __wx_log({ level: 'debug', msg: '下载模式<' + normalized.mode + '>' });
+  __wx_log({ level: 'info', msg: '下载模式<' + normalized.mode + '>' });
   __wx_log({ level: 'debug', msg: '视频链接<' + _profile.url + '>' });
 
   if (_profile.type === "picture") {
     filename = __wx_channels_prepare_download_filename__(filename, '', '');
-    __wx_log({ level: 'debug', msg: '下载文件名<' + filename + '>' });
+    __wx_log({ level: 'info', msg: '下载文件名<' + filename + '>' });
     __wx_channels_download3(_profile, filename);
     return;
   }
 
   filename = __wx_channels_prepare_download_filename__(filename, qualitySuffix, '.mp4');
-  __wx_log({ level: 'debug', msg: '下载文件名<' + filename + '>' });
+  __wx_log({ level: 'info', msg: '下载文件名<' + filename + '>' });
 
   if (!_profile.url) {
     alert("视频URL为空，无法下载");
@@ -582,7 +582,7 @@ async function __wx_channels_handle_download_cover() {
     return;
   }
 
-  __wx_log({ level: 'debug', msg: '正在保存封面到服务器...' });
+  __wx_log({ level: 'info', msg: '正在保存封面到服务器...' });
 
   var requestData = {
     coverUrl: coverUrl,
@@ -605,7 +605,7 @@ async function __wx_channels_handle_download_cover() {
     .then(function (response) { return response.json(); })
     .then(function (data) {
       if (data.success) {
-        __wx_log({ level: 'debug', msg: '✓ ' + (data.message || '封面已保存') });
+        __wx_log({ level: 'info', msg: '✓ ' + (data.message || '封面已保存') });
       } else {
         __wx_log({ level: 'error', msg: '❌ ' + (data.error || '保存封面失败') });
         alert('保存封面失败: ' + (data.error || '未知错误'));

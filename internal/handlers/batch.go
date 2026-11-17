@@ -429,7 +429,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 				task.Status = "downloading"
 				h.mu.Unlock()
 
-				utils.LogFileInfo("📥 [Worker %d] 开始下载: %s", workerID, task.Title)
+				utils.Info("📥 [Worker %d] 开始下载: %s", workerID, task.Title)
 
 				// 下载视频
 				err := h.downloadVideo(ctx, task, downloadsDir, forceRedownload, taskIdx)
@@ -452,7 +452,7 @@ func (h *BatchHandler) startBatchDownload(forceRedownload bool) {
 				} else {
 					task.Status = "done"
 					task.Progress = 100
-					utils.LogFileInfo("✅ [Worker %d] 完成: %s", workerID, task.Title)
+					utils.Info("✅ [Worker %d] 完成: %s", workerID, task.Title)
 				}
 				h.mu.Unlock()
 			}

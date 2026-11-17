@@ -8,17 +8,19 @@ function video(id, type = 'media', extra = {}) {
   return { id, type, title: id, url: 'https://example.test/' + id, key: '123', ...extra };
 }
 
-function loadBatch(pathname = '/web/pages/profile') {
+function loadBatch(pathname = '/web/pages/profile', progressReplies) {
   const requests = [];
+  const tips = [];
+  let poll;
   let submittedCount = 0;
   const sandbox = {
     console: { log() {}, warn() {}, error() {} },
     location: { pathname, href: 'https://channels.weixin.qq.com' + pathname, origin: 'https://channels.weixin.qq.com' },
     navigator: { userAgent: 'batch-test' },
     document: { getElementById() { return null; } },
-    __wx_log() {},
+    __wx_log(tip) { tips.push(tip); },
     setTimeout(fn, delay) { if (delay === 100) queueMicrotask(fn); return 1; },
-    setInterval() { throw new Error('completed downloads should not start polling'); },
+    setInterval(fn) { assert.ok(progressReplies, 'completed downloads should not start polling'); poll = fn; return 1; },
     clearInterval() {},
     async fetch(url, options) {
       if (url.endsWith('/batch_start')) {
@@ -27,15 +29,45 @@ function loadBatch(pathname = '/web/pages/profile') {
         submittedCount = body.videos.length;
         return { ok: true, async json() { return { success: true, data: { concurrency: 5 } }; } };
       }
+      if (url.endsWith('/batch_cancel')) return { ok: true };
       assert.ok(url.endsWith('/batch_progress'), 'unexpected API: ' + url);
+      if (progressReplies) {
+        const data = progressReplies.shift();
+        assert.ok(data, 'unexpected extra progress request');
+        return { ok: true, async json() { return { success: true, data }; } };
+      }
       return { ok: true, async json() { return { success: true, data: { total: submittedCount, done: submittedCount } }; } };
     },
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(__dirname, 'batch_download.js'), 'utf8'), sandbox);
-  return { manager: sandbox.__wx_batch_download_manager__, sandbox, requests };
+  return { manager: sandbox.__wx_batch_download_manager__, sandbox, requests, tips, poll: () => poll() };
 }
+
+test('batch start and immediate completion produce visible action and result logs', async () => {
+  const { manager, sandbox, tips } = loadBatch();
+  manager.setVideos([video('log-video')]);
+  manager.toggleSelect('log-video', true);
+  await sandbox.__batch_download_selected__();
+  for (const text of ['开始批量下载', '批量下载已启动', '批量下载完成: 成功 1 个, 失败 0 个']) {
+    assert.equal(tips.filter(tip => tip.level === 'info' && tip.msg.includes(text)).length, 1, text);
+  }
+});
+
+test('batch polling completion and cancellation remain visible', async () => {
+  for (const cancel of [false, true]) {
+    const fixture = loadBatch('/web/pages/profile', [{ total: 1, done: 0, running: 1 }, { total: 1, done: 1, failed: 0, running: 0 }]);
+    fixture.manager.setVideos([video('log-video')]);
+    fixture.manager.toggleSelect('log-video', true);
+    await fixture.sandbox.__batch_download_selected__();
+    if (cancel) fixture.sandbox.__cancel_batch_download__();
+    await fixture.poll();
+    const result = cancel ? '批量下载已取消' : '批量下载完成';
+    assert.equal(fixture.tips.filter(tip => tip.level === 'info' && tip.msg.includes(result)).length, 1);
+    if (cancel) assert.ok(fixture.tips.some(tip => tip.level === 'info' && tip.msg.includes('正在取消下载')));
+  }
+});
 
 const ids = items => Array.from(items, item => item.id);
 

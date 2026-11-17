@@ -96,7 +96,7 @@ function __update_tab_display() {
     __update_download_button_state();
 
     if (displayName !== '未知') {
-      __wx_log({ level: 'debug', msg: '📍 当前模块: ' + displayName + ' - ' + __get_tab_description(newTab) });
+      __wx_log({ level: 'info', msg: '📍 当前模块: ' + displayName + ' - ' + __get_tab_description(newTab) });
     }
   }
 }
