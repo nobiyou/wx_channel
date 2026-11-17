@@ -1,11 +1,11 @@
 package app
 
-const releaseHighlightsVersion = "5.7.19"
+const releaseHighlightsVersion = "5.7.20"
 
 var releaseHighlights = [...]string{
-	"MCP 多 Agent - 适配 Codex、Claude Code 和 DeepSeek Harness",
-	"MCP 配置 - 提供三端 Streamable HTTP 与 Bearer Token 配置模板",
-	"MCP 工具 - 提供 17 项工具，收紧跨平台本地媒体路径校验",
-	"环境诊断 - 将检查和修复菜单打包为独立 Windows 工具",
-	"连接状态 - 区分页面心跳与微信扩展 API 就绪状态",
+	"个人主页 - 修复批量下载提示「暂无视频数据」的问题",
+	"下载操作 - 恢复开始、跳过、取消、模式和文件名提示",
+	"下载结果 - 恢复完成和失败通知，并显示视频标题",
+	"批量结果 - 恢复逐个视频开始、完成及最终汇总日志",
+	"其他操作 - 恢复封面保存、评论导出和页面切换提示",
 }
